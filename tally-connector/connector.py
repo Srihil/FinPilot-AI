@@ -165,9 +165,18 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
         if op == "CREATE_STOCK_ITEM":
             return None, "CREATE_STOCK_ITEM not yet implemented"
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
-            ledgers = tally.get_ledgers()
-            stock = tally.get_stock_items()
-            return {"synced": True, "ledger_count": len(ledgers), "stock_item_count": len(stock)}, None
+            ledgers  = tally.get_ledgers()
+            vouchers = tally.get_vouchers()
+            stock    = tally.get_stock_items()
+            return {
+                "synced": True,
+                "ledgers": ledgers,
+                "vouchers": vouchers,
+                "stock_items": stock,
+                "ledger_count": len(ledgers),
+                "voucher_count": len(vouchers),
+                "stock_item_count": len(stock),
+            }, None
     except TallyError as e:
         return None, str(e)
     except Exception as e:

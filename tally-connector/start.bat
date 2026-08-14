@@ -37,6 +37,6 @@ if not exist .env (
 
 echo  Starting connector...
 echo.
-venv\Scripts\python connector.py
+venv\Scripts\python app.py
 
 pause

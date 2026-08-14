@@ -27,6 +27,10 @@ a = Analysis(
         'email',
         'email.mime',
         'email.mime.text',
+        'ssl',
+        '_ssl',
+        'socket',
+        'certifi',
     ],
     hookspath=[],
     hooksconfig={},
@@ -34,7 +38,6 @@ a = Analysis(
     excludes=[
         'matplotlib', 'numpy', 'pandas', 'scipy',
         'pytest', 'unittest', 'setuptools',
-        'cryptography', 'ssl', '_ssl',
         'multiprocessing', 'concurrent',
         'xmlrpc', 'ftplib', 'imaplib', 'poplib', 'smtplib',
         'doctest', 'pdb', 'profile', 'pstats',
@@ -62,7 +65,7 @@ exe = EXE(
     upx=True,             # compress with UPX
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,         # DEBUG: show console for troubleshooting
+    console=False,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,

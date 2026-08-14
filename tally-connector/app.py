@@ -208,7 +208,7 @@ def _show_pairing_window(on_success=None) -> None:
     win.resizable(False, False)
     win.configure(bg="#f8fafc")
 
-    W, H = 440, 390
+    W, H = 440, 450
     win.geometry(f"{W}x{H}+{(win.winfo_screenwidth()-W)//2}+{(win.winfo_screenheight()-H)//2}")
     win.lift()
     win.focus_force()
@@ -233,7 +233,7 @@ def _show_pairing_window(on_success=None) -> None:
     for s in ["1.  Open FinPilot in your browser (button below)",
               "2.  Go to the TallyPrime page",
               "3.  Click  'Connect TallyPrime'",
-              "4.  Paste the pairing code below and press Enter"]:
+              "4.  Paste the pairing code and click Connect (or press Enter)"]:
         tk.Label(body, text=s, font=("Segoe UI", 9), bg="#f8fafc",
                  fg="#475569", anchor="w").pack(fill="x")
 
@@ -269,13 +269,10 @@ def _show_pairing_window(on_success=None) -> None:
 
     _busy = {"v": False}
 
-    def _do_pair(*args):
-        print(f"[DEBUG] _do_pair called, args={args}, busy={_busy['v']}", flush=True)
+    def _do_pair(*_):
         if _busy["v"]:
-            print("[DEBUG] Already busy, returning", flush=True)
             return
         code = code_var.get().strip()
-        print(f"[DEBUG] Code entered: '{code}'", flush=True)
         if not code:
             msg_lbl.config(fg="#dc2626", bg="#fef2f2")
             msg_var.set("⚠  Please enter the pairing code.")
@@ -297,26 +294,20 @@ def _show_pairing_window(on_success=None) -> None:
         win.after(6000, _wakeup_hint)
 
         def _try():
-            print(f"[DEBUG] _try thread started, calling _pair with code={code}", flush=True)
             err = None
             try:
                 _pair(code)
-                print("[DEBUG] _pair succeeded", flush=True)
                 _state["connected"] = True
                 win.after(0, _show_success)
                 return
             except ValueError as ve:
-                print(f"[DEBUG] ValueError: {ve}", flush=True)
                 err = f"❌  {ve}"
             except Exception as ex:
-                print(f"[DEBUG] Exception: {type(ex).__name__}: {ex}", flush=True)
                 err = f"❌  Network error: {ex}"
             captured = err
             win.after(0, lambda: _show_err(captured))
 
-        print("[DEBUG] Starting _try thread", flush=True)
         threading.Thread(target=_try, daemon=True).start()
-        print("[DEBUG] _try thread started", flush=True)
 
     def _show_err(msg: str):
         _busy["v"] = False
@@ -347,11 +338,16 @@ def _show_pairing_window(on_success=None) -> None:
         if on_success:
             threading.Thread(target=on_success, daemon=True).start()
 
-    # Bind on the Entry (not the window) so it fires when Entry has focus
-    print("[DEBUG] Binding <Return> to entry and window", flush=True)
     entry.bind("<Return>", _do_pair)
     win.bind("<Return>", _do_pair)
-    print("[DEBUG] Bindings done, starting mainloop", flush=True)
+
+    btn = tk.Button(body, text="Connect",
+                    font=("Segoe UI", 11, "bold"),
+                    bg="#4f46e5", fg="white", relief="flat",
+                    cursor="hand2", padx=20, pady=10,
+                    activebackground="#4338ca", activeforeground="white",
+                    command=_do_pair)
+    btn.pack(anchor="w", pady=(10, 0))
     win.mainloop()
 
 

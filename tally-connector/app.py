@@ -269,10 +269,13 @@ def _show_pairing_window(on_success=None) -> None:
 
     _busy = {"v": False}
 
-    def _do_pair(*_):
+    def _do_pair(*args):
+        print(f"[DEBUG] _do_pair called, args={args}, busy={_busy['v']}", flush=True)
         if _busy["v"]:
+            print("[DEBUG] Already busy, returning", flush=True)
             return
         code = code_var.get().strip()
+        print(f"[DEBUG] Code entered: '{code}'", flush=True)
         if not code:
             msg_lbl.config(fg="#dc2626", bg="#fef2f2")
             msg_var.set("⚠  Please enter the pairing code.")
@@ -294,20 +297,26 @@ def _show_pairing_window(on_success=None) -> None:
         win.after(6000, _wakeup_hint)
 
         def _try():
+            print(f"[DEBUG] _try thread started, calling _pair with code={code}", flush=True)
             err = None
             try:
                 _pair(code)
+                print("[DEBUG] _pair succeeded", flush=True)
                 _state["connected"] = True
                 win.after(0, _show_success)
                 return
             except ValueError as ve:
+                print(f"[DEBUG] ValueError: {ve}", flush=True)
                 err = f"❌  {ve}"
             except Exception as ex:
+                print(f"[DEBUG] Exception: {type(ex).__name__}: {ex}", flush=True)
                 err = f"❌  Network error: {ex}"
             captured = err
             win.after(0, lambda: _show_err(captured))
 
+        print("[DEBUG] Starting _try thread", flush=True)
         threading.Thread(target=_try, daemon=True).start()
+        print("[DEBUG] _try thread started", flush=True)
 
     def _show_err(msg: str):
         _busy["v"] = False
@@ -339,8 +348,10 @@ def _show_pairing_window(on_success=None) -> None:
             threading.Thread(target=on_success, daemon=True).start()
 
     # Bind on the Entry (not the window) so it fires when Entry has focus
+    print("[DEBUG] Binding <Return> to entry and window", flush=True)
     entry.bind("<Return>", _do_pair)
-    win.bind("<Return>", _do_pair)   # also catch window-level Return
+    win.bind("<Return>", _do_pair)
+    print("[DEBUG] Bindings done, starting mainloop", flush=True)
     win.mainloop()
 
 

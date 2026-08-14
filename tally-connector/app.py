@@ -8,12 +8,13 @@ import time
 import tkinter as tk
 import traceback
 import webbrowser
+from io import BytesIO
 from typing import Optional
 
 try:
     import httpx
     import pystray
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
     from config import config, BASE_DIR
     from tally_client import TallyClient, TallyError
 except Exception as _e:
@@ -37,62 +38,69 @@ ALLOWED_OPS = {
     "SYNC_FULL", "SYNC_PARTIAL",
 }
 
-# ── Colors ────────────────────────────────────────────────────────────────────
 C = {
-    "indigo":    "#4f46e5",
-    "indigo_lt": "#6366f1",
-    "indigo_bg": "#eef2ff",
-    "white":     "#ffffff",
-    "bg":        "#f8fafc",
-    "border":    "#e2e8f0",
-    "text":      "#1e293b",
-    "muted":     "#64748b",
-    "green":     "#16a34a",
-    "green_bg":  "#f0fdf4",
-    "red":       "#dc2626",
-    "red_bg":    "#fef2f2",
-    "amber":     "#92400e",
-    "amber_bg":  "#fffbeb",
+    "indigo":     "#4f46e5",
+    "indigo_lt":  "#6366f1",
+    "indigo_bg":  "#eef2ff",
+    "white":      "#ffffff",
+    "bg":         "#f8fafc",
+    "border":     "#e2e8f0",
+    "text":       "#1e293b",
+    "muted":      "#64748b",
+    "green":      "#16a34a",
+    "green_bg":   "#f0fdf4",
+    "green_text": "#166534",
+    "red":        "#dc2626",
+    "red_bg":     "#fef2f2",
+    "red_text":   "#991b1b",
+    "amber":      "#b45309",
+    "amber_bg":   "#fffbeb",
 }
 
 
-# ── Icon helpers (Pillow) ─────────────────────────────────────────────────────
-
-def _circle_img(size: int, color: str, inner: str = None) -> tk.PhotoImage:
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.ellipse([2, 2, size - 2, size - 2], fill=color)
-    if inner:
-        m = size // 4
-        d.ellipse([m, m, size - m, size - m], fill=inner)
-    return _to_photo(img)
-
-
-def _check_img(size: int) -> tk.PhotoImage:
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.ellipse([0, 0, size - 1, size - 1], fill="#16a34a")
-    # checkmark
-    pts = [(size*0.25, size*0.52), (size*0.44, size*0.70), (size*0.76, size*0.32)]
-    d.line(pts, fill="white", width=max(2, size//10), joint="curve")
-    return _to_photo(img)
-
+# ── PIL helpers ───────────────────────────────────────────────────────────────
 
 def _to_photo(img: Image.Image) -> tk.PhotoImage:
-    from io import BytesIO
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
     return tk.PhotoImage(data=buf.read())
 
 
-def _make_tray_icon(connected: bool, tally_online: bool) -> Image.Image:
-    size = 64
+def _make_logo(size=36) -> tk.PhotoImage:
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse([0, 0, size - 1, size - 1], fill="white")
+    # Simple "F" letterform in indigo
+    m = size // 6
+    d.rectangle([m * 2, m, m * 2 + 3, size - m], fill="#4f46e5")
+    d.rectangle([m * 2, m, m * 4, m + 3], fill="#4f46e5")
+    d.rectangle([m * 2, size // 2 - 1, m * 3 + 4, size // 2 + 2], fill="#4f46e5")
+    return _to_photo(img)
+
+
+def _make_check(size=48) -> tk.PhotoImage:
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse([0, 0, size - 1, size - 1], fill="#16a34a")
+    s = size
+    pts = [(s * .22, s * .52), (s * .42, s * .70), (s * .75, s * .30)]
+    d.line(pts, fill="white", width=max(3, size // 12), joint="curve")
+    return _to_photo(img)
+
+
+def _make_dot(size=10, color="#16a34a") -> tk.PhotoImage:
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(img).ellipse([0, 0, size - 1, size - 1], fill=color)
+    return _to_photo(img)
+
+
+def _make_tray_icon(connected: bool, tally_online: bool) -> Image.Image:
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     bg = (34, 197, 94) if (connected and tally_online) else \
          (251, 191, 36) if connected else (100, 116, 139)
-    d.ellipse([4, 4, size - 4, size - 4], fill=bg)
+    d.ellipse([4, 4, 60, 60], fill=bg)
     dot = (34, 197, 94) if tally_online else (239, 68, 68)
     d.ellipse([42, 42, 60, 60], fill=dot, outline=(255, 255, 255), width=2)
     return img
@@ -137,7 +145,8 @@ def _pair(code: str) -> str:
                          "device_name": socket.gethostname()},
                    headers={"Content-Type": "application/json"})
         if r.status_code == 400:
-            raise ValueError(r.json().get("detail", "Invalid pairing code"))
+            detail = r.json().get("detail", "Invalid pairing code")
+            raise ValueError(detail)
         r.raise_for_status()
         token = r.json()["token"]
     _save_env("CONNECTOR_TOKEN", token)
@@ -195,7 +204,8 @@ def _execute_job(tally: TallyClient, job: dict):
             return tally.create_ledger(pl), None
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
             led = tally.get_ledgers(); stk = tally.get_stock_items()
-            return {"synced": True, "ledger_count": len(led), "stock_item_count": len(stk)}, None
+            return {"synced": True, "ledger_count": len(led),
+                    "stock_item_count": len(stk)}, None
         return None, f"Not implemented: {op}"
     except TallyError as e:
         return None, str(e)
@@ -242,19 +252,39 @@ def _worker() -> None:
         _stop_event.wait(config.POLL_INTERVAL_SECONDS)
 
 
-# ── UI helpers ────────────────────────────────────────────────────────────────
-
-def _separator(parent):
-    tk.Frame(parent, bg=C["border"], height=1).pack(fill="x", pady=10)
-
-
-def _label(parent, text, font_size=9, bold=False, color=None, **kwargs):
-    f = ("Segoe UI", font_size, "bold") if bold else ("Segoe UI", font_size)
-    return tk.Label(parent, text=text, font=f,
-                    bg=C["bg"], fg=color or C["text"], **kwargs)
-
-
 # ── Pairing window ────────────────────────────────────────────────────────────
+
+def _user_friendly_error(exc: Exception) -> tuple[str, str]:
+    """Return (title, detail) for an exception."""
+    msg = str(exc)
+    if isinstance(exc, ValueError):
+        if "expired" in msg.lower() or "invalid" in msg.lower():
+            return (
+                "Invalid or expired pairing code",
+                "Codes expire after 10 minutes. Go to FinPilot → TallyPrime and click 'Connect TallyPrime' to get a fresh code."
+            )
+        return ("Pairing failed", msg)
+
+    if isinstance(exc, httpx.ConnectError):
+        return (
+            "Cannot reach FinPilot server",
+            "Check your internet connection. If the problem persists, the server may be down."
+        )
+    if isinstance(exc, httpx.TimeoutException):
+        return (
+            "Connection timed out",
+            "The server took too long to respond. Render free tier can take up to 60 seconds to wake up. Please try again."
+        )
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code == 401:
+            return ("Unauthorized", "Your token was rejected. Please re-pair.")
+        if code == 500:
+            return ("Server error", "FinPilot server returned an error. Please try again in a moment.")
+        return ("Server error", f"HTTP {code} — {msg}")
+
+    return ("Connection error", f"Unexpected error: {type(exc).__name__}: {msg}")
+
 
 def _show_pairing_window(on_success=None) -> None:
     win = tk.Tk()
@@ -262,76 +292,62 @@ def _show_pairing_window(on_success=None) -> None:
     win.resizable(False, False)
     win.configure(bg=C["bg"])
 
-    W, H = 420, 480
-    win.geometry(f"{W}x{H}+{(win.winfo_screenwidth()-W)//2}+{(win.winfo_screenheight()-H)//2}")
+    W, H = 420, 500
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    win.geometry(f"{W}x{H}+{(sw - W) // 2}+{(sh - H) // 2}")
     win.lift()
     win.focus_force()
 
-    # ── Header bar ──
-    hdr = tk.Frame(win, bg=C["indigo"], height=72)
+    # ── Header ──
+    hdr = tk.Frame(win, bg=C["indigo"], height=68)
     hdr.pack(fill="x")
     hdr.pack_propagate(False)
 
-    # Draw a small logo icon
-    logo_img = Image.new("RGBA", (36, 36), (0, 0, 0, 0))
-    ld = ImageDraw.Draw(logo_img)
-    ld.ellipse([0, 0, 35, 35], fill="#ffffff33")
-    ld.ellipse([6, 6, 29, 29], fill="white")
-    ld.polygon([(18, 9), (26, 24), (10, 24)], fill=C["indigo"])  # lightning bolt shape
-    from io import BytesIO
-    _buf = BytesIO(); logo_img.save(_buf, "PNG"); _buf.seek(0)
-    logo_photo = tk.PhotoImage(data=_buf.read())
-
-    hdr_inner = tk.Frame(hdr, bg=C["indigo"])
-    hdr_inner.pack(expand=True)
-    tk.Label(hdr_inner, image=logo_photo, bg=C["indigo"]).pack(side="left", padx=(0, 8))
-    hdr_inner._logo = logo_photo  # keep reference
-    tk.Label(hdr_inner, text="FinPilot Tally Connector",
-             font=("Segoe UI", 14, "bold"), fg="white", bg=C["indigo"]).pack(side="left")
+    logo_ph = _make_logo(32)
+    hdr_row = tk.Frame(hdr, bg=C["indigo"])
+    hdr_row.pack(expand=True)
+    logo_lbl = tk.Label(hdr_row, image=logo_ph, bg=C["indigo"])
+    logo_lbl.image = logo_ph
+    logo_lbl.pack(side="left", padx=(0, 10))
+    tk.Label(hdr_row, text="FinPilot Tally Connector",
+             font=("Segoe UI", 13, "bold"), fg="white", bg=C["indigo"]).pack(side="left")
 
     # ── Body ──
-    body = tk.Frame(win, bg=C["bg"], padx=28, pady=20)
+    body = tk.Frame(win, bg=C["bg"], padx=28, pady=16)
     body.pack(fill="both", expand=True)
 
-    _label(body, "Connect your TallyPrime to FinPilot AI",
-           font_size=11, bold=True).pack(anchor="w")
-    _label(body, "Runs silently in your system tray once connected.",
-           color=C["muted"]).pack(anchor="w", pady=(2, 12))
+    tk.Label(body, text="Connect your TallyPrime to FinPilot AI",
+             font=("Segoe UI", 11, "bold"), bg=C["bg"], fg=C["text"]).pack(anchor="w")
+    tk.Label(body, text="Runs silently in your system tray once connected.",
+             font=("Segoe UI", 9), bg=C["bg"], fg=C["muted"]).pack(anchor="w", pady=(2, 10))
 
-    # Steps with numbered badges
-    steps = [
-        ("1", "Open FinPilot in your browser"),
-        ("2", "Go to the TallyPrime page"),
-        ("3", "Click  'Connect TallyPrime'"),
-        ("4", "Paste the code below and click Connect"),
-    ]
-    for num, text in steps:
+    # Steps
+    for num, text in [("1", "Open FinPilot in your browser"),
+                      ("2", "Go to the TallyPrime page"),
+                      ("3", "Click 'Connect TallyPrime'"),
+                      ("4", "Paste the code below and click Connect")]:
         row = tk.Frame(body, bg=C["bg"])
         row.pack(fill="x", pady=1)
-        badge = tk.Label(row, text=num, font=("Segoe UI", 8, "bold"),
-                         bg=C["indigo"], fg="white", width=2, relief="flat")
-        badge.pack(side="left", padx=(0, 8))
+        tk.Label(row, text=num, font=("Segoe UI", 8, "bold"),
+                 bg=C["indigo"], fg="white", width=2).pack(side="left", padx=(0, 8))
         tk.Label(row, text=text, font=("Segoe UI", 9),
-                 bg=C["bg"], fg=C["muted"]).pack(side="left", anchor="w")
+                 bg=C["bg"], fg=C["muted"]).pack(side="left")
 
-    # Open browser button
-    browser_btn = tk.Button(body, text="  Open FinPilot in Browser",
-                            font=("Segoe UI", 9, "bold"),
-                            bg=C["indigo_bg"], fg=C["indigo"],
-                            relief="flat", cursor="hand2",
-                            padx=12, pady=6, bd=0,
-                            activebackground="#dde4ff", activeforeground=C["indigo"],
-                            command=lambda: webbrowser.open(FINPILOT_URL))
-    browser_btn.pack(anchor="w", pady=(10, 0))
+    tk.Button(body, text="  Open FinPilot in Browser",
+              font=("Segoe UI", 9, "bold"), bg=C["indigo_bg"], fg=C["indigo"],
+              relief="flat", cursor="hand2", padx=12, pady=5, bd=0,
+              activebackground="#dde4ff",
+              command=lambda: webbrowser.open(FINPILOT_URL)).pack(anchor="w", pady=(8, 0))
 
-    _separator(body)
+    tk.Frame(body, bg=C["border"], height=1).pack(fill="x", pady=10)
 
-    _label(body, "Pairing Code", bold=True, color=C["muted"]).pack(anchor="w")
+    tk.Label(body, text="Pairing Code", font=("Segoe UI", 9, "bold"),
+             bg=C["bg"], fg=C["muted"]).pack(anchor="w")
 
     code_var = tk.StringVar()
     entry = tk.Entry(body, textvariable=code_var,
-                     font=("Courier New", 17, "bold"),
-                     width=13, relief="solid", bd=1,
+                     font=("Courier New", 17, "bold"), width=13,
+                     relief="solid", bd=1,
                      highlightthickness=2,
                      highlightcolor=C["indigo"],
                      highlightbackground=C["border"],
@@ -340,128 +356,168 @@ def _show_pairing_window(on_success=None) -> None:
     entry.pack(anchor="w", ipady=8, pady=(4, 0))
     entry.focus_set()
 
-    # Message label (errors / wakeup hint)
-    msg_var = tk.StringVar(value="")
-    msg_lbl = tk.Label(body, textvariable=msg_var, font=("Segoe UI", 9),
-                       bg=C["bg"], fg=C["red"],
-                       wraplength=360, justify="left", anchor="nw")
+    # ── Message box — ALWAYS in layout, between entry and button ──
+    # Using a Frame so we can show/hide it cleanly without affecting button position
+    msg_frame = tk.Frame(body, bg=C["bg"])
+    msg_frame.pack(fill="x", pady=(6, 0))
+    msg_frame.pack_propagate(False)
+    msg_frame.config(height=1)   # collapsed by default
 
-    _ref = {}   # mutable ref so _do_pair can access btn after creation
+    msg_title_var = tk.StringVar(value="")
+    msg_body_var = tk.StringVar(value="")
+
+    msg_inner = tk.Frame(msg_frame, bg=C["red_bg"],
+                         highlightbackground=C["red"], highlightthickness=1)
+    msg_title_lbl = tk.Label(msg_inner, textvariable=msg_title_var,
+                             font=("Segoe UI", 9, "bold"),
+                             bg=C["red_bg"], fg=C["red_text"],
+                             anchor="w", justify="left", wraplength=360)
+    msg_body_lbl = tk.Label(msg_inner, textvariable=msg_body_var,
+                            font=("Segoe UI", 8),
+                            bg=C["red_bg"], fg=C["red_text"],
+                            anchor="w", justify="left", wraplength=360)
+
+    def _show_msg(title: str, detail: str, style: str = "error") -> None:
+        bg = C["red_bg"] if style == "error" else C["amber_bg"]
+        fg = C["red_text"] if style == "error" else C["amber"]
+        border = C["red"] if style == "error" else "#d97706"
+        msg_inner.config(bg=bg, highlightbackground=border)
+        msg_title_lbl.config(bg=bg, fg=fg, text=title)
+        msg_body_lbl.config(bg=bg, fg=fg, text=detail)
+        msg_title_lbl.pack(anchor="w", padx=10, pady=(8, 2))
+        msg_body_lbl.pack(anchor="w", padx=10, pady=(0, 8))
+        msg_inner.pack(fill="x")
+        # Expand the frame to fit content
+        msg_frame.config(height=56 if detail else 34)
+        win.update_idletasks()
+
+    def _hide_msg() -> None:
+        msg_inner.pack_forget()
+        msg_title_lbl.pack_forget()
+        msg_body_lbl.pack_forget()
+        msg_frame.config(height=1)
+
+    # ── Connect button — always below msg_frame ──
+    btn_frame = tk.Frame(body, bg=C["bg"])
+    btn_frame.pack(anchor="w", pady=(10, 0))
+
+    _ref = {"busy": False}
 
     def _do_pair(*_):
-        if _ref.get("busy"):
+        if _ref["busy"]:
             return
-        code = code_var.get().strip()
-        if not code:
-            msg_lbl.config(fg=C["red"], bg=C["red_bg"])
-            msg_var.set("Please enter the pairing code.")
-            msg_lbl.pack(fill="x", pady=(8, 0))
+
+        # Auto-strip spaces from pasted code
+        raw = code_var.get().strip().replace(" ", "").upper()
+        code_var.set(raw)
+
+        if not raw:
+            _show_msg("No code entered",
+                      "Paste the pairing code from the FinPilot TallyPrime page.")
+            entry.focus_set()
+            return
+
+        if len(raw.replace("-", "")) < 8:
+            _show_msg("Code too short",
+                      "A valid pairing code looks like  ABCD-EFGHI  (9 characters).")
+            entry.focus_set()
             return
 
         _ref["busy"] = True
-        _ref["btn"].config(state="disabled", text="Connecting…",
-                           bg=C["indigo_lt"], cursor="watch")
-        entry.config(state="disabled")
-        msg_var.set("")
-        msg_lbl.pack_forget()
+        _hide_msg()
+        btn.config(state="disabled", text="Connecting…", bg=C["indigo_lt"], cursor="watch")
+        entry.config(state="disabled",
+                     highlightbackground=C["border"],
+                     highlightcolor=C["border"])
 
+        # Wakeup hint after 6 seconds
         def _wakeup():
-            if _ref.get("busy"):
-                msg_lbl.config(fg=C["amber"], bg=C["amber_bg"])
-                msg_var.set("Waking up server — Render sleeps after inactivity.\nPlease wait up to 60 seconds…")
-                msg_lbl.pack(fill="x", pady=(8, 0))
+            if _ref["busy"]:
+                _show_msg("Waking up server…",
+                          "Render free tier sleeps after inactivity and can take up to 60 seconds to wake. Please wait.",
+                          style="warn")
         win.after(6000, _wakeup)
 
         def _try():
-            err = None
             try:
-                _pair(code)
+                _pair(raw)
                 _state["connected"] = True
                 win.after(0, _show_success)
-                return
-            except ValueError as ve:
-                err = str(ve)
-            except Exception as ex:
-                err = f"Network error: {ex}"
-            captured = err
-            win.after(0, lambda: _show_err(captured))
+            except Exception as exc:
+                title, detail = _user_friendly_error(exc)
+                win.after(0, lambda t=title, d=detail: _show_err(t, d))
 
         threading.Thread(target=_try, daemon=True).start()
 
-    def _show_err(msg: str):
+    def _show_err(title: str, detail: str) -> None:
         _ref["busy"] = False
-        _ref["btn"].config(state="normal", text="Connect",
-                           bg=C["indigo"], cursor="hand2")
-        entry.config(state="normal")
-        msg_lbl.config(fg=C["red"], bg=C["red_bg"])
-        msg_var.set(msg)
-        msg_lbl.pack(fill="x", pady=(8, 0))
+        btn.config(state="normal", text="Connect", bg=C["indigo"], cursor="hand2")
+        # Red highlight on entry
+        entry.config(state="normal",
+                     highlightbackground=C["red"],
+                     highlightcolor=C["red"])
+        # Clear the code so user can type a fresh one
+        code_var.set("")
+        _show_msg(title, detail, style="error")
         entry.focus_set()
 
-    def _show_success():
+    def _show_success() -> None:
         for w in body.winfo_children():
             w.destroy()
 
-        # Success icon
-        check = _check_img(52)
-        icon_lbl = tk.Label(body, image=check, bg=C["bg"])
-        icon_lbl.image = check
-        icon_lbl.pack(pady=(24, 8))
+        check_ph = _make_check(52)
+        ck = tk.Label(body, image=check_ph, bg=C["bg"])
+        ck.image = check_ph
+        ck.pack(pady=(28, 6))
 
-        _label(body, "Connected!", font_size=18, bold=True,
-               color=C["green"]).pack()
+        tk.Label(body, text="Connected!",
+                 font=("Segoe UI", 18, "bold"), bg=C["bg"],
+                 fg=C["green"]).pack()
 
         co = _state.get("company", "")
         if co:
-            _label(body, f"Company:  {co}", color=C["muted"]).pack(pady=(4, 0))
+            tk.Label(body, text=f"Company:  {co}",
+                     font=("Segoe UI", 10), bg=C["bg"],
+                     fg=C["muted"]).pack(pady=(4, 0))
 
-        # Green info box
-        info = tk.Frame(body, bg=C["green_bg"], padx=14, pady=10)
-        info.pack(fill="x", pady=14)
+        info = tk.Frame(body, bg=C["green_bg"])
+        info.pack(fill="x", pady=14, padx=0)
 
-        # Draw small info dot
-        dot_img = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
-        ImageDraw.Draw(dot_img).ellipse([0, 0, 9, 9], fill="#16a34a")
-        _dbuf = BytesIO(); dot_img.save(_dbuf, "PNG"); _dbuf.seek(0)
-        dot_ph = tk.PhotoImage(data=_dbuf.read())
-
+        dot_ph = _make_dot(10, C["green"])
         dot_row = tk.Frame(info, bg=C["green_bg"])
-        dot_row.pack(fill="x")
-        dot_lbl = tk.Label(dot_row, image=dot_ph, bg=C["green_bg"])
-        dot_lbl.image = dot_ph
-        dot_lbl.pack(side="left", padx=(0, 6))
+        dot_row.pack(fill="x", padx=14, pady=(10, 2))
+        dl = tk.Label(dot_row, image=dot_ph, bg=C["green_bg"])
+        dl.image = dot_ph
+        dl.pack(side="left", padx=(0, 6))
         tk.Label(dot_row, text="Connector is running in your system tray",
                  font=("Segoe UI", 9, "bold"), bg=C["green_bg"],
                  fg=C["green"]).pack(side="left")
-
-        tk.Label(info, text="Look for the FinPilot icon near your clock\n(bottom-right corner of taskbar).",
+        tk.Label(info,
+                 text="Look for the FinPilot icon near your clock (bottom-right corner).",
                  font=("Segoe UI", 9), bg=C["green_bg"],
-                 fg="#166534").pack(anchor="w")
+                 fg=C["green_text"]).pack(anchor="w", padx=14, pady=(0, 10))
 
-        close_btn = tk.Button(body, text="Close Window",
-                              font=("Segoe UI", 10, "bold"),
-                              bg=C["indigo"], fg="white",
-                              relief="flat", cursor="hand2",
-                              padx=20, pady=9, bd=0,
-                              activebackground=C["indigo_lt"],
-                              activeforeground="white",
-                              command=win.destroy)
-        close_btn.pack(pady=(4, 0))
+        tk.Button(body, text="Close Window",
+                  font=("Segoe UI", 10, "bold"),
+                  bg=C["indigo"], fg="white",
+                  relief="flat", cursor="hand2",
+                  padx=20, pady=8, bd=0,
+                  activebackground=C["indigo_lt"],
+                  command=win.destroy).pack(pady=(4, 0))
 
         _update_tray()
         if on_success:
             threading.Thread(target=on_success, daemon=True).start()
 
-    # Connect button
-    btn = tk.Button(body, text="Connect",
+    btn = tk.Button(btn_frame, text="Connect",
                     font=("Segoe UI", 11, "bold"),
                     bg=C["indigo"], fg="white",
                     relief="flat", cursor="hand2",
-                    padx=22, pady=10, bd=0,
+                    padx=22, pady=9, bd=0,
                     activebackground=C["indigo_lt"],
                     activeforeground="white",
                     command=_do_pair)
-    btn.pack(anchor="w", pady=(12, 0))
+    btn.pack(side="left")
     _ref["btn"] = btn
 
     entry.bind("<Return>", _do_pair)
@@ -476,35 +532,37 @@ def _show_status_window() -> None:
     win.title("FinPilot Connector")
     win.resizable(False, False)
     win.configure(bg=C["bg"])
-    W, H = 360, 290
-    win.geometry(f"{W}x{H}+{(win.winfo_screenwidth()-W)//2}+{(win.winfo_screenheight()-H)//2}")
-    win.lift(); win.focus_force()
+    W, H = 360, 280
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    win.geometry(f"{W}x{H}+{(sw - W) // 2}+{(sh - H) // 2}")
+    win.lift()
+    win.focus_force()
 
-    hdr = tk.Frame(win, bg=C["indigo"], height=60)
-    hdr.pack(fill="x"); hdr.pack_propagate(False)
-    tk.Label(hdr, text="FinPilot Tally Connector",
-             font=("Segoe UI", 12, "bold"), fg="white", bg=C["indigo"]).pack(expand=True)
+    hdr = tk.Frame(win, bg=C["indigo"], height=58)
+    hdr.pack(fill="x")
+    hdr.pack_propagate(False)
+    logo_ph = _make_logo(28)
+    hdr_row = tk.Frame(hdr, bg=C["indigo"])
+    hdr_row.pack(expand=True)
+    ll = tk.Label(hdr_row, image=logo_ph, bg=C["indigo"])
+    ll.image = logo_ph
+    ll.pack(side="left", padx=(0, 8))
+    tk.Label(hdr_row, text="FinPilot Tally Connector",
+             font=("Segoe UI", 11, "bold"), fg="white", bg=C["indigo"]).pack(side="left")
 
-    body = tk.Frame(win, bg=C["bg"], padx=28, pady=20)
+    body = tk.Frame(win, bg=C["bg"], padx=28, pady=18)
     body.pack(fill="both", expand=True)
 
     connected = _state["connected"]
     tally_on = _state["tally_online"]
-
-    # Status indicator row
-    status_row = tk.Frame(body, bg=C["bg"])
-    status_row.pack(anchor="w", pady=(0, 8))
-
     dot_color = C["green"] if (connected and tally_on) else "#f59e0b" if connected else C["red"]
-    dot = Image.new("RGBA", (12, 12), (0, 0, 0, 0))
-    ImageDraw.Draw(dot).ellipse([0, 0, 11, 11], fill=dot_color)
-    from io import BytesIO as _B
-    _db = _B(); dot.save(_db, "PNG"); _db.seek(0)
-    dot_ph = tk.PhotoImage(data=_db.read())
-    dot_lbl = tk.Label(status_row, image=dot_ph, bg=C["bg"])
-    dot_lbl.image = dot_ph
-    dot_lbl.pack(side="left", padx=(0, 6))
+    dot_ph = _make_dot(11, dot_color)
 
+    status_row = tk.Frame(body, bg=C["bg"])
+    status_row.pack(anchor="w", pady=(0, 10))
+    dl = tk.Label(status_row, image=dot_ph, bg=C["bg"])
+    dl.image = dot_ph
+    dl.pack(side="left", padx=(0, 7))
     status_text = "Connected" if (connected and tally_on) else \
                   "Connector active — TallyPrime offline" if connected else "Not connected"
     tk.Label(status_row, text=status_text,
@@ -522,14 +580,13 @@ def _show_status_window() -> None:
         tk.Label(row, text=val, font=("Segoe UI", 9),
                  bg=C["bg"], fg=C["text"]).pack(side="left")
 
-    tk.Label(body, text="Running in system tray. Safe to close this window.",
+    tk.Label(body, text="Running in system tray — safe to close this window.",
              font=("Segoe UI", 8), bg=C["bg"], fg=C["muted"]).pack(anchor="w", pady=(10, 0))
 
     tk.Button(body, text="Close",
               font=("Segoe UI", 10, "bold"),
-              bg=C["indigo"], fg="white",
-              relief="flat", cursor="hand2",
-              padx=18, pady=7, bd=0,
+              bg=C["indigo"], fg="white", relief="flat",
+              cursor="hand2", padx=18, pady=7, bd=0,
               activebackground=C["indigo_lt"],
               command=win.destroy).pack(pady=(12, 0))
 
@@ -541,10 +598,8 @@ def _show_status_window() -> None:
 def _tray_status(icon, item):
     threading.Thread(target=_show_status_window, daemon=True).start()
 
-
 def _tray_open(icon, item):
     webbrowser.open(FINPILOT_URL)
-
 
 def _tray_repair(icon, item):
     _save_env("CONNECTOR_TOKEN", "")
@@ -556,7 +611,6 @@ def _tray_repair(icon, item):
             on_success=lambda: _state.update({"connected": True})
         ), daemon=True
     ).start()
-
 
 def _tray_exit(icon, item):
     _stop_event.set()
@@ -594,7 +648,7 @@ def main() -> None:
             pystray.MenuItem("Status", _tray_status, default=True),
             pystray.MenuItem("Open FinPilot", _tray_open),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Disconnect & Re-pair", _tray_repait := _tray_repair),
+            pystray.MenuItem("Disconnect & Re-pair", _tray_repair),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Exit", _tray_exit),
         ),

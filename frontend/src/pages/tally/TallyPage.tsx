@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Zap, CheckCircle, XCircle, RefreshCw, Settings, Info,
   Copy, Clock, AlertTriangle, Activity, Wifi, WifiOff,
   Monitor, Database, Shield, ChevronRight, Loader2, Download,
-  ExternalLink,
+  ExternalLink, FolderOpen, CheckSquare,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -104,6 +104,127 @@ function ConnectionBadge({ online }: { online: boolean }) {
   );
 }
 
+const DOWNLOAD_URL = 'https://github.com/Srihil/FinPilot-AI/releases/latest/download/finpilot-tally-connector.exe';
+
+function DownloadModal({ onClose }: { onClose: () => void }) {
+  const [step, setStep] = useState<'info' | 'downloading' | 'done'>('info');
+  const linkRef = useRef<HTMLAnchorElement>(null);
+
+  const startDownload = () => {
+    setStep('downloading');
+    // Trigger browser save-as dialog via hidden anchor
+    linkRef.current?.click();
+    // After a short delay show "done" state with next steps
+    setTimeout(() => setStep('done'), 1500);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      {/* Hidden anchor — browser will show its native Save As dialog when clicked */}
+      <a ref={linkRef} href={DOWNLOAD_URL} download="finpilot-tally-connector.exe" className="hidden" />
+
+      <Card className="w-[480px] shadow-2xl">
+        <CardHeader className="pb-3 border-b border-slate-100">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Download className="w-4 h-4 text-indigo-600" />
+              Download FinPilot Tally Connector
+            </CardTitle>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+          </div>
+          <CardDescription>Windows application · 18 MB · No installation required</CardDescription>
+        </CardHeader>
+
+        <CardContent className="pt-5 space-y-4">
+          {step === 'info' && (
+            <>
+              {/* Requirements */}
+              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Before you download</p>
+                {[
+                  { ok: true,  text: 'Windows 10 or 11' },
+                  { ok: true,  text: 'TallyPrime 2.x or higher already installed' },
+                  { ok: true,  text: 'TallyPrime HTTP server enabled (F1 → Settings → Connectivity)' },
+                  { ok: true,  text: 'Active FinPilot account with Admin role' },
+                ].map(({ ok, text }) => (
+                  <div key={text} className="flex items-center gap-2.5">
+                    <CheckSquare className={`w-4 h-4 shrink-0 ${ok ? 'text-emerald-500' : 'text-slate-300'}`} />
+                    <span className="text-sm text-slate-700">{text}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* What happens after */}
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">After downloading</p>
+                <div className="space-y-2">
+                  {[
+                    { n: '1', t: 'Choose where to save the file', d: 'Your browser will ask — pick any folder (Desktop works great)' },
+                    { n: '2', t: 'Double-click the .exe', d: 'No installation needed — it runs directly' },
+                    { n: '3', t: 'Enter your pairing code', d: 'Generate one here by clicking "Connect TallyPrime"' },
+                    { n: '4', t: 'Done', d: 'Connector lives in your system tray and runs in the background' },
+                  ].map(({ n, t, d }) => (
+                    <div key={n} className="flex gap-3">
+                      <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+                        {n}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{t}</p>
+                        <p className="text-xs text-slate-500">{d}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <Button onClick={startDownload} className="flex-1 gap-2">
+                  <FolderOpen className="w-4 h-4" />
+                  Choose Download Location & Download
+                </Button>
+                <Button variant="outline" onClick={onClose}>Cancel</Button>
+              </div>
+            </>
+          )}
+
+          {step === 'downloading' && (
+            <div className="py-6 text-center space-y-3">
+              <Loader2 className="w-10 h-10 animate-spin text-indigo-500 mx-auto" />
+              <p className="font-medium text-slate-900">Opening save dialog…</p>
+              <p className="text-sm text-slate-500">Your browser will ask where to save the file.</p>
+            </div>
+          )}
+
+          {step === 'done' && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-emerald-900">Download started</p>
+                  <p className="text-sm text-emerald-700 mt-0.5">
+                    Check your browser's download bar or the folder you selected.
+                    If nothing happened, <a href={DOWNLOAD_URL} download className="underline font-medium">click here to try again</a>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                <strong>Windows SmartScreen tip:</strong> If Windows shows a security warning,
+                click <strong>"More info"</strong> → <strong>"Run anyway"</strong>. This is normal for new apps.
+              </div>
+
+              <div className="flex gap-3">
+                <Button onClick={onClose} className="flex-1">Done</Button>
+                <Button variant="outline" onClick={() => setStep('info')}>Back</Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function PairingModal({
   pairing,
   onClose,
@@ -192,6 +313,7 @@ export default function TallyPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pairing, setPairing] = useState<PairingCode | null>(null);
+  const [showDownload, setShowDownload] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -270,6 +392,7 @@ export default function TallyPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
+      {showDownload && <DownloadModal onClose={() => setShowDownload(false)} />}
       {pairing && <PairingModal pairing={pairing} onClose={() => { setPairing(null); fetchStatus(); }} />}
 
       <div>
@@ -452,14 +575,13 @@ export default function TallyPage() {
               </div>
             </div>
             <div className="flex flex-col gap-2 shrink-0">
-              <a
-                href="https://github.com/Srihil/FinPilot-AI/releases/latest/download/finpilot-tally-connector.exe"
-                download
-                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors"
+              <Button
+                onClick={() => setShowDownload(true)}
+                className="gap-2"
               >
                 <Download className="w-4 h-4" />
-                Download .exe
-              </a>
+                Download Connector
+              </Button>
               <a
                 href="https://github.com/Srihil/FinPilot-AI/releases/latest"
                 target="_blank"

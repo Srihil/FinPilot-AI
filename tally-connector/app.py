@@ -257,20 +257,16 @@ def _show_pairing_window(on_success=None) -> None:
     entry.pack(anchor="w", ipady=7, pady=(4, 2))
     entry.focus_set()
 
-    hint_var = tk.StringVar(value="Press Enter to connect")
-    hint_lbl = tk.Label(body, textvariable=hint_var,
-                        font=("Segoe UI", 9), bg="#f8fafc", fg="#94a3b8")
-    hint_lbl.pack(anchor="w")
-
     msg_var = tk.StringVar(value="")
     msg_lbl = tk.Label(body, textvariable=msg_var, font=("Segoe UI", 9),
                        bg="#f8fafc", fg="#dc2626",
                        wraplength=380, justify="left", anchor="nw")
 
-    _busy = {"v": False}
+    # Button created first so _do_pair can reference it via _ref
+    _ref = {}   # holds {"btn": btn} after creation
 
     def _do_pair(*_):
-        if _busy["v"]:
+        if _ref.get("busy"):
             return
         code = code_var.get().strip()
         if not code:
@@ -279,17 +275,17 @@ def _show_pairing_window(on_success=None) -> None:
             msg_lbl.pack(fill="x", pady=(6, 0))
             return
 
-        _busy["v"] = True
+        _ref["busy"] = True
+        b = _ref["btn"]
+        b.config(state="disabled", text="Connecting…", bg="#6366f1")
         entry.config(state="disabled")
-        hint_var.set("Connecting…")
-        hint_lbl.config(fg="#4f46e5")
         msg_var.set("")
         msg_lbl.pack_forget()
 
         def _wakeup_hint():
-            if _busy["v"]:
+            if _ref.get("busy"):
                 msg_lbl.config(fg="#92400e", bg="#fffbeb")
-                msg_var.set("⏳  Waking up server — Render free tier sleeps after inactivity.\n    Please wait up to 60 seconds…")
+                msg_var.set("⏳  Waking up server — Render sleeps after inactivity.\n    Please wait up to 60 seconds…")
                 msg_lbl.pack(fill="x", pady=(6, 0))
         win.after(6000, _wakeup_hint)
 
@@ -310,10 +306,10 @@ def _show_pairing_window(on_success=None) -> None:
         threading.Thread(target=_try, daemon=True).start()
 
     def _show_err(msg: str):
-        _busy["v"] = False
+        _ref["busy"] = False
+        b = _ref["btn"]
+        b.config(state="normal", text="Connect", bg="#4f46e5")
         entry.config(state="normal")
-        hint_var.set("Press Enter to connect")
-        hint_lbl.config(fg="#94a3b8")
         msg_lbl.config(fg="#dc2626", bg="#fef2f2")
         msg_var.set(msg)
         msg_lbl.pack(fill="x", pady=(6, 0))
@@ -338,9 +334,6 @@ def _show_pairing_window(on_success=None) -> None:
         if on_success:
             threading.Thread(target=on_success, daemon=True).start()
 
-    entry.bind("<Return>", _do_pair)
-    win.bind("<Return>", _do_pair)
-
     btn = tk.Button(body, text="Connect",
                     font=("Segoe UI", 11, "bold"),
                     bg="#4f46e5", fg="white", relief="flat",
@@ -348,6 +341,10 @@ def _show_pairing_window(on_success=None) -> None:
                     activebackground="#4338ca", activeforeground="white",
                     command=_do_pair)
     btn.pack(anchor="w", pady=(10, 0))
+    _ref["btn"] = btn
+
+    entry.bind("<Return>", _do_pair)
+    win.bind("<Return>", _do_pair)
     win.mainloop()
 
 

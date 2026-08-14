@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Zap, CheckCircle, XCircle, RefreshCw, Settings, Info,
   Copy, Clock, AlertTriangle, Activity, Wifi, WifiOff,
-  Monitor, Database, Shield, ChevronRight, Loader2,
+  Monitor, Database, Shield, ChevronRight, Loader2, Download,
+  ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -425,6 +426,69 @@ export default function TallyPage() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* ── Download Connector ── */}
+      <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50 to-white">
+        <CardContent className="p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+            <div className="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center shrink-0">
+              <Download className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <p className="font-semibold text-slate-900 text-base">
+                FinPilot Tally Connector
+              </p>
+              <p className="text-sm text-slate-500 mt-0.5">
+                Windows application · Runs on the same PC as TallyPrime · No technical setup needed
+              </p>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {['Windows 10/11', 'TallyPrime 2.x+', 'Free'].map(tag => (
+                  <span key={tag} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 shrink-0">
+              <a
+                href="https://github.com/Srihil/FinPilot-AI/releases/latest/download/finpilot-tally-connector.exe"
+                download
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                Download .exe
+              </a>
+              <a
+                href="https://github.com/Srihil/FinPilot-AI/releases/latest"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" />
+                View all releases
+              </a>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              { n: '1', t: 'Download & Run', d: 'Double-click the .exe — no installation required' },
+              { n: '2', t: 'Enter Pairing Code', d: 'Generate a code here and enter it in the connector' },
+              { n: '3', t: 'Connected', d: 'Connector links to your TallyPrime automatically' },
+            ].map(({ n, t, d }) => (
+              <div key={n} className="flex gap-3 p-3 bg-white rounded-lg border border-indigo-100">
+                <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                  {n}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{t}</p>
+                  <p className="text-xs text-slate-500">{d}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 

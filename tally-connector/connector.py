@@ -240,15 +240,39 @@ def pair(pairing_code: str, connector_name: str = "FinPilot Connector") -> str:
     token = data["token"]
     poll_interval = data.get("poll_interval_seconds", 10)
 
-    # Persist token to .env
-    env_content = ENV_FILE.read_text() if ENV_FILE.exists() else ""
-    lines = [l for l in env_content.splitlines() if not l.startswith("CONNECTOR_TOKEN=")]
-    lines.append(f"CONNECTOR_TOKEN={token}")
-    ENV_FILE.write_text("\n".join(lines) + "\n")
+    _save_env_value("CONNECTOR_TOKEN", token)
 
     logger.info("Paired successfully! Connector ID: %s", data["connector_id"])
     logger.info("Poll interval: %ds", poll_interval)
     return token
+
+
+# ─── First-time setup helpers ─────────────────────────────────────────────────
+
+def _save_env_value(key: str, value: str) -> None:
+    """Write or update a single key in the .env file next to the executable."""
+    content = ENV_FILE.read_text() if ENV_FILE.exists() else ""
+    lines = [l for l in content.splitlines() if not l.startswith(f"{key}=")]
+    lines.append(f"{key}={value}")
+    ENV_FILE.write_text("\n".join(lines) + "\n")
+
+
+def _setup_backend_url() -> None:
+    """Ask user for the FinPilot backend URL if it is still the placeholder."""
+    placeholder = "https://your-backend.onrender.com"
+    if config.FINPILOT_API_URL and config.FINPILOT_API_URL != placeholder:
+        return  # already configured
+
+    print("\n  What is your FinPilot backend URL?")
+    print("  (Find it in your Render dashboard under the backend service)")
+    print("  Example: https://finpilot-backend-abcd.onrender.com\n")
+    url = input("  Backend URL: ").strip().rstrip("/")
+    if not url.startswith("http"):
+        print("  Invalid URL. Exiting.")
+        sys.exit(1)
+    config.FINPILOT_API_URL = url
+    _save_env_value("FINPILOT_API_URL", url)
+    print(f"\n  ✓ Backend URL saved: {url}")
 
 
 # ─── Main loop ────────────────────────────────────────────────────────────────
@@ -258,9 +282,13 @@ def run():
         print("\n" + "=" * 60)
         print("  FinPilot Tally Connector — First-Time Setup")
         print("=" * 60)
-        print(f"\n  Backend URL: {config.FINPILOT_API_URL}")
+
+        # Step 1: ensure backend URL is configured
+        _setup_backend_url()
+
+        print(f"\n  Backend: {config.FINPILOT_API_URL}")
         print("\n  No connector token found.")
-        print("  1. Go to FinPilot → Settings → TallyPrime → Connect")
+        print("  1. Go to FinPilot → TallyPrime → Connect TallyPrime")
         print("  2. Copy the pairing code shown")
         print("  3. Enter it below\n")
         code = input("  Enter pairing code (e.g. ABCD-EFGH): ").strip()

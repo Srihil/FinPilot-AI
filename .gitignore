@@ -41,3 +41,8 @@ htmlcov/
 
 # Local dev scripts
 backend/create_test_db.py
+
+# PyInstaller build output
+tally-connector/dist/
+tally-connector/build/
+tally-connector/*.spec.bak

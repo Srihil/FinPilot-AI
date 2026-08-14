@@ -231,20 +231,25 @@ class TallyClient:
         root = self._parse_response(raw)
         vouchers = []
         for v in root.findall(".//VOUCHER"):
-            date_el = v.find("DATE")
-            vtype = v.find("VOUCHERTYPENAME")
-            narration = v.find("NARRATION")
-            party = v.find("PARTYLEDGERNAME")
-            # Amount: prefer the first positive ledger entry amount
-            amount_el = v.find(".//ALLLEDGERENTRIES.LIST/AMOUNT")
-            if amount_el is None:
-                amount_el = v.find(".//AMOUNT")
+            date_el      = v.find("DATE")
+            vtype_el     = v.find("VOUCHERTYPENAME")
+            narration_el = v.find("NARRATION")
+            party_el     = v.find("PARTYLEDGERNAME")
+
+            # Amount: try ledger list → any descendant AMOUNT → default 0
+            amount_raw = "0"
+            for path in (".//ALLLEDGERENTRIES.LIST/AMOUNT", ".//AMOUNT"):
+                el = v.find(path)
+                if el is not None and el.text and el.text.strip():
+                    amount_raw = el.text.strip()
+                    break
+
             vouchers.append({
-                "date": date_el.text.strip() if date_el is not None and date_el.text else "",
-                "voucher_type": vtype.text.strip() if vtype is not None and vtype.text else "",
-                "party": party.text.strip() if party is not None and party.text else "",
-                "amount": (amount_el.text or "0").strip().lstrip("-"),
-                "narration": narration.text.strip() if narration is not None and narration.text else "",
+                "date":         date_el.text.strip()      if date_el      is not None and date_el.text      else "",
+                "voucher_type": vtype_el.text.strip()     if vtype_el     is not None and vtype_el.text     else "",
+                "party":        party_el.text.strip()     if party_el     is not None and party_el.text     else "",
+                "amount":       amount_raw.lstrip("-"),
+                "narration":    narration_el.text.strip() if narration_el is not None and narration_el.text else "",
             })
         return vouchers
 

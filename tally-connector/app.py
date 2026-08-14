@@ -338,7 +338,9 @@ def _show_pairing_window(on_success=None) -> None:
         if on_success:
             threading.Thread(target=on_success, daemon=True).start()
 
-    win.bind("<Return>", _do_pair)
+    # Bind on the Entry (not the window) so it fires when Entry has focus
+    entry.bind("<Return>", _do_pair)
+    win.bind("<Return>", _do_pair)   # also catch window-level Return
     win.mainloop()
 
 

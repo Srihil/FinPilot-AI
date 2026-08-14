@@ -98,13 +98,36 @@ class TallyClient:
         try:
             raw = self._post_xml(xml)
             root = self._parse_response(raw)
-            company = root.find(".//COMPANY")
-            if company is not None:
-                name_el = company.find("NAME")
-                return {"name": name_el.text.strip() if name_el is not None and name_el.text else "Unknown"}
-            return None
+            name = self._extract_company_name(root)
+            return {"name": name} if name else None
         except TallyError:
             return None
+
+    def _extract_company_name(self, root: ET.Element) -> Optional[str]:
+        """Try multiple XML paths used by different TallyPrime versions/EDU."""
+        # Only look inside actual <COMPANY> elements — avoids numeric fields
+        # like <FORCECOMPANYRELOAD>0</FORCECOMPANYRELOAD>
+        for company_el in root.findall(".//COMPANY"):
+            # Priority order for name fields
+            for tag in ("BASICCOMPANYNAME", "NAME", "COMPANYNAME"):
+                el = company_el.find(tag)
+                if el is not None and el.text:
+                    val = el.text.strip()
+                    if val and not val.lstrip("-").isdigit():
+                        return val
+            # NAME.LIST/NAME pattern (TallyPrime newer builds)
+            nl = company_el.find("NAME.LIST/NAME")
+            if nl is not None and nl.text:
+                val = nl.text.strip()
+                if val and not val.lstrip("-").isdigit():
+                    return val
+
+        # Last resort: look for BASICCOMPANYNAME anywhere in the tree
+        el = root.find(".//BASICCOMPANYNAME")
+        if el is not None and el.text and el.text.strip():
+            return el.text.strip()
+
+        return None
 
     # ── Ledgers ──────────────────────────────────────────────────────────────
 

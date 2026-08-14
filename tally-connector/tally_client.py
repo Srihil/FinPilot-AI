@@ -57,7 +57,25 @@ class TallyClient:
         except httpx.HTTPStatusError as e:
             raise TallyError(f"TallyPrime returned HTTP {e.response.status_code}")
 
+    @staticmethod
+    def _sanitize_xml(xml_text: str) -> str:
+        import re
+        # TallyPrime sometimes emits control characters (&#x00;–&#x1F; minus TAB/LF/CR)
+        # that are illegal in XML 1.0 — strip them before parsing.
+        # Remove numeric character references to invalid code points
+        xml_text = re.sub(r'&#x[0-8B-CE-Fb-ce-f];', '', xml_text)
+        xml_text = re.sub(r'&#x1[0-9A-Fa-f];', '', xml_text)
+        xml_text = re.sub(r'&#\d{1,5};',
+                          lambda m: '' if int(m.group()[2:-1]) in range(0, 9) or
+                          int(m.group()[2:-1]) in range(11, 13) or
+                          int(m.group()[2:-1]) in range(14, 32) else m.group(),
+                          xml_text)
+        # Remove literal control characters
+        xml_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', '', xml_text)
+        return xml_text
+
     def _parse_response(self, xml_text: str) -> ET.Element:
+        xml_text = self._sanitize_xml(xml_text)
         try:
             root = SAFE_PARSE(xml_text)
         except ET.ParseError as e:

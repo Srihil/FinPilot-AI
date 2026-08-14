@@ -165,33 +165,31 @@ class TallyClient:
     # ── Vouchers (all types) ──────────────────────────────────────────────────
 
     def get_vouchers(self, from_date: str = "", to_date: str = "") -> list[dict]:
-        date_filter = ""
-        if from_date:
-            date_filter += f"\n        <SVFROMDATE>{from_date}</SVFROMDATE>"
-        if to_date:
-            date_filter += f"\n        <SVTODATE>{to_date}</SVTODATE>"
+        from datetime import date as _date
+        # Default to last 2 financial years so SYNC_FULL captures real data
+        if not from_date:
+            from_date = f"{_date.today().year - 2}0401"
+        if not to_date:
+            to_date = _date.today().strftime("%Y%m%d")
 
-        # "Voucher Register" is NOT a built-in collection in TallyPrime 2.x+.
-        # Define the collection inline via TDL so it works on any version.
+        # Use TYPE=Data + ID=Day Book — a standard built-in Tally report that
+        # exists in ALL versions (ERP 9, TallyPrime 1-7+).
+        # Named Collection requests (e.g. "Voucher Register") only work when
+        # a matching TDL definition is loaded, which causes the
+        # "Could not find description!" error on default installations.
         xml = f"""<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
-    <TYPE>Collection</TYPE>
-    <ID>FP Vouchers</ID>
+    <TYPE>Data</TYPE>
+    <ID>Day Book</ID>
   </HEADER>
   <BODY>
     <DESC>
-      <TDL>
-        <TDLMESSAGE>
-          <COLLECTION NAME="FP Vouchers" ISMODIFY="No">
-            <TYPE>Voucher</TYPE>
-            <BELONGSTO>Yes</BELONGSTO>
-          </COLLECTION>
-        </TDLMESSAGE>
-      </TDL>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>{date_filter}
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVFROMDATE>{from_date}</SVFROMDATE>
+        <SVTODATE>{to_date}</SVTODATE>
       </STATICVARIABLES>
     </DESC>
   </BODY>
@@ -200,16 +198,19 @@ class TallyClient:
         root = self._parse_response(raw)
         vouchers = []
         for v in root.findall(".//VOUCHER"):
-            date = v.find("DATE")
+            date_el = v.find("DATE")
             vtype = v.find("VOUCHERTYPENAME")
             narration = v.find("NARRATION")
-            amount = v.find(".//AMOUNT")
-            party = v.find(".//PARTYLEDGERNAME")
+            party = v.find("PARTYLEDGERNAME")
+            # Amount: prefer the first positive ledger entry amount
+            amount_el = v.find(".//ALLLEDGERENTRIES.LIST/AMOUNT")
+            if amount_el is None:
+                amount_el = v.find(".//AMOUNT")
             vouchers.append({
-                "date": date.text.strip() if date is not None and date.text else "",
+                "date": date_el.text.strip() if date_el is not None and date_el.text else "",
                 "voucher_type": vtype.text.strip() if vtype is not None and vtype.text else "",
                 "party": party.text.strip() if party is not None and party.text else "",
-                "amount": amount.text.strip() if amount is not None and amount.text else "0",
+                "amount": (amount_el.text or "0").strip().lstrip("-"),
                 "narration": narration.text.strip() if narration is not None and narration.text else "",
             })
         return vouchers

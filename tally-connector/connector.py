@@ -1,33 +1,44 @@
 """
 FinPilot Tally Connector
 ========================
-Lightweight Python process that runs on the same Windows PC as TallyPrime.
-
-Responsibilities:
-  1. Pair with FinPilot cloud using a user-supplied pairing code.
-  2. Periodically send heartbeats so the cloud knows the connector is alive.
-  3. Poll the cloud for pending integration jobs.
-  4. Execute each job against TallyPrime via HTTP/XML.
-  5. Post results back to the cloud.
-  6. Reconnect automatically after network failures.
-
-Security model:
-  - Never exposes TallyPrime to the internet.
-  - Only outbound HTTPS requests to FinPilot cloud.
-  - Token is stored locally in .env; never logged.
-  - All Tally XML is constructed by this process (not by the cloud).
+Runs on the same Windows PC as TallyPrime.
+Bridges FinPilot cloud with local TallyPrime via secure HTTPS polling.
 """
-import json
-import logging
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Optional
 
-import httpx
 
-from config import config, BASE_DIR
-from tally_client import TallyClient, TallyError
+# ─── Keep window open on any crash (must be before all other imports) ─────────
+
+def _fatal(msg: str) -> None:
+    print("\n" + "=" * 60)
+    print("  FinPilot Connector — Error")
+    print("=" * 60)
+    print(f"\n{msg}")
+    print("\n  Common fixes:")
+    print("  1. Run as Administrator (right-click → Run as administrator)")
+    print("  2. Allow the app in Windows Defender / Antivirus")
+    print("  3. Delete the .env file next to this .exe and re-pair")
+    print("  4. Make sure TallyPrime is open with a company loaded")
+    print()
+    input("  Press Enter to close...")
+    sys.exit(1)
+
+
+try:
+    import json
+    import logging
+    import httpx
+    from config import config, BASE_DIR
+    from tally_client import TallyClient, TallyError
+except Exception as _import_err:
+    _fatal(f"Startup failed (import error):\n\n  {type(_import_err).__name__}: {_import_err}\n\n{traceback.format_exc()}")
+
+
+# ─── Logging ──────────────────────────────────────────────────────────────────
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL, logging.INFO),
@@ -37,6 +48,9 @@ logging.basicConfig(
 logger = logging.getLogger("connector")
 
 ENV_FILE = BASE_DIR / ".env"
+
+MAX_RETRY = 3
+
 
 # ─── Cloud API helpers ────────────────────────────────────────────────────────
 
@@ -48,17 +62,16 @@ def _headers() -> dict:
 
 
 def _api(path: str) -> str:
-    base = config.FINPILOT_API_URL.rstrip("/")
-    return f"{base}{path}"
+    return config.FINPILOT_API_URL.rstrip("/") + path
 
 
 def send_heartbeat(tally: TallyClient) -> None:
     reachable = tally.is_reachable()
     company = None
     if reachable:
-        company_info = tally.get_active_company()
-        if company_info:
-            company = company_info.get("name")
+        info = tally.get_active_company()
+        if info:
+            company = info.get("name")
 
     payload = {
         "tally_reachable": reachable,
@@ -78,8 +91,7 @@ def poll_jobs() -> list[dict]:
     with httpx.Client(timeout=15) as client:
         resp = client.get(_api("/api/tally/connector/jobs"), headers=_headers())
         resp.raise_for_status()
-        data = resp.json()
-        return data.get("jobs", [])
+        return resp.json().get("jobs", [])
 
 
 def post_result(job_id: str, status: str, result: Optional[dict], error: Optional[str]) -> None:
@@ -97,34 +109,18 @@ def post_result(job_id: str, status: str, result: Optional[dict], error: Optiona
         resp.raise_for_status()
 
 
-# ─── Job execution router ─────────────────────────────────────────────────────
+# ─── Job execution ────────────────────────────────────────────────────────────
 
-# Whitelist of allowed operations — cloud cannot inject arbitrary operations
 ALLOWED_OPERATIONS = {
-    "READ_COMPANIES",
-    "READ_LEDGERS",
-    "READ_VOUCHERS",
-    "READ_SALES",
-    "READ_PURCHASES",
-    "READ_RECEIVABLES",
-    "READ_PAYABLES",
-    "READ_STOCK_ITEMS",
-    "CREATE_SALES_VOUCHER",
-    "CREATE_PURCHASE_VOUCHER",
-    "CREATE_RECEIPT_VOUCHER",
-    "CREATE_PAYMENT_VOUCHER",
-    "CREATE_LEDGER",
-    "CREATE_STOCK_ITEM",
-    "SYNC_FULL",
-    "SYNC_PARTIAL",
+    "READ_COMPANIES", "READ_LEDGERS", "READ_VOUCHERS", "READ_SALES",
+    "READ_PURCHASES", "READ_RECEIVABLES", "READ_PAYABLES", "READ_STOCK_ITEMS",
+    "CREATE_SALES_VOUCHER", "CREATE_PURCHASE_VOUCHER", "CREATE_RECEIPT_VOUCHER",
+    "CREATE_PAYMENT_VOUCHER", "CREATE_LEDGER", "CREATE_STOCK_ITEM",
+    "SYNC_FULL", "SYNC_PARTIAL",
 }
 
 
 def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional[str]]:
-    """
-    Returns (result_dict, error_message).
-    error_message is None on success.
-    """
     op = job.get("operation", "")
     payload = job.get("payload") or {}
     job_id = job.get("id", "?")
@@ -136,73 +132,42 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
 
     try:
         if op == "READ_COMPANIES":
-            company = tally.get_active_company()
-            return {"company": company}, None
-
+            return {"company": tally.get_active_company()}, None
         if op == "READ_LEDGERS":
-            ledgers = tally.get_ledgers()
-            return {"ledgers": ledgers, "count": len(ledgers)}, None
-
+            items = tally.get_ledgers()
+            return {"ledgers": items, "count": len(items)}, None
         if op == "READ_VOUCHERS":
-            vouchers = tally.get_vouchers(
-                from_date=payload.get("from_date", ""),
-                to_date=payload.get("to_date", ""),
-            )
-            return {"vouchers": vouchers, "count": len(vouchers)}, None
-
+            items = tally.get_vouchers(payload.get("from_date", ""), payload.get("to_date", ""))
+            return {"vouchers": items, "count": len(items)}, None
         if op == "READ_SALES":
-            sales = tally.get_sales(
-                from_date=payload.get("from_date", ""),
-                to_date=payload.get("to_date", ""),
-            )
-            return {"sales": sales, "count": len(sales)}, None
-
+            items = tally.get_sales(payload.get("from_date", ""), payload.get("to_date", ""))
+            return {"sales": items, "count": len(items)}, None
         if op == "READ_PURCHASES":
-            purchases = tally.get_purchases(
-                from_date=payload.get("from_date", ""),
-                to_date=payload.get("to_date", ""),
-            )
-            return {"purchases": purchases, "count": len(purchases)}, None
-
+            items = tally.get_purchases(payload.get("from_date", ""), payload.get("to_date", ""))
+            return {"purchases": items, "count": len(items)}, None
         if op == "READ_RECEIVABLES":
-            receivables = tally.get_receivables()
-            return {"receivables": receivables, "count": len(receivables)}, None
-
+            items = tally.get_receivables()
+            return {"receivables": items, "count": len(items)}, None
         if op == "READ_PAYABLES":
-            payables = tally.get_payables()
-            return {"payables": payables, "count": len(payables)}, None
-
+            items = tally.get_payables()
+            return {"payables": items, "count": len(items)}, None
         if op == "READ_STOCK_ITEMS":
             items = tally.get_stock_items()
             return {"stock_items": items, "count": len(items)}, None
-
         if op == "CREATE_SALES_VOUCHER":
-            result = tally.create_sales_voucher(payload)
-            return result, None
-
+            return tally.create_sales_voucher(payload), None
         if op == "CREATE_PURCHASE_VOUCHER":
-            result = tally.create_purchase_voucher(payload)
-            return result, None
-
+            return tally.create_purchase_voucher(payload), None
         if op in ("CREATE_RECEIPT_VOUCHER", "CREATE_PAYMENT_VOUCHER"):
-            return None, f"{op} not implemented in this connector version"
-
+            return None, f"{op} not yet implemented"
         if op == "CREATE_LEDGER":
-            result = tally.create_ledger(payload)
-            return result, None
-
+            return tally.create_ledger(payload), None
         if op == "CREATE_STOCK_ITEM":
-            return None, "CREATE_STOCK_ITEM not implemented in this connector version"
-
+            return None, "CREATE_STOCK_ITEM not yet implemented"
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
             ledgers = tally.get_ledgers()
             stock = tally.get_stock_items()
-            return {
-                "synced": True,
-                "ledger_count": len(ledgers),
-                "stock_item_count": len(stock),
-            }, None
-
+            return {"synced": True, "ledger_count": len(ledgers), "stock_item_count": len(stock)}, None
     except TallyError as e:
         return None, str(e)
     except Exception as e:
@@ -212,18 +177,38 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
     return None, f"Unhandled operation: {op}"
 
 
+# ─── Env helpers ──────────────────────────────────────────────────────────────
+
+def _save_env_value(key: str, value: str) -> None:
+    content = ENV_FILE.read_text(encoding="utf-8") if ENV_FILE.exists() else ""
+    lines = [l for l in content.splitlines() if not l.startswith(f"{key}=")]
+    lines.append(f"{key}={value}")
+    ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 # ─── Pairing flow ─────────────────────────────────────────────────────────────
 
-def pair(pairing_code: str, connector_name: str = "FinPilot Connector") -> str:
-    """Register with FinPilot cloud using the user-supplied pairing code.
-    Returns the connector token and saves it to .env.
-    """
+def _setup_backend_url() -> None:
+    placeholder = "https://your-backend.onrender.com"
+    if config.FINPILOT_API_URL and config.FINPILOT_API_URL != placeholder:
+        return
+    print("\n  What is your FinPilot backend URL?")
+    print("  (Find it in your Render dashboard — backend service URL)")
+    print("  Example: https://finpilot-backend-abcd.onrender.com\n")
+    url = input("  Backend URL: ").strip().rstrip("/")
+    if not url.startswith("http"):
+        _fatal("Invalid URL entered. Must start with http:// or https://")
+    config.FINPILOT_API_URL = url
+    _save_env_value("FINPILOT_API_URL", url)
+    print(f"\n  ✓ Saved: {url}")
+
+
+def pair(pairing_code: str) -> str:
     import socket
-    device_name = socket.gethostname()
     payload = {
         "pairing_code": pairing_code.strip().upper(),
-        "connector_name": connector_name,
-        "device_name": device_name,
+        "connector_name": "FinPilot Connector",
+        "device_name": socket.gethostname(),
     }
     with httpx.Client(timeout=20) as client:
         resp = client.post(
@@ -232,88 +217,50 @@ def pair(pairing_code: str, connector_name: str = "FinPilot Connector") -> str:
             headers={"Content-Type": "application/json"},
         )
         if resp.status_code == 400:
-            data = resp.json()
-            raise ValueError(data.get("detail", "Invalid pairing code"))
+            raise ValueError(resp.json().get("detail", "Invalid pairing code"))
         resp.raise_for_status()
         data = resp.json()
 
     token = data["token"]
-    poll_interval = data.get("poll_interval_seconds", 10)
-
     _save_env_value("CONNECTOR_TOKEN", token)
-
-    logger.info("Paired successfully! Connector ID: %s", data["connector_id"])
-    logger.info("Poll interval: %ds", poll_interval)
+    logger.info("Paired! Connector ID: %s", data["connector_id"])
     return token
-
-
-# ─── First-time setup helpers ─────────────────────────────────────────────────
-
-def _save_env_value(key: str, value: str) -> None:
-    """Write or update a single key in the .env file next to the executable."""
-    content = ENV_FILE.read_text() if ENV_FILE.exists() else ""
-    lines = [l for l in content.splitlines() if not l.startswith(f"{key}=")]
-    lines.append(f"{key}={value}")
-    ENV_FILE.write_text("\n".join(lines) + "\n")
-
-
-def _setup_backend_url() -> None:
-    """Ask user for the FinPilot backend URL if it is still the placeholder."""
-    placeholder = "https://your-backend.onrender.com"
-    if config.FINPILOT_API_URL and config.FINPILOT_API_URL != placeholder:
-        return  # already configured
-
-    print("\n  What is your FinPilot backend URL?")
-    print("  (Find it in your Render dashboard under the backend service)")
-    print("  Example: https://finpilot-backend-abcd.onrender.com\n")
-    url = input("  Backend URL: ").strip().rstrip("/")
-    if not url.startswith("http"):
-        print("  Invalid URL. Exiting.")
-        sys.exit(1)
-    config.FINPILOT_API_URL = url
-    _save_env_value("FINPILOT_API_URL", url)
-    print(f"\n  ✓ Backend URL saved: {url}")
 
 
 # ─── Main loop ────────────────────────────────────────────────────────────────
 
-def run():
+def run() -> None:
     if not config.CONNECTOR_TOKEN:
         print("\n" + "=" * 60)
         print("  FinPilot Tally Connector — First-Time Setup")
         print("=" * 60)
 
-        # Step 1: ensure backend URL is configured
         _setup_backend_url()
 
         print(f"\n  Backend: {config.FINPILOT_API_URL}")
-        print("\n  No connector token found.")
-        print("  1. Go to FinPilot → TallyPrime → Connect TallyPrime")
-        print("  2. Copy the pairing code shown")
-        print("  3. Enter it below\n")
-        code = input("  Enter pairing code (e.g. ABCD-EFGH): ").strip()
+        print("\n  1. Open FinPilot in your browser")
+        print("  2. Go to TallyPrime page → click 'Connect TallyPrime'")
+        print("  3. Copy the pairing code shown\n")
+        code = input("  Enter pairing code (e.g. ABCD-EFGHI): ").strip()
         if not code:
-            print("  No code entered. Exiting.")
-            sys.exit(1)
+            _fatal("No pairing code entered.")
         try:
             token = pair(code)
             config.CONNECTOR_TOKEN = token
-            print("\n  ✓ Paired successfully! Token saved to .env")
+            print("\n  ✓ Paired successfully! Token saved.")
         except ValueError as e:
-            print(f"\n  ✗ Pairing failed: {e}")
-            sys.exit(1)
+            _fatal(f"Pairing failed: {e}")
         except Exception as e:
-            print(f"\n  ✗ Network error: {e}")
-            sys.exit(1)
+            _fatal(f"Network error during pairing:\n  {e}\n\nIs the backend URL correct?")
 
     tally = TallyClient(host=config.TALLY_HOST, port=config.TALLY_PORT)
 
     print("\n" + "=" * 60)
     print("  FinPilot Tally Connector — Running")
     print("=" * 60)
-    print(f"  Backend: {config.FINPILOT_API_URL}")
-    print(f"  Tally:   {config.TALLY_HOST}:{config.TALLY_PORT}")
-    print(f"  Poll:    every {config.POLL_INTERVAL_SECONDS}s")
+    print(f"  Backend : {config.FINPILOT_API_URL}")
+    print(f"  Tally   : {config.TALLY_HOST}:{config.TALLY_PORT}")
+    print(f"  Poll    : every {config.POLL_INTERVAL_SECONDS}s")
     print("  Press Ctrl+C to stop\n")
 
     last_heartbeat = 0.0
@@ -332,8 +279,7 @@ def run():
                 jobs = poll_jobs()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401:
-                    logger.error("Connector token rejected (401). Re-pair the connector.")
-                    sys.exit(1)
+                    _fatal("Connector token rejected (401).\n\n  The connector has been revoked or the token is invalid.\n  Delete the .env file next to this .exe and re-pair.")
                 raise
 
             if jobs:
@@ -341,10 +287,9 @@ def run():
                 for job in jobs:
                     job_id = job["id"]
                     result, error = execute_job(tally, job)
-                    status = "SUCCESS" if error is None else "FAILED"
                     try:
-                        post_result(job_id, status, result, error)
-                        logger.info("Job %s → %s", job_id, status)
+                        post_result(job_id, "SUCCESS" if error is None else "FAILED", result, error)
+                        logger.info("Job %s → %s", job_id, "SUCCESS" if error is None else "FAILED")
                     except Exception as e:
                         logger.warning("Failed to post result for job %s: %s", job_id, e)
 
@@ -358,19 +303,12 @@ def run():
             time.sleep(30)
 
 
+# ─── Entry point ──────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     try:
         run()
+    except SystemExit:
+        raise
     except Exception as e:
-        print("\n" + "=" * 60)
-        print("  UNEXPECTED ERROR")
-        print("=" * 60)
-        print(f"\n  {type(e).__name__}: {e}")
-        print("\n  Please screenshot this and report it.")
-        print("  Common fixes:")
-        print("  - Make sure TallyPrime is open with a company loaded")
-        print("  - Check your internet connection")
-        print("  - Delete .env next to this .exe and re-pair")
-        print()
-        input("  Press Enter to close...")
-        sys.exit(1)
+        _fatal(f"Unexpected crash:\n\n{traceback.format_exc()}")

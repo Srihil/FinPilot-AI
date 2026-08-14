@@ -6,6 +6,16 @@ FinPilot AI is a full-stack, production-grade web application for small and medi
 
 ---
 
+## Recent Updates
+
+### August 2025
+- **PDF Report — Rupee symbol fix**: Resolved black-box rendering of ₹ (U+20B9) in downloaded PDFs. Root cause was ReportLab's font registry cache: on the second PDF generation in the same process, Arial was already registered, the fallback silently returned Helvetica (no ₹ glyph), producing black boxes. Fix: check `pdfmetrics.getRegisteredFontNames()` before re-registering, so the correct Unicode font is always returned.
+- **PDF Report — Author metadata fix**: Downloaded PDFs previously showed `(anonymous)` as the document author and `untitled` as the title in PDF properties. Fixed by passing `onFirstPage` / `onLaterPages` callbacks to `doc.build()` that call `canvas.setTitle()`, `canvas.setAuthor()` (company name), `canvas.setSubject()`, and `canvas.setCreator("FinPilot AI")`.
+- **TopBar cleanup**: Removed the non-functional notification bell icon (had no click handler, showed a permanent fake red dot). Cleaned up unused `Bell` and `Button` imports.
+- **Initial GitHub publish**: Full codebase pushed to [github.com/Srihil/FinPilot-AI](https://github.com/Srihil/FinPilot-AI) with `.gitignore` excluding secrets (`.env`) and local tooling (`.claude/`).
+
+---
+
 ## Screenshots
 
 | Dashboard | AI Assistant | Customers | Analytics |
@@ -110,8 +120,8 @@ WRITE path:
 ### 1. Clone and configure
 
 ```bash
-git clone <repo>
-cd AI_Financial_Agents
+git clone https://github.com/Srihil/FinPilot-AI.git
+cd FinPilot-AI
 cp .env.example .env
 # Edit .env — set DATABASE_URL and optionally an AI API key
 ```
@@ -402,7 +412,6 @@ AI_Financial_Agents/
 - PDF invoice extraction requires PyMuPDF — works but AI extraction quality depends on provider
 - Tally sync is documented but not fully implemented (abstraction layer is in place)
 - Analytics date filter with `Last 30 Days` shows data based on timezone-naive comparison
-- Frontend reports page uses `monthly_summary` type which maps to P&L on the backend
 
 ---
 

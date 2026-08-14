@@ -15,13 +15,13 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Install dependencies if needed
+:: Create venv and install dependencies if needed
 if not exist venv (
     echo  Creating virtual environment...
     python -m venv venv
-    echo  Installing dependencies...
-    venv\Scripts\pip install -r requirements.txt --quiet
 )
+echo  Installing/updating dependencies...
+venv\Scripts\pip install -r requirements.txt --quiet
 
 :: Copy .env.example if .env does not exist
 if not exist .env (

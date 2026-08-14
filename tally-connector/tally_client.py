@@ -150,18 +150,28 @@ class TallyClient:
     # ── Ledgers ──────────────────────────────────────────────────────────────
 
     def get_ledgers(self, company: str = "") -> list[dict]:
-        xml = f"""<ENVELOPE>
+        # Inline TDL collection with explicit FETCH so PARENT is returned as a child
+        # element. The built-in "List of Ledgers" only gives LANGUAGENAME.LIST and
+        # no PARENT field, so we can't determine the ledger group without this.
+        xml = """<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
     <TYPE>Collection</TYPE>
-    <ID>List of Ledgers</ID>
+    <ID>FP Ledgers</ID>
   </HEADER>
   <BODY>
     <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP Ledgers" ISMODIFY="No">
+            <TYPE>Ledger</TYPE>
+            <FETCH>NAME,PARENT,CLOSINGBALANCE</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVCURRENTCOMPANY>{company}</SVCURRENTCOMPANY>
       </STATICVARIABLES>
     </DESC>
   </BODY>
@@ -170,44 +180,49 @@ class TallyClient:
         root = self._parse_response(raw)
         ledgers = []
         for item in root.findall(".//LEDGER"):
-            name = item.find("NAME")
-            group = item.find("PARENT")
-            balance = item.find("CLOSINGBALANCE")
-            ledgers.append({
-                "name": name.text.strip() if name is not None and name.text else "",
-                "group": group.text.strip() if group is not None and group.text else "",
-                "closing_balance": balance.text.strip() if balance is not None and balance.text else "0",
-            })
+            # Name is the NAME attribute on <LEDGER>, not a child <NAME> element
+            name = (item.get("NAME") or "").strip()
+            group_el = item.find("PARENT")
+            balance_el = item.find("CLOSINGBALANCE")
+            group = group_el.text.strip() if group_el is not None and group_el.text else ""
+            balance = balance_el.text.strip() if balance_el is not None and balance_el.text else "0"
+            if name and group:
+                ledgers.append({"name": name, "group": group, "closing_balance": balance})
         return ledgers
 
     # ── Vouchers (all types) ──────────────────────────────────────────────────
 
     def get_vouchers(self, from_date: str = "", to_date: str = "") -> list[dict]:
-        from datetime import date as _date
-        # Default to last 2 financial years so SYNC_FULL captures real data
-        if not from_date:
-            from_date = f"{_date.today().year - 2}0401"
-        if not to_date:
-            to_date = _date.today().strftime("%Y%m%d")
+        # Day Book (TYPE=Data) only returns vouchers in TallyPrime's CURRENT PERIOD
+        # setting, missing everything outside that window even with explicit dates.
+        # TDL inline collection with TYPE=Voucher returns ALL vouchers regardless of
+        # the active period. BELONGSTO=Yes makes SVFROMDATE/SVTODATE work correctly.
+        date_vars = ""
+        if from_date:
+            date_vars += f"\n        <SVFROMDATE>{from_date}</SVFROMDATE>"
+        if to_date:
+            date_vars += f"\n        <SVTODATE>{to_date}</SVTODATE>"
 
-        # Use TYPE=Data + ID=Day Book — a standard built-in Tally report that
-        # exists in ALL versions (ERP 9, TallyPrime 1-7+).
-        # Named Collection requests (e.g. "Voucher Register") only work when
-        # a matching TDL definition is loaded, which causes the
-        # "Could not find description!" error on default installations.
         xml = f"""<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
-    <TYPE>Data</TYPE>
-    <ID>Day Book</ID>
+    <TYPE>Collection</TYPE>
+    <ID>FP Vouchers</ID>
   </HEADER>
   <BODY>
     <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP Vouchers" ISMODIFY="No">
+            <TYPE>Voucher</TYPE>
+            <BELONGSTO>Yes</BELONGSTO>
+            <FETCH>DATE,VOUCHERTYPENAME,NARRATION,PARTYLEDGERNAME,ALLLEDGERENTRIES.LIST</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVFROMDATE>{from_date}</SVFROMDATE>
-        <SVTODATE>{to_date}</SVTODATE>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>{date_vars}
       </STATICVARIABLES>
     </DESC>
   </BODY>

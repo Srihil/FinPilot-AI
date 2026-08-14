@@ -208,9 +208,15 @@ function DownloadModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                <strong>Windows SmartScreen tip:</strong> If Windows shows a security warning,
-                click <strong>"More info"</strong> → <strong>"Run anyway"</strong>. This is normal for new apps.
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                <p className="text-sm font-semibold text-amber-900">Windows SmartScreen Warning — Expected</p>
+                <p className="text-sm text-amber-800">
+                  Windows may show <em>"Windows protected your PC — Unknown publisher"</em>.
+                  This is normal for apps without a paid code-signing certificate.
+                </p>
+                <p className="text-sm text-amber-800">
+                  <strong>To proceed:</strong> Click <strong>"More info"</strong> → then <strong>"Run anyway"</strong>.
+                </p>
               </div>
 
               <div className="flex gap-3">

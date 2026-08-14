@@ -31,7 +31,7 @@ services:
         value: "true"
       # Update this after you know the frontend URL
       - key: CORS_ORIGINS
-        value: https://finpilot-frontend.onrender.com
+        value: https://finpilot-frontend-vbdf.onrender.com,https://finpilot-frontend.onrender.com
       - key: APP_ENV
         value: production
       - key: UPLOAD_DIR

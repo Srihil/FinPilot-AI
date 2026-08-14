@@ -24,7 +24,8 @@ except Exception as _e:
     sys.exit(1)
 
 VERSION = "1.4.0"
-FINPILOT_URL = "https://finpilot-frontend-vbdf.onrender.com/tally"
+FINPILOT_URL = "https://finpilot-frontend-vbdf.onrender.com/tally"  # live website
+
 ENV_FILE = BASE_DIR / ".env"
 
 _state = {"connected": False, "tally_online": False, "company": "", "error": ""}

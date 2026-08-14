@@ -167,21 +167,31 @@ class TallyClient:
     def get_vouchers(self, from_date: str = "", to_date: str = "") -> list[dict]:
         date_filter = ""
         if from_date:
-            date_filter += f"<SVFROMDATE>{from_date}</SVFROMDATE>"
+            date_filter += f"\n        <SVFROMDATE>{from_date}</SVFROMDATE>"
         if to_date:
-            date_filter += f"<SVTODATE>{to_date}</SVTODATE>"
+            date_filter += f"\n        <SVTODATE>{to_date}</SVTODATE>"
+
+        # "Voucher Register" is NOT a built-in collection in TallyPrime 2.x+.
+        # Define the collection inline via TDL so it works on any version.
         xml = f"""<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
     <TYPE>Collection</TYPE>
-    <ID>Voucher Register</ID>
+    <ID>FP Vouchers</ID>
   </HEADER>
   <BODY>
     <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP Vouchers" ISMODIFY="No">
+            <TYPE>Voucher</TYPE>
+            <BELONGSTO>Yes</BELONGSTO>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        {date_filter}
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>{date_filter}
       </STATICVARIABLES>
     </DESC>
   </BODY>
@@ -219,15 +229,27 @@ class TallyClient:
     # ── Receivables / Payables ────────────────────────────────────────────────
 
     def get_receivables(self) -> list[dict]:
+        # Inline TDL: collect Sundry Debtors ledgers with outstanding balance
         xml = """<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
     <TYPE>Collection</TYPE>
-    <ID>Outstanding Receivables</ID>
+    <ID>FP Receivables</ID>
   </HEADER>
   <BODY>
     <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP Receivables" ISMODIFY="No">
+            <TYPE>Ledger</TYPE>
+            <FILTER>IsDebtorLedger</FILTER>
+          </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="IsDebtorLedger">
+            $$InList:$Parent:"Sundry Debtors":"Debtors":"Trade Receivables"
+          </SYSTEM>
+        </TDLMESSAGE>
+      </TDL>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
       </STATICVARIABLES>
@@ -243,15 +265,27 @@ class TallyClient:
             return []
 
     def get_payables(self) -> list[dict]:
+        # Inline TDL: collect Sundry Creditors ledgers with outstanding balance
         xml = """<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
     <TYPE>Collection</TYPE>
-    <ID>Outstanding Payables</ID>
+    <ID>FP Payables</ID>
   </HEADER>
   <BODY>
     <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP Payables" ISMODIFY="No">
+            <TYPE>Ledger</TYPE>
+            <FILTER>IsCreditorLedger</FILTER>
+          </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="IsCreditorLedger">
+            $$InList:$Parent:"Sundry Creditors":"Creditors":"Trade Payables"
+          </SYSTEM>
+        </TDLMESSAGE>
+      </TDL>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
       </STATICVARIABLES>

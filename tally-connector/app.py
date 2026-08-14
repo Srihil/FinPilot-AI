@@ -208,8 +208,7 @@ def _show_pairing_window(on_success=None) -> None:
     win.resizable(False, False)
     win.configure(bg="#f8fafc")
 
-    # Fixed size — large enough to always show the button
-    W, H = 440, 440
+    W, H = 440, 390
     win.geometry(f"{W}x{H}+{(win.winfo_screenwidth()-W)//2}+{(win.winfo_screenheight()-H)//2}")
     win.lift()
     win.focus_force()
@@ -234,7 +233,7 @@ def _show_pairing_window(on_success=None) -> None:
     for s in ["1.  Open FinPilot in your browser (button below)",
               "2.  Go to the TallyPrime page",
               "3.  Click  'Connect TallyPrime'",
-              "4.  Paste the pairing code here and click Connect"]:
+              "4.  Paste the pairing code below and press Enter"]:
         tk.Label(body, text=s, font=("Segoe UI", 9), bg="#f8fafc",
                  fg="#475569", anchor="w").pack(fill="x")
 
@@ -255,36 +254,44 @@ def _show_pairing_window(on_success=None) -> None:
                      font=("Courier New", 16, "bold"),
                      width=14, relief="solid", bd=1,
                      fg="#1e293b", justify="center", insertbackground="#4f46e5")
-    entry.pack(anchor="w", ipady=7, pady=(4, 0))
+    entry.pack(anchor="w", ipady=7, pady=(4, 2))
     entry.focus_set()
 
-    # Error label — always allocated space, scrollable text
-    err_var = tk.StringVar(value="")
-    err_lbl = tk.Label(body, textvariable=err_var, font=("Segoe UI", 9),
-                       bg="#fef2f2", fg="#dc2626",
-                       wraplength=380, justify="left",
-                       anchor="nw", relief="flat")
+    hint_var = tk.StringVar(value="Press Enter to connect")
+    hint_lbl = tk.Label(body, textvariable=hint_var,
+                        font=("Segoe UI", 9), bg="#f8fafc", fg="#94a3b8")
+    hint_lbl.pack(anchor="w")
 
-    # Connect button — always visible at bottom
-    def _do_pair():
+    msg_var = tk.StringVar(value="")
+    msg_lbl = tk.Label(body, textvariable=msg_var, font=("Segoe UI", 9),
+                       bg="#f8fafc", fg="#dc2626",
+                       wraplength=380, justify="left", anchor="nw")
+
+    _busy = {"v": False}
+
+    def _do_pair(*_):
+        if _busy["v"]:
+            return
         code = code_var.get().strip()
         if not code:
-            err_var.set("⚠  Please enter the pairing code.")
-            err_lbl.pack(fill="x", pady=(6, 0))
+            msg_lbl.config(fg="#dc2626", bg="#fef2f2")
+            msg_var.set("⚠  Please enter the pairing code.")
+            msg_lbl.pack(fill="x", pady=(6, 0))
             return
 
-        btn.config(state="disabled", text="Connecting…")
-        err_var.set("")
-        err_lbl.pack_forget()
-        win.update()
+        _busy["v"] = True
+        entry.config(state="disabled")
+        hint_var.set("Connecting…")
+        hint_lbl.config(fg="#4f46e5")
+        msg_var.set("")
+        msg_lbl.pack_forget()
 
-        # After 6s still waiting → show wake-up hint
-        def _maybe_show_wakeup():
-            if btn.cget("text") == "Connecting…":
-                err_var.set("⏳  Waking up the server (Render free tier sleeps after inactivity).\n    This takes up to 60 seconds — please wait…")
-                err_lbl.config(fg="#92400e", bg="#fffbeb")
-                err_lbl.pack(fill="x", pady=(6, 0))
-        win.after(6000, _maybe_show_wakeup)
+        def _wakeup_hint():
+            if _busy["v"]:
+                msg_lbl.config(fg="#92400e", bg="#fffbeb")
+                msg_var.set("⏳  Waking up server — Render free tier sleeps after inactivity.\n    Please wait up to 60 seconds…")
+                msg_lbl.pack(fill="x", pady=(6, 0))
+        win.after(6000, _wakeup_hint)
 
         def _try():
             err = None
@@ -296,17 +303,21 @@ def _show_pairing_window(on_success=None) -> None:
             except ValueError as ve:
                 err = f"❌  {ve}"
             except Exception as ex:
-                err = f"❌  Network error: {ex}\n\nCheck your internet connection."
+                err = f"❌  Network error: {ex}"
             captured = err
             win.after(0, lambda: _show_err(captured))
 
         threading.Thread(target=_try, daemon=True).start()
 
     def _show_err(msg: str):
-        btn.config(state="normal", text="Connect")
-        err_lbl.config(fg="#dc2626", bg="#fef2f2")
-        err_var.set(msg)
-        err_lbl.pack(fill="x", pady=(6, 0))
+        _busy["v"] = False
+        entry.config(state="normal")
+        hint_var.set("Press Enter to connect")
+        hint_lbl.config(fg="#94a3b8")
+        msg_lbl.config(fg="#dc2626", bg="#fef2f2")
+        msg_var.set(msg)
+        msg_lbl.pack(fill="x", pady=(6, 0))
+        entry.focus_set()
 
     def _show_success():
         for w in body.winfo_children():
@@ -314,9 +325,10 @@ def _show_pairing_window(on_success=None) -> None:
         tk.Label(body, text="✅  Connected!",
                  font=("Segoe UI", 20, "bold"), bg="#f8fafc", fg="#16a34a").pack(pady=(30, 6))
         co = _state.get("company", "")
-        tk.Label(body, text=f"TallyPrime is now linked to FinPilot AI." + (f"\nCompany: {co}" if co else ""),
+        tk.Label(body,
+                 text="TallyPrime is now linked to FinPilot AI." + (f"\nCompany: {co}" if co else ""),
                  font=("Segoe UI", 10), bg="#f8fafc", fg="#475569").pack()
-        tk.Label(body, text="\nThe connector is running in your\nsystem tray (bottom-right corner).",
+        tk.Label(body, text="\nConnector is running in your system tray\n(bottom-right corner).",
                  font=("Segoe UI", 9), bg="#f8fafc", fg="#64748b").pack()
         tk.Button(body, text="Close this window",
                   font=("Segoe UI", 10, "bold"), bg="#4f46e5", fg="white",
@@ -326,15 +338,7 @@ def _show_pairing_window(on_success=None) -> None:
         if on_success:
             threading.Thread(target=on_success, daemon=True).start()
 
-    btn = tk.Button(body, text="Connect",
-                    font=("Segoe UI", 11, "bold"),
-                    bg="#4f46e5", fg="white", relief="flat",
-                    cursor="hand2", padx=20, pady=10,
-                    activebackground="#4338ca", activeforeground="white",
-                    command=_do_pair)
-    btn.pack(anchor="w", pady=(12, 0))
-
-    win.bind("<Return>", lambda e: _do_pair())
+    win.bind("<Return>", _do_pair)
     win.mainloop()
 
 

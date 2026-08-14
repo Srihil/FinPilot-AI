@@ -77,19 +77,25 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
     inv_counter = db.query(Invoice).filter(Invoice.company_id == company_id).count()
     exp_counter = db.query(Expense).filter(Expense.company_id == company_id).count()
 
+    # Track keys seen within this batch — db.add() isn't visible to queries
+    # until flush/commit, so we must deduplicate in-memory too.
+    seen_invoice_keys: set[str] = set()
+    seen_expense_keys: set[str] = set()
+
     for v in vouchers:
         vtype = v.get("voucher_type", "").lower()
         narration = v.get("narration", "").strip()
         party = v.get("party", "").strip()
         amount_raw = v.get("amount", "0").replace(",", "").strip().lstrip("-")
-        narration_tag = _tally_id(narration or party)
+        dedup_key = narration or party
+        narration_tag = _tally_id(dedup_key)
 
         try:
             amount = abs(float(amount_raw)) if amount_raw else 0.0
         except ValueError:
             amount = 0.0
 
-        if amount == 0:
+        if amount == 0 or not dedup_key:
             continue
 
         # Parse date
@@ -104,17 +110,17 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
             voucher_date = datetime.now(timezone.utc)
 
         if "sales" in vtype:
-            existing = _find_by_tally_id(db, Invoice, company_id, narration or party)
-            if existing:
+            if dedup_key in seen_invoice_keys:
                 continue
+            if _find_by_tally_id(db, Invoice, company_id, dedup_key):
+                continue
+            seen_invoice_keys.add(dedup_key)
 
             customer = _find_by_tally_id(db, Customer, company_id, party)
             inv_counter += 1
-            inv_number = f"TALLY-{inv_counter:04d}"
-
             inv = Invoice(
                 company_id=company_id,
-                invoice_number=inv_number,
+                invoice_number=f"TALLY-{inv_counter:04d}",
                 invoice_type=InvoiceType.SALES,
                 status=InvoiceStatus.APPROVED,
                 invoice_date=voucher_date,
@@ -132,13 +138,14 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
             created_invoices += 1
 
         elif "purchase" in vtype:
-            existing = _find_by_tally_id(db, Expense, company_id, narration or party)
-            if existing:
+            if dedup_key in seen_expense_keys:
                 continue
+            if _find_by_tally_id(db, Expense, company_id, dedup_key):
+                continue
+            seen_expense_keys.add(dedup_key)
 
             vendor = _find_by_tally_id(db, Vendor, company_id, party)
             exp_counter += 1
-
             exp = Expense(
                 company_id=company_id,
                 title=narration or f"Tally Purchase from {party}",

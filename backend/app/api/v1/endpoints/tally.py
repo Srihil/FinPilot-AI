@@ -275,6 +275,56 @@ def trigger_sync(
     return {"message": "Sync job queued", "job_id": str(job.id)}
 
 
+# ─── User-facing: deduplicate tally-synced records ──────────────────────────
+
+@router.post("/dedup")
+def dedup_tally_records(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Remove duplicate tally-synced expenses and invoices (keeps oldest per notes key)."""
+    from app.models.expense import Expense
+    from app.models.invoice import Invoice, InvoiceStatus
+
+    TALLY_TAG = "[tally-sync]"
+    cid = current_user.company_id
+
+    expenses = db.query(Expense).filter(
+        Expense.company_id == cid,
+        Expense.notes.like(f"%{TALLY_TAG}%"),
+    ).order_by(Expense.created_at).all()
+    seen_e: dict = {}
+    deleted_expenses = 0
+    for e in expenses:
+        key = (e.notes or "").strip()
+        if key in seen_e:
+            db.delete(e)
+            deleted_expenses += 1
+        else:
+            seen_e[key] = e.id
+
+    invoices = db.query(Invoice).filter(
+        Invoice.company_id == cid,
+        Invoice.notes.like(f"%{TALLY_TAG}%"),
+    ).order_by(Invoice.created_at).all()
+    seen_i: dict = {}
+    deleted_invoices = 0
+    for i in invoices:
+        key = (i.notes or "").strip()
+        if key in seen_i:
+            db.delete(i)
+            deleted_invoices += 1
+        else:
+            seen_i[key] = i.id
+
+    db.commit()
+    return {
+        "deleted_expenses": deleted_expenses,
+        "deleted_invoices": deleted_invoices,
+        "message": f"Removed {deleted_expenses} duplicate expense(s) and {deleted_invoices} duplicate invoice(s)",
+    }
+
+
 # ─── User-facing: activity ──────────────────────────────────────────────────
 
 @router.get("/activity")

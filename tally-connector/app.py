@@ -23,6 +23,7 @@ except Exception as _e:
     _mb.showerror("FinPilot Connector", f"Startup failed:\n\n{type(_e).__name__}: {_e}")
     sys.exit(1)
 
+VERSION = "1.4.0"
 FINPILOT_URL = "https://finpilot-frontend-vbdf.onrender.com/tally"
 ENV_FILE = BASE_DIR / ".env"
 
@@ -70,12 +71,20 @@ def _to_photo(img: Image.Image) -> tk.PhotoImage:
 def _make_logo(size=36) -> tk.PhotoImage:
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.ellipse([0, 0, size - 1, size - 1], fill="white")
-    # Simple "F" letterform in indigo
-    m = size // 6
-    d.rectangle([m * 2, m, m * 2 + 3, size - m], fill="#4f46e5")
-    d.rectangle([m * 2, m, m * 4, m + 3], fill="#4f46e5")
-    d.rectangle([m * 2, size // 2 - 1, m * 3 + 4, size // 2 + 2], fill="#4f46e5")
+    r = max(4, size // 5)
+    d.rounded_rectangle([0, 0, size - 1, size - 1], radius=r, fill="#4f46e5")
+    # Three ascending bars matching the SVG brand icon
+    s = size
+    bw = max(3, s // 6)
+    gap = max(1, s // 14)
+    bot = s - max(2, s // 8)
+    x1 = max(2, s // 10)
+    x2 = x1 + bw + gap
+    x3 = x2 + bw + gap
+    for bx, bh in [(x1, s * 31 // 100), (x2, s * 49 // 100), (x3, s * 70 // 100)]:
+        d.rounded_rectangle([bx, bot - bh, bx + bw, bot], radius=max(1, bw // 4), fill="white")
+    cx, cr = x3 + bw // 2, max(1, bw // 4)
+    d.ellipse([cx - cr, bot - s * 70 // 100 - cr, cx + cr, bot - s * 70 // 100 + cr], fill="white")
     return _to_photo(img)
 
 
@@ -297,7 +306,7 @@ def _user_friendly_error(exc: Exception) -> tuple[str, str]:
 
 def _show_pairing_window(on_success=None) -> None:
     win = tk.Tk()
-    win.title("FinPilot Connector")
+    win.title(f"FinPilot Tally Connector  v{VERSION}")
     win.resizable(False, False)
     win.configure(bg=C["bg"])
 
@@ -318,7 +327,7 @@ def _show_pairing_window(on_success=None) -> None:
     logo_lbl = tk.Label(hdr_row, image=logo_ph, bg=C["indigo"])
     logo_lbl.image = logo_ph
     logo_lbl.pack(side="left", padx=(0, 10))
-    tk.Label(hdr_row, text="FinPilot Tally Connector",
+    tk.Label(hdr_row, text=f"FinPilot Tally Connector  v{VERSION}",
              font=("Segoe UI", 13, "bold"), fg="white", bg=C["indigo"]).pack(side="left")
 
     # ── Body ──
@@ -542,7 +551,7 @@ def _show_pairing_window(on_success=None) -> None:
 
 def _show_status_window() -> None:
     win = tk.Tk()
-    win.title("FinPilot Connector")
+    win.title(f"FinPilot Tally Connector  v{VERSION}")
     win.resizable(False, False)
     win.configure(bg=C["bg"])
     W, H = 360, 280

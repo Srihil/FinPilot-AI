@@ -105,10 +105,23 @@ function ConnectionBadge({ online }: { online: boolean }) {
 }
 
 const DOWNLOAD_URL = 'https://github.com/Srihil/FinPilot-AI/releases/latest/download/finpilot-tally-connector.exe';
+const RELEASES_API = 'https://api.github.com/repos/Srihil/FinPilot-AI/releases/latest';
+
+function useLatestVersion() {
+  const [version, setVersion] = useState<string>('');
+  useEffect(() => {
+    fetch(RELEASES_API)
+      .then(r => r.json())
+      .then(d => setVersion(d.tag_name || ''))
+      .catch(() => {});
+  }, []);
+  return version;
+}
 
 function DownloadModal({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<'info' | 'downloading' | 'done'>('info');
   const linkRef = useRef<HTMLAnchorElement>(null);
+  const version = useLatestVersion();
 
   const startDownload = () => {
     setStep('downloading');
@@ -121,7 +134,12 @@ function DownloadModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       {/* Hidden anchor — browser will show its native Save As dialog when clicked */}
-      <a ref={linkRef} href={DOWNLOAD_URL} download="finpilot-tally-connector.exe" className="hidden" />
+      <a
+        ref={linkRef}
+        href={DOWNLOAD_URL}
+        download={version ? `finpilot-tally-connector-${version}.exe` : 'finpilot-tally-connector.exe'}
+        className="hidden"
+      />
 
       <Card className="w-[480px] shadow-2xl">
         <CardHeader className="pb-3 border-b border-slate-100">
@@ -129,6 +147,11 @@ function DownloadModal({ onClose }: { onClose: () => void }) {
             <CardTitle className="text-base flex items-center gap-2">
               <Download className="w-4 h-4 text-indigo-600" />
               Download FinPilot Tally Connector
+              {version && (
+                <span className="ml-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold">
+                  {version}
+                </span>
+              )}
             </CardTitle>
             <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
           </div>
@@ -180,7 +203,7 @@ function DownloadModal({ onClose }: { onClose: () => void }) {
               <div className="flex gap-3 pt-1">
                 <Button onClick={startDownload} className="flex-1 gap-2">
                   <FolderOpen className="w-4 h-4" />
-                  Choose Download Location & Download
+                  Download {version || 'Latest'} — Choose Location
                 </Button>
                 <Button variant="outline" onClick={onClose}>Cancel</Button>
               </div>
@@ -191,7 +214,17 @@ function DownloadModal({ onClose }: { onClose: () => void }) {
             <div className="py-6 text-center space-y-3">
               <Loader2 className="w-10 h-10 animate-spin text-indigo-500 mx-auto" />
               <p className="font-medium text-slate-900">Opening save dialog…</p>
-              <p className="text-sm text-slate-500">Your browser will ask where to save the file.</p>
+              {version && (
+                <p className="text-sm font-semibold text-indigo-700">
+                  FinPilot Tally Connector {version}
+                </p>
+              )}
+              <p className="text-sm text-slate-500">
+                Your browser will ask where to save{' '}
+                <span className="font-mono text-slate-700">
+                  finpilot-tally-connector{version ? `-${version}` : ''}.exe
+                </span>
+              </p>
             </div>
           )}
 
@@ -320,6 +353,8 @@ export default function TallyPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [showDownload, setShowDownload] = useState(false);
+  const latestVersion = useLatestVersion();
+  const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -342,6 +377,12 @@ export default function TallyPage() {
     return () => clearInterval(t);
   }, [fetchStatus]);
 
+  useEffect(() => {
+    return () => {
+      if (syncPollRef.current) clearInterval(syncPollRef.current);
+    };
+  }, []);
+
   const handleGeneratePairing = async () => {
     setActionLoading('pair');
     try {
@@ -359,12 +400,70 @@ export default function TallyPage() {
     setActionLoading('sync');
     try {
       const res = await tallyApi.sync();
-      toast({ title: 'Sync queued', description: (res.data as { message?: string }).message || 'Sync job created' });
-      setTimeout(fetchStatus, 2000);
+      const data = res.data as { message?: string; job_id?: string };
+      toast({ title: 'Sync queued', description: 'Syncing data from TallyPrime…' });
+
+      const jobId = data.job_id;
+      if (!jobId) {
+        setActionLoading(null);
+        setTimeout(fetchStatus, 2000);
+        return;
+      }
+
+      let polls = 0;
+      syncPollRef.current = setInterval(async () => {
+        polls++;
+        try {
+          const jobRes = await apiClient.get<{
+            status: string;
+            result: Record<string, unknown> | null;
+            error_message: string | null;
+          }>(`/api/tally/jobs/${jobId}`);
+          const job = jobRes.data;
+
+          if (job.status === 'SUCCESS') {
+            clearInterval(syncPollRef.current!);
+            syncPollRef.current = null;
+            setActionLoading(null);
+            const stats = (job.result as { import_stats?: Record<string, number> } | null)?.import_stats;
+            const parts = stats
+              ? ([
+                  stats.imported_customers ? `${stats.imported_customers} customer${stats.imported_customers !== 1 ? 's' : ''}` : null,
+                  stats.imported_vendors ? `${stats.imported_vendors} vendor${stats.imported_vendors !== 1 ? 's' : ''}` : null,
+                  stats.imported_invoices ? `${stats.imported_invoices} invoice${stats.imported_invoices !== 1 ? 's' : ''}` : null,
+                  stats.imported_expenses ? `${stats.imported_expenses} expense${stats.imported_expenses !== 1 ? 's' : ''}` : null,
+                ] as (string | null)[]).filter((x): x is string => x !== null)
+              : [];
+            const desc = parts.length
+              ? `Imported: ${parts.join(', ')}. Check the Customers & Invoices pages.`
+              : 'Sync complete — no new records to import.';
+            toast({ title: 'Sync complete', description: desc });
+            fetchStatus();
+          } else if (job.status === 'FAILED') {
+            clearInterval(syncPollRef.current!);
+            syncPollRef.current = null;
+            setActionLoading(null);
+            toast({
+              title: 'Sync failed',
+              description: job.error_message || 'Connector could not complete the sync',
+              variant: 'destructive',
+            });
+            fetchStatus();
+          }
+        } catch {
+          // ignore transient poll errors
+        }
+
+        if (polls >= 40) { // stop after ~2 min
+          clearInterval(syncPollRef.current!);
+          syncPollRef.current = null;
+          setActionLoading(null);
+          fetchStatus();
+        }
+      }, 3000);
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } };
       toast({ title: 'Sync failed', description: err?.response?.data?.detail || 'Could not start sync', variant: 'destructive' });
-    } finally {
       setActionLoading(null);
     }
   };
@@ -566,9 +665,16 @@ export default function TallyPage() {
               <Download className="w-6 h-6 text-white" />
             </div>
             <div className="flex-1">
-              <p className="font-semibold text-slate-900 text-base">
-                FinPilot Tally Connector
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="font-semibold text-slate-900 text-base">
+                  FinPilot Tally Connector
+                </p>
+                {latestVersion && (
+                  <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold">
+                    {latestVersion}
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-slate-500 mt-0.5">
                 Windows application · Runs on the same PC as TallyPrime · No technical setup needed
               </p>

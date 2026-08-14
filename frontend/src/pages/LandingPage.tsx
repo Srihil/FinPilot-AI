@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom';
 import {
   MessageSquare, BarChart3, CheckSquare, Upload, FileBarChart,
-  Shield, Zap, TrendingUp, ArrowRight, Star, ChevronRight,
+  Shield, Zap, ArrowRight, Star, ChevronRight,
   Brain, Globe, Lock
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { FinPilotLogo } from '../components/ui/FinPilotLogo';
 
 const features = [
   {
@@ -60,9 +61,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4 text-white" />
-              </div>
+              <FinPilotLogo size={32} />
               <span className="text-xl font-bold">FinPilot AI</span>
             </div>
             <div className="flex items-center gap-3">
@@ -305,9 +304,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
-                <TrendingUp className="w-3.5 h-3.5 text-white" />
-              </div>
+              <FinPilotLogo size={28} />
               <span className="font-bold text-white">FinPilot AI</span>
             </div>
             <p className="text-slate-500 text-sm">

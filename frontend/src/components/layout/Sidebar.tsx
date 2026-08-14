@@ -2,12 +2,13 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, FileText, Users, Building2,
   Package, Upload, BarChart3, FileBarChart, CheckSquare,
-  ScrollText, Settings, Zap, X, TrendingUp, ChevronRight,
+  ScrollText, Settings, Zap, X, ChevronRight,
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../auth/AuthContext';
 import { getInitials } from '../../utils/format';
 import { Avatar, AvatarFallback } from '../ui/avatar';
+import { FinPilotLogo } from '../ui/FinPilotLogo';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -54,9 +55,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-6 border-b border-slate-700/50">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4 text-white" />
-            </div>
+            <FinPilotLogo size={32} />
             <span className="text-lg font-bold text-white">FinPilot AI</span>
           </div>
           <button

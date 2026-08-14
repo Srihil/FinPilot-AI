@@ -1,182 +1,496 @@
-import { useState } from 'react';
-import { Zap, CheckCircle, XCircle, RefreshCw, Settings, Info, ArrowRight } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Zap, CheckCircle, XCircle, RefreshCw, Settings, Info,
+  Copy, Clock, AlertTriangle, Activity, Wifi, WifiOff,
+  Monitor, Database, Shield, ChevronRight, Loader2,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Label } from '../../components/ui/label';
-import { Switch } from '../../components/ui/switch';
 import { Badge } from '../../components/ui/badge';
 import { Separator } from '../../components/ui/separator';
 import { toast } from '../../components/ui/use-toast';
+import apiClient from '../../api/client';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface ConnectorInfo {
+  id: string;
+  name: string;
+  device: string;
+  status: string;
+  tally_company: string | null;
+  tally_host: string;
+  tally_port: number;
+  last_heartbeat: string | null;
+  last_sync_at: string | null;
+  paired_at: string;
+}
+
+interface TallyStatus {
+  connected: boolean;
+  connector: ConnectorInfo | null;
+  tally_online: boolean;
+  message: string;
+}
+
+interface ActivityJob {
+  id: string;
+  operation: string;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+  error_message: string | null;
+  retry_count: number;
+}
+
+interface PairingCode {
+  code: string;
+  expires_in_minutes: number;
+  expires_at: string;
+}
+
+// ─── API helpers ─────────────────────────────────────────────────────────────
+
+const tallyApi = {
+  status: () => apiClient.get<TallyStatus>('/api/tally/status'),
+  generatePairing: () => apiClient.post<PairingCode>('/api/tally/pairing/generate'),
+  disconnect: () => apiClient.post('/api/tally/disconnect'),
+  sync: () => apiClient.post('/api/tally/sync'),
+  activity: (limit = 15) => apiClient.get<{ items: ActivityJob[] }>(`/api/tally/activity?limit=${limit}`),
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function relTime(iso: string | null) {
+  if (!iso) return 'Never';
+  const diff = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function fmtOp(op: string) {
+  return op.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase());
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  SUCCESS: 'bg-emerald-100 text-emerald-700',
+  FAILED: 'bg-red-100 text-red-700',
+  PENDING: 'bg-amber-100 text-amber-700',
+  CLAIMED: 'bg-blue-100 text-blue-700',
+  RUNNING: 'bg-indigo-100 text-indigo-700',
+  RETRYING: 'bg-orange-100 text-orange-700',
+  CANCELLED: 'bg-slate-100 text-slate-600',
+};
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function ConnectionBadge({ online }: { online: boolean }) {
+  return online ? (
+    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700">
+      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+      TallyPrime Online
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500">
+      <span className="w-2 h-2 rounded-full bg-slate-300" />
+      TallyPrime Offline
+    </span>
+  );
+}
+
+function PairingModal({
+  pairing,
+  onClose,
+}: {
+  pairing: PairingCode;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(pairing.expires_in_minutes * 60);
+
+  useEffect(() => {
+    const t = setInterval(() => setTimeLeft(p => Math.max(0, p - 1)), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const copy = () => {
+    navigator.clipboard.writeText(pairing.code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const mins = Math.floor(timeLeft / 60);
+  const secs = timeLeft % 60;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <Card className="w-[420px] shadow-2xl">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Shield className="w-5 h-5 text-indigo-600" />
+            Connect TallyPrime Connector
+          </CardTitle>
+          <CardDescription>
+            Enter this code in the FinPilot Tally Connector on your Windows PC.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="text-center p-6 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
+            <p className="text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider">Pairing Code</p>
+            <p className="text-4xl font-mono font-bold text-slate-900 tracking-widest">{pairing.code}</p>
+          </div>
+
+          <div className="flex items-center justify-between text-sm">
+            <span className="flex items-center gap-1.5 text-slate-500">
+              <Clock className="w-4 h-4" />
+              Expires in {mins}:{secs.toString().padStart(2, '0')}
+            </span>
+            <Button size="sm" variant="outline" onClick={copy} className="gap-1.5">
+              <Copy className="w-3.5 h-3.5" />
+              {copied ? 'Copied!' : 'Copy'}
+            </Button>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+            <strong>Steps:</strong> Open the FinPilot Connector on your PC → enter this code → connector will pair automatically.
+          </div>
+
+          <div className="space-y-1.5 text-sm text-slate-600">
+            <p className="font-medium text-slate-900">Setup checklist:</p>
+            {[
+              'TallyPrime is running with a company open',
+              'HTTP server enabled in Tally (F12 → Configure → Connectivity)',
+              'FinPilot Connector installed on same PC as Tally',
+            ].map((s, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <ChevronRight className="w-4 h-4 text-indigo-500 mt-0.5 shrink-0" />
+                <span>{s}</span>
+              </div>
+            ))}
+          </div>
+
+          <Button variant="outline" className="w-full" onClick={onClose}>
+            Close
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TallyPage() {
-  const [isConnected, setIsConnected] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [host, setHost] = useState('localhost');
-  const [port, setPort] = useState('9000');
-  const [autoSync, setAutoSync] = useState(false);
+  const [status, setStatus] = useState<TallyStatus | null>(null);
+  const [activity, setActivity] = useState<ActivityJob[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [pairing, setPairing] = useState<PairingCode | null>(null);
 
-  const handleConnect = async () => {
-    setIsSyncing(true);
-    await new Promise(r => setTimeout(r, 2000));
-    setIsSyncing(false);
-    // In real implementation, would test connection
-    toast({
-      title: 'Connection test complete',
-      description: 'Make sure Tally is running with TallyPrime and the connector service is enabled.',
-      variant: 'default',
-    });
+  const fetchStatus = useCallback(async () => {
+    try {
+      const [s, a] = await Promise.all([
+        tallyApi.status(),
+        tallyApi.activity(),
+      ]);
+      setStatus(s.data);
+      setActivity(a.data.items);
+    } catch {
+      // status fetch errors are non-fatal
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+    const t = setInterval(fetchStatus, 15_000);
+    return () => clearInterval(t);
+  }, [fetchStatus]);
+
+  const handleGeneratePairing = async () => {
+    setActionLoading('pair');
+    try {
+      const res = await tallyApi.generatePairing();
+      setPairing(res.data);
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      toast({ title: 'Error', description: err?.response?.data?.detail || 'Failed to generate pairing code', variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleSync = async () => {
-    setIsSyncing(true);
-    await new Promise(r => setTimeout(r, 3000));
-    setIsSyncing(false);
-    toast({ title: 'Sync initiated', description: 'Data sync with Tally has been started.', variant: 'success' });
+    setActionLoading('sync');
+    try {
+      const res = await tallyApi.sync();
+      toast({ title: 'Sync queued', description: (res.data as { message?: string }).message || 'Sync job created' });
+      setTimeout(fetchStatus, 2000);
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      toast({ title: 'Sync failed', description: err?.response?.data?.detail || 'Could not start sync', variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
   };
+
+  const handleDisconnect = async () => {
+    if (!confirm('Disconnect and revoke the Tally connector? The connector will stop working immediately.')) return;
+    setActionLoading('disconnect');
+    try {
+      await tallyApi.disconnect();
+      toast({ title: 'Disconnected', description: 'Connector revoked successfully.' });
+      await fetchStatus();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      toast({ title: 'Error', description: err?.response?.data?.detail || 'Failed to disconnect', variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+      </div>
+    );
+  }
+
+  const connector = status?.connector;
+  const connected = status?.connected ?? false;
+  const tallyOnline = status?.tally_online ?? false;
 
   return (
     <div className="space-y-6 max-w-3xl">
+      {pairing && <PairingModal pairing={pairing} onClose={() => { setPairing(null); fetchStatus(); }} />}
+
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Tally Integration</h2>
-        <p className="text-sm text-slate-500">Connect and sync data with Tally ERP</p>
+        <h2 className="text-lg font-semibold text-slate-900">TallyPrime Integration</h2>
+        <p className="text-sm text-slate-500">
+          Connect your local TallyPrime installation through the FinPilot Connector.
+        </p>
       </div>
 
-      {/* Status Card */}
+      {/* ── Status Card ── */}
       <Card>
         <CardContent className="p-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isConnected ? 'bg-emerald-100' : 'bg-slate-100'}`}>
-                <Zap className={`w-6 h-6 ${isConnected ? 'text-emerald-600' : 'text-slate-400'}`} />
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+                connected ? 'bg-emerald-100' : 'bg-slate-100'
+              }`}>
+                {connected ? (
+                  <Wifi className="w-6 h-6 text-emerald-600" />
+                ) : (
+                  <WifiOff className="w-6 h-6 text-slate-400" />
+                )}
               </div>
               <div>
-                <p className="font-semibold text-slate-900">Tally Connection Status</p>
-                <div className="flex items-center gap-2 mt-1">
-                  {isConnected ? (
-                    <>
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      <span className="text-sm text-emerald-600 font-medium">Connected</span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="w-4 h-4 text-slate-400" />
-                      <span className="text-sm text-slate-500">Not connected</span>
-                    </>
-                  )}
-                </div>
+                <p className="font-semibold text-slate-900">
+                  {connected ? 'Connector Paired' : 'No Connector Paired'}
+                </p>
+                {connected && connector ? (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                    <ConnectionBadge online={tallyOnline} />
+                    <span className="text-xs text-slate-400">·</span>
+                    <span className="text-xs text-slate-500">{connector.device}</span>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500 mt-0.5">{status?.message}</p>
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              {isConnected && (
-                <Button onClick={handleSync} loading={isSyncing} variant="outline">
-                  <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
-                  Sync Now
+            <div className="flex items-center gap-2 shrink-0">
+              {connected && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSync}
+                    disabled={!tallyOnline || actionLoading === 'sync'}
+                    className="gap-1.5"
+                  >
+                    {actionLoading === 'sync' ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    Sync Now
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleDisconnect}
+                    disabled={actionLoading === 'disconnect'}
+                  >
+                    Disconnect
+                  </Button>
+                </>
+              )}
+              {!connected && (
+                <Button
+                  onClick={handleGeneratePairing}
+                  disabled={actionLoading === 'pair'}
+                  className="gap-1.5"
+                >
+                  {actionLoading === 'pair' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Zap className="w-4 h-4" />
+                  )}
+                  Connect TallyPrime
                 </Button>
               )}
-              <Button onClick={() => setIsConnected(!isConnected)} variant={isConnected ? 'destructive' : 'default'}>
-                {isConnected ? 'Disconnect' : 'Connect'}
+              <Button variant="ghost" size="sm" onClick={fetchStatus} className="gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5" />
+                Refresh
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Configuration */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Settings className="w-4 h-4 text-indigo-600" />
-            Connection Settings
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Tally Host</Label>
-              <Input value={host} onChange={e => setHost(e.target.value)} placeholder="localhost" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Port</Label>
-              <Input value={port} onChange={e => setPort(e.target.value)} placeholder="9000" />
-            </div>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-            <div>
-              <p className="font-medium text-slate-900 text-sm">Auto Sync</p>
-              <p className="text-xs text-slate-500">Automatically sync data every hour</p>
-            </div>
-            <Switch checked={autoSync} onCheckedChange={setAutoSync} />
-          </div>
-          <Button onClick={handleConnect} loading={isSyncing} variant="outline">
-            Test Connection
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Sync Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Sync Configuration</CardTitle>
-          <CardDescription>Choose what data to sync with Tally</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {[
-            { label: 'Sales Invoices', description: 'Sync sales invoices to Tally ledger', enabled: true },
-            { label: 'Purchase Invoices', description: 'Sync vendor invoices and expenses', enabled: true },
-            { label: 'Payments', description: 'Sync payment vouchers', enabled: false },
-            { label: 'Customer Masters', description: 'Sync customer/party ledgers', enabled: true },
-            { label: 'Vendor Masters', description: 'Sync vendor/party ledgers', enabled: true },
-            { label: 'Stock Items', description: 'Sync inventory items', enabled: false },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center justify-between py-2">
-              <div>
-                <p className="text-sm font-medium text-slate-900">{item.label}</p>
-                <p className="text-xs text-slate-500">{item.description}</p>
+      {/* ── Connector Details ── */}
+      {connected && connector && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Monitor className="w-4 h-4 text-indigo-600" />
+              Connector Details
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y divide-slate-100">
+            {[
+              { label: 'Connector Name', value: connector.name },
+              { label: 'Device', value: connector.device || '—' },
+              { label: 'TallyPrime Company', value: connector.tally_company || 'Not detected yet' },
+              { label: 'Tally Address', value: `${connector.tally_host}:${connector.tally_port}` },
+              { label: 'Last Heartbeat', value: relTime(connector.last_heartbeat) },
+              { label: 'Last Sync', value: relTime(connector.last_sync_at) },
+              { label: 'Paired On', value: new Date(connector.paired_at).toLocaleString() },
+            ].map(({ label, value }) => (
+              <div key={label} className="flex items-center justify-between py-2.5 text-sm">
+                <span className="text-slate-500">{label}</span>
+                <span className="font-medium text-slate-900">{value}</span>
               </div>
-              <Switch defaultChecked={item.enabled} />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
-      {/* How it works */}
+      {/* ── Activity Log ── */}
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
-            <Info className="w-4 h-4 text-indigo-600" />
-            How Tally Integration Works
+            <Activity className="w-4 h-4 text-indigo-600" />
+            Integration Activity
           </CardTitle>
+          <CardDescription>Recent Tally jobs and sync operations</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4 text-sm text-slate-600">
-            <p>FinPilot AI connects to Tally via the <strong className="text-slate-900">TallyPrime Connector API</strong> (HTTP/XML interface).</p>
-
-            <div className="space-y-3">
-              {[
-                { step: '1', title: 'Install TallyPrime', desc: 'Ensure Tally Prime 2.x or higher is installed on your system' },
-                { step: '2', title: 'Enable Tally Connector', desc: 'In Tally, go to F12 > Configure > Connectivity and enable the HTTP server on port 9000' },
-                { step: '3', title: 'Configure Connection', desc: 'Enter the host and port above (usually localhost:9000 if running on same machine)' },
-                { step: '4', title: 'Test & Connect', desc: 'Click "Test Connection" to verify, then "Connect" to start syncing' },
-              ].map((item) => (
-                <div key={item.step} className="flex gap-3">
-                  <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold shrink-0">
-                    {item.step}
+          {activity.length === 0 ? (
+            <div className="py-8 text-center">
+              <Database className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+              <p className="text-sm text-slate-500">No activity yet. Sync will appear here once the connector is paired.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {activity.map(job => (
+                <div key={job.id} className="flex items-center justify-between py-2.5 text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[job.status] ?? 'bg-slate-100 text-slate-600'}`}>
+                      {job.status}
+                    </span>
+                    <span className="text-slate-900 font-medium">{fmtOp(job.operation)}</span>
+                    {job.retry_count > 0 && (
+                      <span className="text-xs text-orange-500">retry {job.retry_count}</span>
+                    )}
                   </div>
-                  <div>
-                    <p className="font-medium text-slate-900">{item.title}</p>
-                    <p className="text-slate-500">{item.desc}</p>
+                  <div className="text-right">
+                    <p className="text-slate-400 text-xs">{relTime(job.completed_at || job.created_at)}</p>
+                    {job.error_message && (
+                      <p className="text-red-500 text-xs truncate max-w-[200px]" title={job.error_message}>
+                        {job.error_message}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
+          )}
+        </CardContent>
+      </Card>
 
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-amber-800 text-xs">
-                <strong>Note:</strong> Tally must be running and the company file must be open for sync to work.
-                The integration uses XML-based TDL (Tally Definition Language) requests.
-              </p>
+      {/* ── How It Works ── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Info className="w-4 h-4 text-indigo-600" />
+            Architecture — How It Works
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm text-slate-600">
+          <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-lg">
+            <p className="text-indigo-900 font-medium mb-1">Secure Connector Architecture</p>
+            <p className="text-indigo-700 text-xs">
+              FinPilot <strong>never</strong> exposes TallyPrime to the internet. The connector runs on
+              your PC, reaches out to FinPilot cloud over HTTPS, and communicates with Tally locally.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {[
+              { icon: '🌐', title: 'FinPilot Cloud (Render)', desc: 'Hosts job queue. Connector polls securely over HTTPS.' },
+              { icon: '🖥️', title: 'FinPilot Connector (Your PC)', desc: 'Lightweight Python process. Polls cloud, executes Tally operations locally.' },
+              { icon: '📊', title: 'TallyPrime (localhost:9000)', desc: 'Never exposed to internet. Connector communicates via XML/HTTP on localhost.' },
+            ].map(({ icon, title, desc }) => (
+              <div key={title} className="flex gap-3 p-3 bg-slate-50 rounded-lg">
+                <span className="text-xl">{icon}</span>
+                <div>
+                  <p className="font-semibold text-slate-900">{title}</p>
+                  <p className="text-slate-500 text-xs">{desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <Separator />
+
+          <div>
+            <p className="font-semibold text-slate-900 mb-2">Setup Steps</p>
+            <div className="space-y-2">
+              {[
+                { n: '1', t: 'Enable TallyPrime HTTP Server', d: 'In Tally: F12 → Configure → Connectivity → Enable HTTP server on port 9000' },
+                { n: '2', t: 'Download FinPilot Connector', d: 'Download from the /tally-connector directory of this repository and run setup.bat' },
+                { n: '3', t: 'Generate Pairing Code', d: 'Click "Connect TallyPrime" above. A code appears — enter it in the connector.' },
+                { n: '4', t: 'Connector Registers', d: 'Connector pairs, starts polling for jobs, and sends heartbeats every 30 seconds.' },
+              ].map(({ n, t, d }) => (
+                <div key={n} className="flex gap-3">
+                  <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+                    {n}
+                  </div>
+                  <div>
+                    <p className="font-medium text-slate-900">{t}</p>
+                    <p className="text-xs text-slate-500">{d}</p>
+                  </div>
+                </div>
+              ))}
             </div>
+          </div>
+
+          <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-800">
+              <strong>Demo mode:</strong> When no connector is paired, FinPilot uses its internal
+              PostgreSQL data. Tally data is only read/written when a connector is active.
+            </p>
           </div>
         </CardContent>
       </Card>

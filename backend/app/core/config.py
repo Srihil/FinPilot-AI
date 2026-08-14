@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     TALLY_ENABLED: bool = False
     TALLY_HOST: str = "localhost"
     TALLY_PORT: int = 9000
+    TALLY_CONNECTOR_POLL_INTERVAL: int = 10   # seconds the connector polls for jobs
+    TALLY_PAIRING_CODE_TTL_MINUTES: int = 10  # how long a pairing code is valid
+    TALLY_HEARTBEAT_TIMEOUT_SECONDS: int = 120  # after this without heartbeat → offline
 
     @property
     def cors_origins_list(self) -> List[str]:

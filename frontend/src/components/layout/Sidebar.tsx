@@ -26,7 +26,7 @@ const navItems = [
   { label: 'Reports', icon: FileBarChart, path: '/reports' },
   { label: 'Approvals', icon: CheckSquare, path: '/approvals' },
   { label: 'Audit Logs', icon: ScrollText, path: '/audit-logs' },
-  { label: 'Tally', icon: Zap, path: '/tally' },
+  { label: 'TallyPrime', icon: Zap, path: '/tally' },
   { label: 'Settings', icon: Settings, path: '/settings' },
 ];
 

@@ -31,11 +31,15 @@ def override_get_db():
 app.dependency_overrides[get_db] = override_get_db
 
 
+_IS_TEST_DB = "finpilot_test" in TEST_DATABASE_URL
+
+
 @pytest.fixture(scope="session", autouse=True)
 def create_tables():
     Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
+    if _IS_TEST_DB:
+        Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture

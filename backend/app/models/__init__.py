@@ -13,9 +13,12 @@ from app.models.approval import Approval
 from app.models.audit_log import AuditLog
 from app.models.report import Report
 from app.models.ai_conversation import AIConversation, AIMessage
+from app.models.tally_connector import TallyConnector, TallyPairingCode
+from app.models.tally_job import TallyIntegrationJob
 
 __all__ = [
     "Company", "User", "Customer", "Vendor", "Product", "Account",
     "Invoice", "InvoiceItem", "Expense", "Payment", "InventoryTransaction",
     "Upload", "Approval", "AuditLog", "Report", "AIConversation", "AIMessage",
+    "TallyConnector", "TallyPairingCode", "TallyIntegrationJob",
 ]

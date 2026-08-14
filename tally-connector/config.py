@@ -1,12 +1,25 @@
 """
 Connector configuration — reads from .env file or environment variables.
+Works both as a plain Python script and as a PyInstaller .exe bundle.
 """
 import os
+import sys
 from pathlib import Path
+
+
+def _base_dir() -> Path:
+    """Return the directory containing the .exe (or the script directory)."""
+    if getattr(sys, "frozen", False):
+        # Running as PyInstaller bundle — use directory of the .exe
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
+
+BASE_DIR = _base_dir()
 
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent / ".env")
+    load_dotenv(BASE_DIR / ".env")
 except ImportError:
     pass
 

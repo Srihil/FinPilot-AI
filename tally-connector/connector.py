@@ -26,7 +26,7 @@ from typing import Optional
 
 import httpx
 
-from config import config
+from config import config, BASE_DIR
 from tally_client import TallyClient, TallyError
 
 logging.basicConfig(
@@ -36,7 +36,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("connector")
 
-ENV_FILE = Path(__file__).parent / ".env"
+ENV_FILE = BASE_DIR / ".env"
 
 # ─── Cloud API helpers ────────────────────────────────────────────────────────
 
@@ -359,4 +359,18 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        print("\n" + "=" * 60)
+        print("  UNEXPECTED ERROR")
+        print("=" * 60)
+        print(f"\n  {type(e).__name__}: {e}")
+        print("\n  Please screenshot this and report it.")
+        print("  Common fixes:")
+        print("  - Make sure TallyPrime is open with a company loaded")
+        print("  - Check your internet connection")
+        print("  - Delete .env next to this .exe and re-pair")
+        print()
+        input("  Press Enter to close...")
+        sys.exit(1)

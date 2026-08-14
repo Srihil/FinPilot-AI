@@ -203,9 +203,18 @@ def _execute_job(tally: TallyClient, job: dict):
         if op == "CREATE_LEDGER":
             return tally.create_ledger(pl), None
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
-            led = tally.get_ledgers(); stk = tally.get_stock_items()
-            return {"synced": True, "ledger_count": len(led),
-                    "stock_item_count": len(stk)}, None
+            ledgers = tally.get_ledgers()
+            vouchers = tally.get_vouchers()
+            stock = tally.get_stock_items()
+            return {
+                "synced": True,
+                "ledgers": ledgers,
+                "vouchers": vouchers,
+                "stock_items": stock,
+                "ledger_count": len(ledgers),
+                "voucher_count": len(vouchers),
+                "stock_item_count": len(stock),
+            }, None
         return None, f"Not implemented: {op}"
     except TallyError as e:
         return None, str(e)

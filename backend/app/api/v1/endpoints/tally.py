@@ -527,6 +527,15 @@ def submit_job_result(
 
         if job.operation in (TallyJobOperation.SYNC_FULL, TallyJobOperation.SYNC_PARTIAL):
             connector.last_sync_at = datetime.now(timezone.utc)
+            # Import Tally data into FinPilot
+            if body.result:
+                try:
+                    from app.services.tally_sync_service import process_sync_result
+                    import_stats = process_sync_result(db, job.company_id, body.result)
+                    job.result = {**body.result, "import_stats": import_stats}
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("Sync import error: %s", e)
     elif body.status == "FAILED":
         job.retry_count = (job.retry_count or 0) + 1
         job.error_message = body.error_message

@@ -381,17 +381,21 @@ def _show_pairing_window(on_success=None) -> None:
         bg = C["red_bg"] if style == "error" else C["amber_bg"]
         fg = C["red_text"] if style == "error" else C["amber"]
         border = C["red"] if style == "error" else "#d97706"
+        # Use StringVar.set() — textvariable overrides .config(text=)
+        msg_title_var.set(title)
+        msg_body_var.set(detail)
         msg_inner.config(bg=bg, highlightbackground=border)
-        msg_title_lbl.config(bg=bg, fg=fg, text=title)
-        msg_body_lbl.config(bg=bg, fg=fg, text=detail)
+        msg_title_lbl.config(bg=bg, fg=fg)
+        msg_body_lbl.config(bg=bg, fg=fg)
         msg_title_lbl.pack(anchor="w", padx=10, pady=(8, 2))
         msg_body_lbl.pack(anchor="w", padx=10, pady=(0, 8))
         msg_inner.pack(fill="x")
-        # Expand the frame to fit content
-        msg_frame.config(height=56 if detail else 34)
+        msg_frame.config(height=60 if detail else 36)
         win.update_idletasks()
 
     def _hide_msg() -> None:
+        msg_title_var.set("")
+        msg_body_var.set("")
         msg_inner.pack_forget()
         msg_title_lbl.pack_forget()
         msg_body_lbl.pack_forget()

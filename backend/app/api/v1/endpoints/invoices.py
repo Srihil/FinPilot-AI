@@ -1,0 +1,115 @@
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from app.db.base import get_db
+from app.auth.dependencies import get_current_user, require_admin_or_accountant, require_approver
+from app.models.user import User
+from app.services.invoice_service import invoice_service
+from app.schemas.invoice import InvoiceCreate, InvoiceUpdate
+from app.models.audit_log import AuditAction
+from app.services.audit_service import audit_service
+from typing import Optional
+import math
+import uuid
+
+router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+
+def _serialize(inv) -> dict:
+    d = {
+        "id": str(inv.id), "company_id": str(inv.company_id),
+        "customer_id": str(inv.customer_id) if inv.customer_id else None,
+        "vendor_id": str(inv.vendor_id) if inv.vendor_id else None,
+        "invoice_number": inv.invoice_number, "invoice_type": inv.invoice_type.value,
+        "status": inv.status.value,
+        "invoice_date": inv.invoice_date.isoformat(),
+        "due_date": inv.due_date.isoformat() if inv.due_date else None,
+        "subtotal": float(inv.subtotal), "tax_amount": float(inv.tax_amount),
+        "discount_amount": float(inv.discount_amount), "total_amount": float(inv.total_amount),
+        "paid_amount": float(inv.paid_amount), "currency": inv.currency,
+        "notes": inv.notes, "created_at": inv.created_at.isoformat(),
+        "customer_name": getattr(inv, "customer_name", None) or (inv.customer.name if inv.customer else None),
+        "vendor_name": getattr(inv, "vendor_name", None) or (inv.vendor.name if inv.vendor else None),
+        "items": [],
+    }
+    if hasattr(inv, "items") and inv.items:
+        d["items"] = [
+            {
+                "id": str(item.id), "description": item.description,
+                "quantity": float(item.quantity), "unit_price": float(item.unit_price),
+                "tax_rate": float(item.tax_rate), "tax_amount": float(item.tax_amount),
+                "discount_rate": float(item.discount_rate), "line_total": float(item.line_total),
+                "product_id": str(item.product_id) if item.product_id else None,
+            }
+            for item in inv.items
+        ]
+    return d
+
+
+@router.get("")
+def list_invoices(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None),
+    invoice_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    customer_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    items, total = invoice_service.get_all(
+        db, current_user.company_id, page, page_size, status, invoice_type, search, customer_id
+    )
+    return {
+        "items": [_serialize(inv) for inv in items],
+        "total": total, "page": page, "page_size": page_size,
+        "total_pages": math.ceil(total / page_size),
+    }
+
+
+@router.get("/{invoice_id}")
+def get_invoice(
+    invoice_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    inv = invoice_service.get_by_id(db, current_user.company_id, invoice_id)
+    return _serialize(inv)
+
+
+@router.post("")
+def create_invoice(
+    data: InvoiceCreate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    inv = invoice_service.create(db, current_user.company_id, current_user.id, data)
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.CREATE,
+                      entity_type="invoice", entity_id=inv.id,
+                      description=f"Invoice {inv.invoice_number} created")
+    return _serialize(inv)
+
+
+@router.post("/{invoice_id}/submit")
+def submit_for_approval(
+    invoice_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    inv = invoice_service.submit_for_approval(db, current_user.company_id, current_user.id, invoice_id)
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.CREATE,
+                      entity_type="approval", entity_id=inv.id,
+                      description=f"Invoice {inv.invoice_number} submitted for approval")
+    return {"message": "Submitted for approval", "invoice_id": str(inv.id), "status": inv.status.value}
+
+
+@router.post("/{invoice_id}/approve")
+def approve_invoice(
+    invoice_id: str,
+    current_user: User = Depends(require_approver),
+    db: Session = Depends(get_db),
+):
+    inv = invoice_service.approve(db, current_user.company_id, current_user.id, invoice_id)
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.APPROVE,
+                      entity_type="invoice", entity_id=inv.id,
+                      description=f"Invoice {inv.invoice_number} approved")
+    return {"message": "Invoice approved", "invoice_id": str(inv.id), "status": inv.status.value}

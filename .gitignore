@@ -1,0 +1,40 @@
+# Environment secrets
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+*.sqlite3
+*.db
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Uploads & generated files
+backend/uploads/
+
+# IDE / OS
+.claude/
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/

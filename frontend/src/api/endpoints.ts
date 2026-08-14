@@ -1,0 +1,308 @@
+import apiClient from './client';
+import type {
+  User, AuthTokens, LoginRequest, SignupRequest,
+  DashboardOverview, DashboardCharts,
+  Customer, Vendor, Product,
+  Transaction, Invoice, Expense,
+  Approval, AuditLog,
+  Conversation, Message,
+  UploadResult, Report,
+  CompanySettings, AISettings,
+  AnalyticsOverview, AnalyticsCharts,
+  PaginatedResponse,
+} from '../types';
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+export const authApi = {
+  login: async (data: LoginRequest): Promise<AuthTokens> => {
+    const response = await apiClient.post('/api/auth/login', {
+      email: data.email,
+      password: data.password,
+    });
+    return response.data;
+  },
+
+  signup: async (data: SignupRequest): Promise<User> => {
+    const response = await apiClient.post('/api/auth/signup', data);
+    return response.data;
+  },
+
+  me: async (): Promise<User> => {
+    const response = await apiClient.get('/api/auth/me');
+    return response.data;
+  },
+};
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
+export const dashboardApi = {
+  overview: async (): Promise<DashboardOverview> => {
+    const response = await apiClient.get('/api/dashboard/overview');
+    return response.data;
+  },
+
+  charts: async (): Promise<DashboardCharts> => {
+    const response = await apiClient.get('/api/dashboard/charts');
+    return response.data;
+  },
+};
+
+// ─── Customers ────────────────────────────────────────────────────────────────
+
+export const customersApi = {
+  list: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<Customer>> => {
+    const response = await apiClient.get('/api/customers', { params });
+    return response.data;
+  },
+
+  get: async (id: string): Promise<Customer> => {
+    const response = await apiClient.get(`/api/customers/${id}`);
+    return response.data;
+  },
+
+  create: async (data: Partial<Customer>): Promise<Customer> => {
+    const response = await apiClient.post('/api/customers', data);
+    return response.data;
+  },
+
+  update: async (id: string, data: Partial<Customer>): Promise<Customer> => {
+    const response = await apiClient.put(`/api/customers/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await apiClient.delete(`/api/customers/${id}`);
+  },
+};
+
+// ─── Vendors ─────────────────────────────────────────────────────────────────
+
+export const vendorsApi = {
+  list: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<Vendor>> => {
+    const response = await apiClient.get('/api/vendors', { params });
+    return response.data;
+  },
+
+  create: async (data: Partial<Vendor>): Promise<Vendor> => {
+    const response = await apiClient.post('/api/vendors', data);
+    return response.data;
+  },
+
+  update: async (id: string, data: Partial<Vendor>): Promise<Vendor> => {
+    const response = await apiClient.put(`/api/vendors/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await apiClient.delete(`/api/vendors/${id}`);
+  },
+};
+
+// ─── Products ────────────────────────────────────────────────────────────────
+
+export const productsApi = {
+  list: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<Product>> => {
+    const response = await apiClient.get('/api/products', { params });
+    return response.data;
+  },
+
+  create: async (data: Partial<Product>): Promise<Product> => {
+    const response = await apiClient.post('/api/products', data);
+    return response.data;
+  },
+
+  update: async (id: string, data: Partial<Product>): Promise<Product> => {
+    const response = await apiClient.put(`/api/products/${id}`, data);
+    return response.data;
+  },
+};
+
+// ─── Invoices / Transactions ──────────────────────────────────────────────────
+
+export const invoicesApi = {
+  list: async (params: { page?: number; page_size?: number; status?: string; type?: string }): Promise<PaginatedResponse<Transaction>> => {
+    const response = await apiClient.get('/api/invoices', { params });
+    return response.data;
+  },
+
+  create: async (data: Partial<Invoice>): Promise<Invoice> => {
+    const response = await apiClient.post('/api/invoices', data);
+    return response.data;
+  },
+};
+
+// ─── Expenses ─────────────────────────────────────────────────────────────────
+
+export const expensesApi = {
+  list: async (params: { page?: number; page_size?: number; status?: string }): Promise<PaginatedResponse<Expense>> => {
+    const response = await apiClient.get('/api/expenses', { params });
+    return response.data;
+  },
+
+  create: async (data: Partial<Expense>): Promise<Expense> => {
+    const response = await apiClient.post('/api/expenses', data);
+    return response.data;
+  },
+};
+
+// ─── Approvals ────────────────────────────────────────────────────────────────
+
+export const approvalsApi = {
+  list: async (): Promise<Approval[]> => {
+    const response = await apiClient.get('/api/approvals');
+    // API returns { items: [...], total: N }
+    return response.data?.items ?? response.data ?? [];
+  },
+
+  approve: async (id: string, notes?: string): Promise<Approval> => {
+    const response = await apiClient.post(`/api/approvals/${id}/approve`, { notes });
+    return response.data;
+  },
+
+  reject: async (id: string, notes?: string): Promise<Approval> => {
+    const response = await apiClient.post(`/api/approvals/${id}/reject`, { notes });
+    return response.data;
+  },
+};
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
+export const analyticsApi = {
+  overview: async (params: { date_from?: string; date_to?: string }): Promise<AnalyticsOverview> => {
+    const response = await apiClient.get('/api/analytics/overview', { params });
+    return response.data;
+  },
+
+  charts: async (params: { date_from?: string; date_to?: string }): Promise<AnalyticsCharts> => {
+    const response = await apiClient.get('/api/analytics/charts', { params });
+    return response.data;
+  },
+};
+
+// ─── Audit Logs ───────────────────────────────────────────────────────────────
+
+export const auditApi = {
+  list: async (params: { page?: number; page_size?: number }): Promise<PaginatedResponse<AuditLog>> => {
+    const response = await apiClient.get('/api/audit-logs', { params });
+    return response.data;
+  },
+};
+
+// ─── AI Assistant ────────────────────────────────────────────────────────────
+
+export const assistantApi = {
+  createConversation: async (title = 'New Conversation'): Promise<Conversation> => {
+    const response = await apiClient.post('/api/assistant/conversations', { title });
+    return response.data;
+  },
+
+  listConversations: async (): Promise<Conversation[]> => {
+    const response = await apiClient.get('/api/assistant/conversations');
+    return Array.isArray(response.data) ? response.data : (response.data?.items ?? []);
+  },
+
+  sendMessage: async (conversationId: string, content: string): Promise<Message> => {
+    const response = await apiClient.post(`/api/assistant/conversations/${conversationId}/messages`, { content });
+    return response.data;
+  },
+
+  getMessages: async (conversationId: string): Promise<Message[]> => {
+    const response = await apiClient.get(`/api/assistant/conversations/${conversationId}/messages`);
+    return response.data;
+  },
+
+  deleteConversation: async (conversationId: string): Promise<void> => {
+    await apiClient.delete(`/api/assistant/conversations/${conversationId}`);
+  },
+
+  proposeTransaction: async (text: string): Promise<{
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    proposed: any;
+    validation: { is_valid: boolean; errors: string[]; warnings: string[] };
+    is_demo: boolean;
+  }> => {
+    const response = await apiClient.post('/api/assistant/propose-transaction', { text });
+    return response.data;
+  },
+};
+
+// ─── Uploads ─────────────────────────────────────────────────────────────────
+
+export const uploadsApi = {
+  uploadCSV: async (file: File, data_type: string): Promise<UploadResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('data_type', data_type);
+    const response = await apiClient.post('/api/uploads/csv', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  uploadPDFInvoice: async (file: File): Promise<Record<string, unknown>> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post('/api/uploads/pdf-invoice', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+};
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+
+export const reportsApi = {
+  generate: async (data: { type: string; date_from: string; date_to: string }): Promise<Report> => {
+    const response = await apiClient.post('/api/reports/generate', {
+      report_type: data.type,
+      period_start: data.date_from ? `${data.date_from}T00:00:00` : undefined,
+      period_end: data.date_to ? `${data.date_to}T23:59:59` : undefined,
+    });
+    return response.data;
+  },
+
+  list: async (): Promise<Report[]> => {
+    const response = await apiClient.get('/api/reports');
+    return response.data;
+  },
+
+  /** Download a PDF report as a blob and trigger browser save dialog. */
+  download: async (reportId: string, filename: string): Promise<void> => {
+    const response = await apiClient.get(`/api/reports/${reportId}/download`, {
+      responseType: 'blob',
+    });
+    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  },
+};
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+export const settingsApi = {
+  getCompany: async (): Promise<CompanySettings> => {
+    const response = await apiClient.get('/api/settings/company');
+    return response.data;
+  },
+
+  updateCompany: async (data: Partial<CompanySettings>): Promise<CompanySettings> => {
+    const response = await apiClient.put('/api/settings/company', data);
+    return response.data;
+  },
+
+  getAI: async (): Promise<AISettings> => {
+    const response = await apiClient.get('/api/settings/ai');
+    return response.data;
+  },
+
+  updateAI: async (data: Partial<AISettings>): Promise<AISettings> => {
+    const response = await apiClient.put('/api/settings/ai', data);
+    return response.data;
+  },
+};

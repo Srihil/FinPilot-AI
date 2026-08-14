@@ -1,0 +1,70 @@
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from app.db.base import get_db
+from app.auth.dependencies import get_current_user, require_admin_or_accountant
+from app.models.user import User
+from app.services.vendor_service import vendor_service
+from app.schemas.vendor import VendorCreate, VendorUpdate
+from typing import Optional
+import math
+
+router = APIRouter(prefix="/vendors", tags=["vendors"])
+
+
+@router.get("")
+def list_vendors(
+    search: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    items, total = vendor_service.get_all(db, current_user.company_id, search, page, page_size)
+    return {
+        "items": [
+            {
+                "id": str(v.id), "company_id": str(v.company_id), "name": v.name,
+                "email": v.email, "phone": v.phone, "address": v.address,
+                "city": v.city, "state": v.state, "country": v.country,
+                "gst_number": v.gst_number, "pan_number": v.pan_number,
+                "payment_terms_days": v.payment_terms_days, "is_active": v.is_active,
+                "notes": v.notes, "created_at": v.created_at.isoformat(),
+                "total_purchases": getattr(v, "total_purchases", 0),
+                "outstanding_payable": getattr(v, "outstanding_payable", 0),
+            }
+            for v in items
+        ],
+        "total": total, "page": page, "page_size": page_size,
+        "total_pages": math.ceil(total / page_size),
+    }
+
+
+@router.post("")
+def create_vendor(
+    data: VendorCreate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    v = vendor_service.create(db, current_user.company_id, data)
+    return {"id": str(v.id), "name": v.name, "message": "Vendor created successfully"}
+
+
+@router.put("/{vendor_id}")
+def update_vendor(
+    vendor_id: str,
+    data: VendorUpdate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    v = vendor_service.update(db, current_user.company_id, vendor_id, data)
+    return {"id": str(v.id), "name": v.name, "message": "Vendor updated successfully"}
+
+
+@router.delete("/{vendor_id}")
+def delete_vendor(
+    vendor_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    vendor_service.delete(db, current_user.company_id, vendor_id)
+    return {"message": "Vendor deactivated successfully"}

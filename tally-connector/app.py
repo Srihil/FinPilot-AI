@@ -87,7 +87,8 @@ def _url(path: str) -> str:
 
 
 def _pair(code: str) -> str:
-    with httpx.Client(timeout=20) as c:
+    # 70s timeout — Render free tier can take up to 60s to wake from sleep
+    with httpx.Client(timeout=70) as c:
         r = c.post(_url("/api/tally/connector/register"),
                    json={"pairing_code": code.strip().upper(),
                          "connector_name": "FinPilot Connector",
@@ -277,22 +278,33 @@ def _show_pairing_window(on_success=None) -> None:
         err_lbl.pack_forget()
         win.update()
 
+        # After 6s still waiting → show wake-up hint
+        def _maybe_show_wakeup():
+            if btn.cget("text") == "Connecting…":
+                err_var.set("⏳  Waking up the server (Render free tier sleeps after inactivity).\n    This takes up to 60 seconds — please wait…")
+                err_lbl.config(fg="#92400e", bg="#fffbeb")
+                err_lbl.pack(fill="x", pady=(6, 0))
+        win.after(6000, _maybe_show_wakeup)
+
         def _try():
+            err = None
             try:
                 _pair(code)
                 _state["connected"] = True
                 win.after(0, _show_success)
-            except ValueError as e:
-                win.after(0, lambda: _show_err(f"❌  {e}"))
-            except Exception as e:
-                win.after(0, lambda: _show_err(
-                    f"❌  Network error: {e}\n\nCheck your internet connection."
-                ))
+                return
+            except ValueError as ve:
+                err = f"❌  {ve}"
+            except Exception as ex:
+                err = f"❌  Network error: {ex}\n\nCheck your internet connection."
+            captured = err
+            win.after(0, lambda: _show_err(captured))
 
         threading.Thread(target=_try, daemon=True).start()
 
     def _show_err(msg: str):
         btn.config(state="normal", text="Connect")
+        err_lbl.config(fg="#dc2626", bg="#fef2f2")
         err_var.set(msg)
         err_lbl.pack(fill="x", pady=(6, 0))
 

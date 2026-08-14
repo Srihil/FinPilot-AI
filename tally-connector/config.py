@@ -25,8 +25,8 @@ except ImportError:
 
 
 class Config:
-    # FinPilot cloud API
-    FINPILOT_API_URL: str = os.getenv("FINPILOT_API_URL", "https://your-backend.onrender.com")
+    # FinPilot cloud API — hardcoded production URL, overridable via .env
+    FINPILOT_API_URL: str = os.getenv("FINPILOT_API_URL", "https://finpilot-backend-w1im.onrender.com")
     CONNECTOR_TOKEN: str = os.getenv("CONNECTOR_TOKEN", "")
 
     # TallyPrime

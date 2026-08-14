@@ -189,18 +189,7 @@ def _save_env_value(key: str, value: str) -> None:
 # ─── Pairing flow ─────────────────────────────────────────────────────────────
 
 def _setup_backend_url() -> None:
-    placeholder = "https://your-backend.onrender.com"
-    if config.FINPILOT_API_URL and config.FINPILOT_API_URL != placeholder:
-        return
-    print("\n  What is your FinPilot backend URL?")
-    print("  (Find it in your Render dashboard — backend service URL)")
-    print("  Example: https://finpilot-backend-abcd.onrender.com\n")
-    url = input("  Backend URL: ").strip().rstrip("/")
-    if not url.startswith("http"):
-        _fatal("Invalid URL entered. Must start with http:// or https://")
-    config.FINPILOT_API_URL = url
-    _save_env_value("FINPILOT_API_URL", url)
-    print(f"\n  ✓ Saved: {url}")
+    pass  # URL is hardcoded in config — nothing to ask
 
 
 def pair(pairing_code: str) -> str:
@@ -235,11 +224,9 @@ def run() -> None:
         print("  FinPilot Tally Connector — First-Time Setup")
         print("=" * 60)
 
-        _setup_backend_url()
-
-        print(f"\n  Backend: {config.FINPILOT_API_URL}")
-        print("\n  1. Open FinPilot in your browser")
-        print("  2. Go to TallyPrime page → click 'Connect TallyPrime'")
+        print(f"\n  Connecting to: {config.FINPILOT_API_URL}")
+        print("\n  1. Open FinPilot: https://finpilot-frontend-vbdf.onrender.com/tally")
+        print("  2. Click 'Connect TallyPrime'")
         print("  3. Copy the pairing code shown\n")
         code = input("  Enter pairing code (e.g. ABCD-EFGHI): ").strip()
         if not code:

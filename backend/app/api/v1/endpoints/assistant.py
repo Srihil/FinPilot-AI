@@ -543,41 +543,216 @@ def create_entity(
             return create_entity(EntityCreateRequest(entity_type="invoice", data=payload),
                                  current_user, db)
 
-        # TallyPrime-only entities (no FinPilot DB model — just queue write job)
+        # Tally master entities — save to FinPilot DB so management pages show them,
+        # then queue the job so the connector pushes them to TallyPrime.
         elif entity_type == "ledger":
-            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_LEDGER",
-                {"name": payload.get("name", ""), "group": payload.get("group", "Sundry Debtors"),
-                 "opening_balance": str(payload.get("opening_balance", "0"))})
-            if tally_queued: db.commit()
+            from app.models.tally_masters import TallyLedger
+            from app.models.tally_connector import TallyConnector, ConnectorStatus
+            from app.models.tally_job import TallyIntegrationJob, TallyJobOperation
+            name = (payload.get("name") or "").strip()
+            group = payload.get("group") or "Sundry Debtors"
+            opening_balance = float(payload.get("opening_balance") or 0)
+            tally_key = f"{current_user.company_id}::{name.lower()}"
+            existing = db.query(TallyLedger).filter(
+                TallyLedger.company_id == current_user.company_id,
+                TallyLedger.tally_key == tally_key,
+                TallyLedger.is_active == True,
+            ).first()
+            if existing:
+                raise HTTPException(status_code=409, detail=f"Ledger '{name}' already exists")
+            record = TallyLedger(
+                company_id=current_user.company_id,
+                name=name, parent_group=group,
+                opening_balance=opening_balance,
+                tally_key=tally_key, source="finpilot", tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            connector = db.query(TallyConnector).filter(
+                TallyConnector.company_id == current_user.company_id,
+                TallyConnector.status == ConnectorStatus.ACTIVE,
+            ).first()
+            if connector:
+                job = TallyIntegrationJob(
+                    company_id=current_user.company_id, connector_id=connector.id,
+                    created_by=current_user.id, operation=TallyJobOperation.CREATE_LEDGER,
+                    payload={"name": name, "group": group, "opening_balance": str(int(opening_balance))},
+                    idempotency_key=f"create_ledger::{record.id}",
+                )
+                db.add(job)
+                db.flush()
+                record.tally_job_id = job.id
+                tally_queued = True
+            entity_id = str(record.id)
+            db.commit()
 
         elif entity_type == "group":
-            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_GROUP",
-                {"name": payload.get("name", ""), "parent": payload.get("parent", "Capital Account")})
-            if tally_queued: db.commit()
+            from app.models.tally_masters import TallyGroup
+            from app.models.tally_connector import TallyConnector, ConnectorStatus
+            from app.models.tally_job import TallyIntegrationJob, TallyJobOperation
+            name = (payload.get("name") or "").strip()
+            parent = (payload.get("parent") or "").strip() or None
+            nature = (payload.get("nature") or "").strip() or None
+            tally_key = f"{current_user.company_id}::{name.lower()}"
+            existing = db.query(TallyGroup).filter(
+                TallyGroup.company_id == current_user.company_id,
+                TallyGroup.tally_key == tally_key,
+                TallyGroup.is_active == True,
+            ).first()
+            if existing:
+                raise HTTPException(status_code=409, detail=f"Account group '{name}' already exists")
+            record = TallyGroup(
+                company_id=current_user.company_id,
+                name=name, parent=parent, nature=nature,
+                tally_key=tally_key, source="finpilot", tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            connector = db.query(TallyConnector).filter(
+                TallyConnector.company_id == current_user.company_id,
+                TallyConnector.status == ConnectorStatus.ACTIVE,
+            ).first()
+            if connector:
+                job_payload = {"name": name}
+                if parent:
+                    job_payload["parent"] = parent
+                job = TallyIntegrationJob(
+                    company_id=current_user.company_id, connector_id=connector.id,
+                    created_by=current_user.id, operation=TallyJobOperation.CREATE_GROUP,
+                    payload=job_payload, idempotency_key=f"create_group::{record.id}",
+                )
+                db.add(job)
+                db.flush()
+                record.tally_job_id = job.id
+                tally_queued = True
+            entity_id = str(record.id)
+            db.commit()
 
         elif entity_type == "stock_group":
+            from app.models.tally_masters import TallyStockGroup
+            from app.models.tally_connector import TallyConnector, ConnectorStatus
+            from app.models.tally_job import TallyIntegrationJob, TallyJobOperation
+            name = (payload.get("name") or "").strip()
             sg_parent = (payload.get("parent") or "").strip()
-            # Strip "Primary" — TallyPrime's implicit root cannot be referenced by name
             if sg_parent.lower() in ("primary", ""):
                 sg_parent = ""
-            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_STOCK_GROUP",
-                {"name": payload.get("name", ""), "parent": sg_parent})
-            if tally_queued: db.commit()
+            tally_key = f"{current_user.company_id}::{name.lower()}"
+            existing = db.query(TallyStockGroup).filter(
+                TallyStockGroup.company_id == current_user.company_id,
+                TallyStockGroup.tally_key == tally_key,
+                TallyStockGroup.is_active == True,
+            ).first()
+            if existing:
+                raise HTTPException(status_code=409, detail=f"Stock group '{name}' already exists")
+            record = TallyStockGroup(
+                company_id=current_user.company_id,
+                name=name, parent=sg_parent or None,
+                tally_key=tally_key, source="finpilot", tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            connector = db.query(TallyConnector).filter(
+                TallyConnector.company_id == current_user.company_id,
+                TallyConnector.status == ConnectorStatus.ACTIVE,
+            ).first()
+            if connector:
+                job_payload = {"name": name}
+                if sg_parent:
+                    job_payload["parent"] = sg_parent
+                job = TallyIntegrationJob(
+                    company_id=current_user.company_id, connector_id=connector.id,
+                    created_by=current_user.id, operation=TallyJobOperation.CREATE_STOCK_GROUP,
+                    payload=job_payload, idempotency_key=f"create_stock_group::{record.id}",
+                )
+                db.add(job)
+                db.flush()
+                record.tally_job_id = job.id
+                tally_queued = True
+            entity_id = str(record.id)
+            db.commit()
 
         elif entity_type == "unit":
-            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_UNIT",
-                {"name": payload.get("name", ""), "symbol": payload.get("symbol", ""),
-                 "decimal_places": str(payload.get("decimal_places", "0"))})
-            if tally_queued: db.commit()
+            from app.models.tally_masters import TallyUnit
+            from app.models.tally_connector import TallyConnector, ConnectorStatus
+            from app.models.tally_job import TallyIntegrationJob, TallyJobOperation
+            name = (payload.get("name") or "").strip()
+            symbol = (payload.get("symbol") or name).strip().replace(" ", "")[:8] or name[:8]
+            decimal_places = int(payload.get("decimal_places") or 0)
+            tally_key = f"{current_user.company_id}::{name.lower()}"
+            existing = db.query(TallyUnit).filter(
+                TallyUnit.company_id == current_user.company_id,
+                TallyUnit.tally_key == tally_key,
+                TallyUnit.is_active == True,
+            ).first()
+            if existing:
+                raise HTTPException(status_code=409, detail=f"Unit '{name}' already exists")
+            record = TallyUnit(
+                company_id=current_user.company_id,
+                name=name, symbol=symbol, decimal_places=decimal_places, unit_type="simple",
+                tally_key=tally_key, source="finpilot", tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            connector = db.query(TallyConnector).filter(
+                TallyConnector.company_id == current_user.company_id,
+                TallyConnector.status == ConnectorStatus.ACTIVE,
+            ).first()
+            if connector:
+                job = TallyIntegrationJob(
+                    company_id=current_user.company_id, connector_id=connector.id,
+                    created_by=current_user.id, operation=TallyJobOperation.CREATE_UNIT,
+                    payload={"name": name, "symbol": symbol, "decimal_places": str(decimal_places)},
+                    idempotency_key=f"create_unit::{record.id}",
+                )
+                db.add(job)
+                db.flush()
+                record.tally_job_id = job.id
+                tally_queued = True
+            entity_id = str(record.id)
+            db.commit()
 
         elif entity_type == "godown":
+            from app.models.tally_masters import TallyGodown
+            from app.models.tally_connector import TallyConnector, ConnectorStatus
+            from app.models.tally_job import TallyIntegrationJob, TallyJobOperation
+            name = (payload.get("name") or "").strip()
             gd_parent = (payload.get("parent") or "").strip()
-            # Strip implicit root names — not addressable in all TallyPrime editions
             if gd_parent.lower() in ("main location", "primary", ""):
                 gd_parent = ""
-            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_GODOWN",
-                {"name": payload.get("name", ""), "parent": gd_parent})
-            if tally_queued: db.commit()
+            tally_key = f"{current_user.company_id}::{name.lower()}"
+            existing = db.query(TallyGodown).filter(
+                TallyGodown.company_id == current_user.company_id,
+                TallyGodown.tally_key == tally_key,
+                TallyGodown.is_active == True,
+            ).first()
+            if existing:
+                raise HTTPException(status_code=409, detail=f"Godown '{name}' already exists")
+            record = TallyGodown(
+                company_id=current_user.company_id,
+                name=name, parent=gd_parent or None,
+                tally_key=tally_key, source="finpilot", tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            connector = db.query(TallyConnector).filter(
+                TallyConnector.company_id == current_user.company_id,
+                TallyConnector.status == ConnectorStatus.ACTIVE,
+            ).first()
+            if connector:
+                job_payload = {"name": name}
+                if gd_parent:
+                    job_payload["parent"] = gd_parent
+                job = TallyIntegrationJob(
+                    company_id=current_user.company_id, connector_id=connector.id,
+                    created_by=current_user.id, operation=TallyJobOperation.CREATE_GODOWN,
+                    payload=job_payload, idempotency_key=f"create_godown::{record.id}",
+                )
+                db.add(job)
+                db.flush()
+                record.tally_job_id = job.id
+                tally_queued = True
+            entity_id = str(record.id)
+            db.commit()
 
         elif entity_type == "receipt":
             date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")

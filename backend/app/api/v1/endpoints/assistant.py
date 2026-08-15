@@ -273,6 +273,17 @@ def create_entity(
     """Create an entity in FinPilot DB and queue a Tally write job."""
     entity_type = data.entity_type.lower()
     payload = data.data
+
+    # Normalise generic "voucher" type the AI sometimes returns
+    if entity_type == "voucher":
+        vt = str(payload.get("voucher_type", "")).lower()
+        entity_type = {
+            "transfer": "contra", "contra": "contra",
+            "receipt": "receipt", "payment": "payment",
+            "journal": "journal", "jv": "journal",
+            "credit note": "credit_note", "debit note": "debit_note",
+            "sales": "sales_invoice", "purchase": "purchase_bill",
+        }.get(vt, "journal")
     entity_id = None
     tally_queued = False
 

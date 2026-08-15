@@ -48,6 +48,13 @@ VOUCHERS (TRANSACTIONS):
 - contra: from_account (required), to_account (required), amount (required), date (YYYY-MM-DD), narration
 - expense: title (required), amount (required), category, date (YYYY-MM-DD), vendor_name, description
 
+IMPORTANT rules for entity_type:
+- Cash/bank transfer → always use "contra" (never "voucher" or "transfer")
+- Money received from customer → always "receipt"
+- Money paid to vendor → always "payment"
+- General ledger Dr/Cr entry → always "journal"
+- Never return entity_type as "voucher" — always use the specific type above
+
 Date format: always YYYY-MM-DD. If no year mentioned, assume current year 2026.
 For amounts, extract the numeric value only (no currency symbols).
 Return ONLY JSON — no markdown, no explanation."""

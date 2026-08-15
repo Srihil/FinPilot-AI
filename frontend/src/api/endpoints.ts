@@ -11,7 +11,7 @@ import type {
   AnalyticsOverview, AnalyticsCharts,
   PaginatedResponse,
   TallyLedger, TallyGroup, TallyStockGroup, TallyUnit, TallyGodown,
-  ManagementOverview, VoucherItem, SyncHealth,
+  ManagementOverview, VoucherItem, VoucherTypeItem, SyncHealth,
   Order,
 } from '../types';
 
@@ -406,6 +406,21 @@ export const managementApi = {
 
   clearLocalVouchers: async (): Promise<{ deleted_invoices: number; deleted_expenses: number; message: string }> => {
     const res = await apiClient.post('/api/management/clear-local-vouchers');
+    return res.data;
+  },
+
+  voucherTypes: async (params?: { page?: number; page_size?: number; search?: string }) => {
+    const res = await apiClient.get('/api/management/voucher-types', { params });
+    return res.data as { items: VoucherTypeItem[]; total: number; total_pages: number };
+  },
+
+  createVoucherType: async (data: { name: string; parent: string; numbering_method?: string }) => {
+    const res = await apiClient.post('/api/management/voucher-types', data);
+    return res.data;
+  },
+
+  deleteVoucherType: async (id: string) => {
+    const res = await apiClient.delete(`/api/management/voucher-types/${id}`);
     return res.data;
   },
 

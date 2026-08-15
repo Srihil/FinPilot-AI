@@ -16,7 +16,7 @@ from app.models.vendor import Vendor
 from app.models.invoice import Invoice, InvoiceStatus, InvoiceType
 from app.models.expense import Expense, ExpenseStatus
 from app.models.product import Product
-from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, TallyGodown, TallyGroup
+from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, TallyGodown, TallyGroup, TallyVoucherType
 
 TALLY_TAG = "[tally-sync]"
 DEBTOR_GROUPS = {"sundry debtors", "debtors", "trade receivables"}
@@ -307,6 +307,53 @@ def sync_groups(db: Session, company_id: uuid.UUID, groups: list[dict]) -> dict:
     return {"created": created, "updated": updated}
 
 
+# ─── Voucher Types ────────────────────────────────────────────────────────────
+
+def sync_voucher_types(db: Session, company_id: uuid.UUID, voucher_types: list[dict]) -> dict:
+    created = 0
+    updated = 0
+    now = datetime.now(timezone.utc)
+
+    for item in voucher_types:
+        name = item.get("name", "").strip()
+        if not name:
+            continue
+        parent = item.get("parent") or None
+        numbering = item.get("numbering_method", "Automatic")
+        is_active = item.get("is_active", True)
+
+        key = _tally_key(company_id, name)
+        existing = db.query(TallyVoucherType).filter(
+            TallyVoucherType.company_id == company_id,
+            TallyVoucherType.tally_key == key,
+        ).first()
+
+        if existing:
+            existing.parent = parent
+            existing.numbering_method = numbering
+            existing.is_active = is_active
+            existing.tally_sync_status = "synced"
+            existing.synced_at = now
+            existing.source = "tally_sync"
+            updated += 1
+        else:
+            db.add(TallyVoucherType(
+                company_id=company_id,
+                name=name,
+                parent=parent,
+                numbering_method=numbering,
+                tally_key=key,
+                source="tally_sync",
+                tally_sync_status="synced",
+                synced_at=now,
+                is_active=is_active,
+            ))
+            created += 1
+
+    db.flush()
+    return {"created": created, "updated": updated}
+
+
 # ─── Stock Items → Products ────────────────────────────────────────────────────
 
 def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]) -> dict:
@@ -469,51 +516,51 @@ def process_sync_result(db: Session, company_id: uuid.UUID, result: dict) -> dic
     godowns      = result.get("godowns", [])
     stock_groups = result.get("stock_groups", [])
     units        = result.get("units", [])
-    groups       = result.get("groups", [])
+    groups        = result.get("groups", [])
+    voucher_types = result.get("voucher_types", [])
 
-    ledger_stats      = {"customers": 0, "vendors": 0, "ledgers": 0}
-    voucher_stats     = {"invoices": 0, "expenses": 0}
-    stock_item_stats  = {"created": 0, "updated": 0}
-    godown_stats      = {"created": 0, "updated": 0}
-    stock_group_stats = {"created": 0, "updated": 0}
-    unit_stats        = {"created": 0, "updated": 0}
-    group_stats       = {"created": 0, "updated": 0}
+    ledger_stats        = {"customers": 0, "vendors": 0, "ledgers": 0}
+    voucher_stats       = {"invoices": 0, "expenses": 0}
+    stock_item_stats    = {"created": 0, "updated": 0}
+    godown_stats        = {"created": 0, "updated": 0}
+    stock_group_stats   = {"created": 0, "updated": 0}
+    unit_stats          = {"created": 0, "updated": 0}
+    group_stats         = {"created": 0, "updated": 0}
+    voucher_type_stats  = {"created": 0, "updated": 0}
 
     if ledgers:
         ledger_stats = sync_ledgers(db, company_id, ledgers)
-
     if vouchers:
         voucher_stats = sync_vouchers(db, company_id, vouchers)
-
     if stock_items:
         stock_item_stats = sync_stock_items(db, company_id, stock_items)
-
     if godowns:
         godown_stats = sync_godowns(db, company_id, godowns)
-
     if stock_groups:
         stock_group_stats = sync_stock_groups(db, company_id, stock_groups)
-
     if units:
         unit_stats = sync_units(db, company_id, units)
-
     if groups:
         group_stats = sync_groups(db, company_id, groups)
+    if voucher_types:
+        voucher_type_stats = sync_voucher_types(db, company_id, voucher_types)
 
     return {
-        "imported_customers":    ledger_stats["customers"],
-        "imported_vendors":      ledger_stats["vendors"],
-        "imported_ledgers":      ledger_stats["ledgers"],
-        "imported_invoices":     voucher_stats["invoices"],
-        "imported_expenses":     voucher_stats["expenses"],
-        "imported_products":     stock_item_stats["created"],
-        "updated_products":      stock_item_stats["updated"],
-        "imported_godowns":      godown_stats["created"],
-        "updated_godowns":       godown_stats["updated"],
-        "imported_stock_groups": stock_group_stats["created"],
-        "updated_stock_groups":  stock_group_stats["updated"],
-        "imported_units":        unit_stats["created"],
-        "updated_units":         unit_stats["updated"],
-        "imported_groups":       group_stats["created"],
-        "updated_groups":        group_stats["updated"],
+        "imported_customers":      ledger_stats["customers"],
+        "imported_vendors":        ledger_stats["vendors"],
+        "imported_ledgers":        ledger_stats["ledgers"],
+        "imported_invoices":       voucher_stats["invoices"],
+        "imported_expenses":       voucher_stats["expenses"],
+        "imported_products":       stock_item_stats["created"],
+        "updated_products":        stock_item_stats["updated"],
+        "imported_godowns":        godown_stats["created"],
+        "updated_godowns":         godown_stats["updated"],
+        "imported_stock_groups":   stock_group_stats["created"],
+        "updated_stock_groups":    stock_group_stats["updated"],
+        "imported_units":          unit_stats["created"],
+        "updated_units":           unit_stats["updated"],
+        "imported_groups":         group_stats["created"],
+        "updated_groups":          group_stats["updated"],
+        "imported_voucher_types":  voucher_type_stats["created"],
+        "updated_voucher_types":   voucher_type_stats["updated"],
     }

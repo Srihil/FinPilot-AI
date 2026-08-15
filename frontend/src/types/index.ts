@@ -437,6 +437,17 @@ export interface VoucherItem {
   title?: string;
 }
 
+export interface VoucherTypeItem {
+  id: string;
+  name: string;
+  parent: string | null;
+  numbering_method: string;
+  source: TallySource;
+  tally_sync_status: TallySyncStatus;
+  synced_at: string | null;
+  created_at: string;
+}
+
 export interface SyncHealth {
   total_jobs: number;
   successful: number;

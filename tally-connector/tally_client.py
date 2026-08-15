@@ -439,6 +439,80 @@ class TallyClient:
             logger.warning("get_godowns: %s", e)
             return []
 
+    # ── Read: Voucher Types ───────────────────────────────────────────────────
+
+    def get_voucher_types(self) -> list[dict]:
+        xml = """<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>FP VoucherTypes</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP VoucherTypes" ISMODIFY="No">
+            <TYPE>VoucherType</TYPE>
+            <FETCH>NAME,PARENT,NUMBERINGMETHOD,ISACTIVE</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+    </DESC>
+  </BODY>
+</ENVELOPE>"""
+        try:
+            raw = self._post_xml(xml)
+            root = self._parse_response(raw)
+            types = []
+            for item in root.findall(".//VOUCHERTYPE"):
+                name = (item.get("NAME") or "").strip()
+                parent_el = item.find("PARENT")
+                parent = parent_el.text.strip() if parent_el is not None and parent_el.text else ""
+                active_el = item.find("ISACTIVE")
+                is_active = (active_el.text or "").strip().lower() != "no" if active_el is not None else True
+                nm_el = item.find("NUMBERINGMETHOD")
+                numbering = nm_el.text.strip() if nm_el is not None and nm_el.text else "Automatic"
+                if name:
+                    types.append({
+                        "name": name,
+                        "parent": parent or None,
+                        "numbering_method": numbering,
+                        "is_active": is_active,
+                    })
+            return types
+        except TallyError as e:
+            logger.warning("get_voucher_types: %s", e)
+            return []
+
+    # ── Write: Create Voucher Type ────────────────────────────────────────────
+
+    def create_voucher_type(self, payload: dict) -> dict:
+        name = payload.get("name", "")
+        parent = payload.get("parent", "Sales")
+        numbering = payload.get("numbering_method", "Automatic")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHERTYPE NAME="{name}" ACTION="Create">
+        <NAME>{name}</NAME>
+        <PARENT>{parent}</PARENT>
+        <NUMBERINGMETHOD>{numbering}</NUMBERINGMETHOD>
+        <ISACTIVE>Yes</ISACTIVE>
+      </VOUCHERTYPE>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
     # ── Read: Account Groups ─────────────────────────────────────────────────
 
     def get_groups(self) -> list[dict]:

@@ -90,6 +90,26 @@ class TallyGodown(Base):
                         onupdate=lambda: datetime.now(timezone.utc))
 
 
+class TallyVoucherType(Base):
+    """Voucher type in TallyPrime — standard (Sales, Purchase…) or custom (Tax Invoice, etc.)."""
+    __tablename__ = "tally_voucher_types"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    name = Column(String(500), nullable=False)
+    parent = Column(String(255), nullable=True)   # base type: Sales, Purchase, etc.
+    numbering_method = Column(String(50), default="Automatic")
+    tally_key = Column(String(512), nullable=False)
+    source = Column(String(50), default="tally_sync")
+    tally_job_id = Column(UUID(as_uuid=True), nullable=True)
+    tally_sync_status = Column(String(50), default="pending")
+    synced_at = Column(DateTime(timezone=True), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
 class TallyGroup(Base):
     """Accounting group in TallyPrime (e.g., Sundry Debtors, Capital Account, Bank Accounts)."""
     __tablename__ = "tally_groups"

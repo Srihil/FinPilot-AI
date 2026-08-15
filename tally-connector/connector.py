@@ -119,6 +119,8 @@ ALLOWED_OPERATIONS = {
     "CREATE_LEDGER", "CREATE_GROUP",
     # Inventory masters
     "CREATE_STOCK_ITEM", "CREATE_STOCK_GROUP", "CREATE_UNIT", "CREATE_GODOWN",
+    # Voucher type
+    "CREATE_VOUCHER_TYPE",
     # Delete operations
     "DELETE_LEDGER", "DELETE_STOCK_ITEM", "DELETE_STOCK_GROUP", "DELETE_UNIT", "DELETE_GODOWN",
     # Vouchers
@@ -181,6 +183,8 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
             return tally.create_unit(payload), None
         if op == "CREATE_GODOWN":
             return tally.create_godown(payload), None
+        if op == "CREATE_VOUCHER_TYPE":
+            return tally.create_voucher_type(payload), None
         # Vouchers
         if op == "CREATE_SALES_VOUCHER":
             return tally.create_sales_voucher(payload), None
@@ -217,23 +221,26 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
             godowns      = tally.get_godowns()
             stock_groups = tally.get_stock_groups()
             units        = tally.get_units()
-            groups       = tally.get_groups()
+            groups        = tally.get_groups()
+            voucher_types = tally.get_voucher_types()
             return {
                 "synced": True,
-                "ledgers":      ledgers,
-                "vouchers":     vouchers,
-                "stock_items":  stock,
-                "godowns":      godowns,
-                "stock_groups": stock_groups,
-                "units":        units,
-                "groups":       groups,
-                "ledger_count":      len(ledgers),
-                "voucher_count":     len(vouchers),
-                "stock_item_count":  len(stock),
-                "godown_count":      len(godowns),
-                "stock_group_count": len(stock_groups),
-                "unit_count":        len(units),
-                "group_count":       len(groups),
+                "ledgers":       ledgers,
+                "vouchers":      vouchers,
+                "stock_items":   stock,
+                "godowns":       godowns,
+                "stock_groups":  stock_groups,
+                "units":         units,
+                "groups":        groups,
+                "voucher_types": voucher_types,
+                "ledger_count":       len(ledgers),
+                "voucher_count":      len(vouchers),
+                "stock_item_count":   len(stock),
+                "godown_count":       len(godowns),
+                "stock_group_count":  len(stock_groups),
+                "unit_count":         len(units),
+                "group_count":        len(groups),
+                "voucher_type_count": len(voucher_types),
             }, None
     except TallyError as e:
         return None, str(e)

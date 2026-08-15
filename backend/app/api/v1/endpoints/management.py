@@ -21,7 +21,7 @@ from app.models.payment import Payment
 from app.models.product import Product
 from app.models.tally_connector import TallyConnector, ConnectorStatus
 from app.models.tally_job import TallyIntegrationJob, JobStatus, TallyJobOperation
-from app.models.tally_masters import TallyGodown, TallyGroup, TallyLedger, TallyStockGroup, TallyUnit
+from app.models.tally_masters import TallyGodown, TallyGroup, TallyLedger, TallyStockGroup, TallyUnit, TallyVoucherType
 from app.models.user import User
 from app.models.vendor import Vendor
 from app.services.audit_service import audit_service
@@ -1314,6 +1314,160 @@ def delete_voucher(
 
     else:
         raise HTTPException(status_code=400, detail="entity_type must be 'invoice' or 'expense'")
+
+
+# ─── Voucher Type management ─────────────────────────────────────────────────────
+
+BASE_VOUCHER_TYPES = [
+    "Sales", "Purchase", "Receipt", "Payment", "Journal",
+    "Contra", "Credit Note", "Debit Note",
+]
+
+
+class VoucherTypeCreate(BaseModel):
+    name: str
+    parent: str          # base TallyPrime type (Sales, Purchase, etc.)
+    numbering_method: Optional[str] = "Automatic"
+
+
+@router.get("/voucher-types")
+def list_voucher_types(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(TallyVoucherType).filter(
+        TallyVoucherType.company_id == current_user.company_id,
+        TallyVoucherType.is_active == True,
+    )
+    if search:
+        q = q.filter(TallyVoucherType.name.ilike(f"%{search}%"))
+    q = q.order_by(TallyVoucherType.parent, TallyVoucherType.name)
+    result = _paginate(q, page, page_size)
+    records = result["items"]
+    if _reconcile_sync_status(db, records):
+        db.commit()
+    result["items"] = [
+        {
+            "id": str(r.id),
+            "name": r.name,
+            "parent": r.parent,
+            "numbering_method": r.numbering_method,
+            "source": r.source,
+            "tally_sync_status": r.tally_sync_status,
+            "synced_at": r.synced_at.isoformat() if r.synced_at else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in records
+    ]
+    return result
+
+
+@router.post("/voucher-types")
+def create_voucher_type(
+    data: VoucherTypeCreate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Voucher type name is required")
+    if data.parent not in BASE_VOUCHER_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Parent must be one of: {', '.join(BASE_VOUCHER_TYPES)}",
+        )
+
+    key = _tally_key(current_user.company_id, name)
+    existing = db.query(TallyVoucherType).filter(
+        TallyVoucherType.company_id == current_user.company_id,
+        TallyVoucherType.tally_key == key,
+        TallyVoucherType.is_active == True,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Voucher type '{name}' already exists")
+
+    vt = TallyVoucherType(
+        company_id=current_user.company_id,
+        name=name,
+        parent=data.parent,
+        numbering_method=data.numbering_method or "Automatic",
+        tally_key=key,
+        source="finpilot",
+        tally_sync_status="pending",
+    )
+    db.add(vt)
+    db.flush()
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+
+    tally_queued = False
+    if connector:
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            created_by=current_user.id,
+            operation=TallyJobOperation.CREATE_VOUCHER_TYPE,
+            payload={
+                "name": name,
+                "parent": data.parent,
+                "numbering_method": data.numbering_method or "Automatic",
+            },
+            idempotency_key=f"create_voucher_type::{vt.id}",
+        )
+        db.add(job)
+        db.flush()
+        vt.tally_job_id = job.id
+        tally_queued = True
+
+    db.commit()
+    db.refresh(vt)
+
+    audit_service.log(
+        db, current_user.company_id, current_user.id,
+        AuditAction.CREATE, entity_type="tally_voucher_type", entity_id=vt.id,
+        description=f"Created voucher type: {name} (based on {data.parent})",
+    )
+
+    return {
+        "id": str(vt.id),
+        "name": vt.name,
+        "parent": vt.parent,
+        "numbering_method": vt.numbering_method,
+        "tally_sync_status": vt.tally_sync_status,
+        "tally_queued": tally_queued,
+    }
+
+
+@router.delete("/voucher-types/{vt_id}")
+def delete_voucher_type(
+    vt_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    vt = db.query(TallyVoucherType).filter(
+        TallyVoucherType.id == uuid.UUID(vt_id),
+        TallyVoucherType.company_id == current_user.company_id,
+        TallyVoucherType.is_active == True,
+    ).first()
+    if not vt:
+        raise HTTPException(status_code=404, detail="Voucher type not found")
+    if vt.source == "tally_sync" and vt.parent is None:
+        raise HTTPException(status_code=400, detail="Built-in TallyPrime voucher types cannot be deleted from FinPilot.")
+    _cancel_pending_job(db, vt.tally_job_id)
+    vt.is_active = False
+    db.commit()
+    audit_service.log(
+        db, current_user.company_id, current_user.id, AuditAction.DELETE,
+        entity_type="tally_voucher_type", entity_id=vt.id,
+        description=f"Deleted voucher type: {vt.name}",
+    )
+    return {"status": "deleted", "message": "Deleted successfully."}
 
 
 # ─── Clear local-only vouchers ───────────────────────────────────────────────────

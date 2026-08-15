@@ -36,6 +36,8 @@ class TallyJobOperation(str, enum.Enum):
     CREATE_STOCK_GROUP = "CREATE_STOCK_GROUP"
     CREATE_UNIT = "CREATE_UNIT"
     CREATE_GODOWN = "CREATE_GODOWN"
+    # Voucher type
+    CREATE_VOUCHER_TYPE = "CREATE_VOUCHER_TYPE"
     # Voucher writes
     CREATE_SALES_VOUCHER = "CREATE_SALES_VOUCHER"
     CREATE_PURCHASE_VOUCHER = "CREATE_PURCHASE_VOUCHER"
@@ -73,6 +75,7 @@ WRITE_OPERATIONS = {
     TallyJobOperation.CREATE_STOCK_GROUP,
     TallyJobOperation.CREATE_UNIT,
     TallyJobOperation.CREATE_GODOWN,
+    TallyJobOperation.CREATE_VOUCHER_TYPE,
     TallyJobOperation.CREATE_SALES_VOUCHER,
     TallyJobOperation.CREATE_PURCHASE_VOUCHER,
     TallyJobOperation.CREATE_RECEIPT_VOUCHER,

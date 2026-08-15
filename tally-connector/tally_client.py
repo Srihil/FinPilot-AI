@@ -572,6 +572,50 @@ class TallyClient:
     def delete_stock_item(self, payload: dict) -> dict:
         return self._delete_master("STOCKITEM", payload.get("name", ""))
 
+    # ── Write: Cancel voucher (Tally-confirmed-first delete) ──────────────────
+
+    def cancel_voucher(self, payload: dict) -> dict:
+        """
+        Cancel a voucher in TallyPrime using its REMOTEID (FP-xxxx).
+
+        payload:
+          voucher_ref:  the REMOTEID / VOUCHERNUMBER set when the voucher was created (FP-xxxx)
+          voucher_type: TallyPrime voucher type name ("Sales" | "Purchase" | "Receipt" | "Payment" | etc.)
+
+        TallyPrime allows cancelling a voucher via ACTION="Cancel" on its REMOTEID.
+        The voucher is marked as cancelled in Tally (preserving the voucher number in the sequence)
+        and the REMOTEID uniquely identifies it.
+        """
+        vref         = payload.get("voucher_ref", "")
+        voucher_type = payload.get("voucher_type", "Sales")
+
+        if not vref:
+            raise TallyError("cancel_voucher: voucher_ref is required")
+
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER REMOTEID="{vref}" VCHTYPE="{voucher_type}" ACTION="Cancel">
+        <VOUCHERTYPENAME>{voucher_type}</VOUCHERTYPENAME>
+        <ISCANCELLED>Yes</ISCANCELLED>
+      </VOUCHER>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        altered = root.find(".//ALTERED")
+        cancelled = root.find(".//CANCELLED")
+        errors = root.find(".//LINEERROR")
+        if errors is not None and errors.text:
+            raise TallyError(f"TallyPrime refused cancel: {errors.text.strip()}")
+        return {
+            "cancelled": int(cancelled.text) if cancelled is not None and cancelled.text else 0,
+            "altered": int(altered.text) if altered is not None and altered.text else 0,
+            "voucher_ref": vref,
+        }
+
     # ── Write: Create sales voucher ───────────────────────────────────────────
 
     def create_sales_voucher(self, payload: dict) -> dict:

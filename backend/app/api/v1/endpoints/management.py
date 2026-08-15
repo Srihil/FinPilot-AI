@@ -21,7 +21,7 @@ from app.models.payment import Payment
 from app.models.product import Product
 from app.models.tally_connector import TallyConnector, ConnectorStatus
 from app.models.tally_job import TallyIntegrationJob, JobStatus, TallyJobOperation
-from app.models.tally_masters import TallyGodown, TallyLedger, TallyStockGroup, TallyUnit
+from app.models.tally_masters import TallyGodown, TallyGroup, TallyLedger, TallyStockGroup, TallyUnit
 from app.models.user import User
 from app.models.vendor import Vendor
 from app.services.audit_service import audit_service
@@ -1083,7 +1083,7 @@ def list_vouchers(
                 "amount": float(inv.total_amount or 0),
                 "status": inv.status.value if inv.status else "DRAFT",
                 "source": "finpilot",
-                "tally_sync_status": "synced" if getattr(inv, "tally_synced", False) else "pending",
+                "tally_sync_status": getattr(inv, "tally_sync_status", None) or "local_only",
                 "created_at": inv.created_at.isoformat() if inv.created_at else None,
                 "entity_type": "invoice",
                 "paid_amount": float(inv.paid_amount or 0),
@@ -1162,6 +1162,36 @@ def list_vouchers(
     }
 
 
+def _queue_tally_cancel_voucher(
+    db: Session,
+    company_id: uuid.UUID,
+    voucher_ref: str,
+    voucher_type: str,
+    entity_type: str,
+) -> bool:
+    """Queue a CANCEL_VOUCHER job. Returns True if queued, False if no active connector."""
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if not connector:
+        return False
+    import secrets as _sec
+    ikey = f"cancel_voucher::{voucher_ref}::{_sec.token_hex(4)}"
+    db.add(TallyIntegrationJob(
+        company_id=company_id,
+        connector_id=connector.id,
+        operation=TallyJobOperation.CANCEL_VOUCHER,
+        payload={
+            "voucher_ref": voucher_ref,
+            "voucher_type": voucher_type,  # "Sales" | "Purchase"
+            "entity_type": entity_type,    # "invoice" | "expense"
+        },
+        idempotency_key=ikey,
+    ))
+    return True
+
+
 @router.delete("/vouchers/{entity_type}/{entity_id}")
 def delete_voucher(
     entity_type: str,
@@ -1169,9 +1199,20 @@ def delete_voucher(
     current_user: User = Depends(require_admin_or_accountant),
     db: Session = Depends(get_db),
 ):
-    """Soft-delete a transaction. The record is hidden from FinPilot but not permanently destroyed,
-    so it can be recovered if needed. For records that exist in TallyPrime, they must be
-    deleted there manually (Tally voucher deletion via job queue is not yet supported)."""
+    """
+    Tally-confirmed-first delete for vouchers.
+
+    Flow for Tally-synced records:
+      1. Queue CANCEL_VOUCHER job → connector → TallyPrime
+      2. Mark record as delete_pending (still visible in FinPilot)
+      3. When TallyPrime confirms cancellation → tally.py result handler soft-deletes the FinPilot record
+
+    Flow for local-only records (never sent to Tally):
+      Immediate soft-delete in FinPilot.
+
+    Records without tally_voucher_ref (created before Tally sync tracking):
+      Immediate soft-delete with a warning to manually cancel in TallyPrime.
+    """
     cid = current_user.company_id
 
     if entity_type == "invoice":
@@ -1187,13 +1228,52 @@ def delete_voucher(
                 status_code=400,
                 detail=f"Cannot delete: ₹{float(record.paid_amount):,.2f} in payments are recorded against this invoice. Remove the payments first.",
             )
-        name = record.invoice_number
-        record.is_deleted = True
-        audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
-                          entity_type="invoice", entity_id=record.id,
-                          description=f"Deleted invoice: {name}")
-        db.commit()
-        return {"deleted": True, "message": f"Invoice {name} removed from FinPilot. If it exists in TallyPrime, delete it there manually."}
+
+        voucher_status = getattr(record, "tally_sync_status", "local_only") or "local_only"
+        voucher_ref = getattr(record, "tally_voucher_ref", None)
+        voucher_type_tally = "Sales" if record.invoice_type and record.invoice_type.value == "SALES" else "Purchase"
+
+        if voucher_status in ("synced", "delete_failed") and voucher_ref:
+            # Tally-confirmed-first: queue cancel job, keep record visible until Tally confirms
+            record.tally_sync_status = "delete_pending"
+            db.flush()
+            queued = _queue_tally_cancel_voucher(db, cid, voucher_ref, voucher_type_tally, "invoice")
+            db.commit()
+            audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
+                              entity_type="invoice", entity_id=record.id,
+                              description=f"Cancel queued for invoice: {record.invoice_number}")
+            if queued:
+                return {
+                    "status": "pending",
+                    "tally_confirmed": False,
+                    "message": "Cancel request sent to TallyPrime. The invoice will be removed from FinPilot once TallyPrime confirms cancellation.",
+                }
+            else:
+                # No active connector — restore and soft-delete locally
+                record.tally_sync_status = voucher_status
+                record.is_deleted = True
+                db.commit()
+                return {
+                    "status": "deleted",
+                    "tally_confirmed": False,
+                    "message": f"Invoice {record.invoice_number} removed from FinPilot. No active Tally connector — cancel it in TallyPrime manually.",
+                }
+        else:
+            # Local-only or no ref — safe to soft-delete immediately
+            record.is_deleted = True
+            db.commit()
+            audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
+                              entity_type="invoice", entity_id=record.id,
+                              description=f"Deleted invoice: {record.invoice_number}")
+            warning = None
+            if not voucher_ref and voucher_status not in ("local_only",):
+                warning = "This invoice was created before Tally sync tracking. If it exists in TallyPrime, cancel it there manually."
+            return {
+                "status": "deleted",
+                "tally_confirmed": False,
+                "message": f"Invoice {record.invoice_number} removed from FinPilot.",
+                "warning": warning,
+            }
 
     elif entity_type == "expense":
         record = db.query(Expense).filter(
@@ -1203,13 +1283,44 @@ def delete_voucher(
         ).first()
         if not record:
             raise HTTPException(status_code=404, detail="Expense not found")
-        name = record.title
-        record.is_deleted = True
-        audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
-                          entity_type="expense", entity_id=record.id,
-                          description=f"Deleted expense: {name}")
-        db.commit()
-        return {"deleted": True, "message": f"Expense '{name}' removed from FinPilot. If it exists in TallyPrime, delete it there manually."}
+
+        voucher_status = getattr(record, "tally_sync_status", "local_only") or "local_only"
+        voucher_ref = getattr(record, "tally_voucher_ref", None)
+
+        if voucher_status in ("synced", "delete_failed") and voucher_ref:
+            record.tally_sync_status = "delete_pending"
+            db.flush()
+            queued = _queue_tally_cancel_voucher(db, cid, voucher_ref, "Purchase", "expense")
+            db.commit()
+            audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
+                              entity_type="expense", entity_id=record.id,
+                              description=f"Cancel queued for expense: {record.title}")
+            if queued:
+                return {
+                    "status": "pending",
+                    "tally_confirmed": False,
+                    "message": "Cancel request sent to TallyPrime. The expense will be removed from FinPilot once TallyPrime confirms cancellation.",
+                }
+            else:
+                record.tally_sync_status = voucher_status
+                record.is_deleted = True
+                db.commit()
+                return {
+                    "status": "deleted",
+                    "tally_confirmed": False,
+                    "message": f"Expense '{record.title}' removed from FinPilot. No active Tally connector — cancel it in TallyPrime manually.",
+                }
+        else:
+            record.is_deleted = True
+            db.commit()
+            audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
+                              entity_type="expense", entity_id=record.id,
+                              description=f"Deleted expense: {record.title}")
+            return {
+                "status": "deleted",
+                "tally_confirmed": False,
+                "message": f"Expense '{record.title}' removed from FinPilot.",
+            }
 
     else:
         raise HTTPException(status_code=400, detail="entity_type must be 'invoice' or 'expense'")
@@ -1277,3 +1388,250 @@ def get_sync_health(
             for j in recent_jobs
         ],
     }
+
+
+# ─── Account Group management ──────────────────────────────────────────────────
+
+class GroupCreate(BaseModel):
+    name: str
+    parent: Optional[str] = None
+    nature: Optional[str] = None  # assets | liabilities | income | expenses
+
+
+@router.get("/groups")
+def list_groups(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(TallyGroup).filter(
+        TallyGroup.company_id == current_user.company_id,
+        TallyGroup.is_active == True,
+    )
+    if search:
+        q = q.filter(TallyGroup.name.ilike(f"%{search}%"))
+    q = q.order_by(TallyGroup.name)
+    result = _paginate(q, page, page_size)
+    records = result["items"]
+    if _reconcile_sync_status(db, records):
+        db.commit()
+    result["items"] = [
+        {
+            "id": str(r.id),
+            "name": r.name,
+            "parent": r.parent,
+            "nature": r.nature,
+            "source": r.source,
+            "tally_sync_status": r.tally_sync_status,
+            "synced_at": r.synced_at.isoformat() if r.synced_at else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in records
+    ]
+    return result
+
+
+@router.post("/groups")
+def create_group(
+    data: GroupCreate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Group name is required")
+
+    key = _tally_key(current_user.company_id, name)
+    existing = db.query(TallyGroup).filter(
+        TallyGroup.company_id == current_user.company_id,
+        TallyGroup.tally_key == key,
+        TallyGroup.is_active == True,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Group '{name}' already exists")
+
+    group = TallyGroup(
+        company_id=current_user.company_id,
+        name=name,
+        parent=data.parent or None,
+        nature=data.nature or None,
+        tally_key=key,
+        source="finpilot",
+        tally_sync_status="pending",
+    )
+    db.add(group)
+    db.flush()
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+
+    tally_queued = False
+    if connector:
+        ikey = f"create_group::{key}"
+        if not db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
+            payload = {"name": name}
+            if data.parent and data.parent.strip():
+                payload["parent"] = data.parent.strip()
+            job = TallyIntegrationJob(
+                company_id=current_user.company_id,
+                connector_id=connector.id,
+                created_by=current_user.id,
+                operation=TallyJobOperation.CREATE_GROUP,
+                payload=payload,
+                idempotency_key=ikey,
+            )
+            db.add(job)
+            db.flush()
+            group.tally_job_id = job.id
+            tally_queued = True
+
+    db.commit()
+    db.refresh(group)
+
+    audit_service.log(
+        db, current_user.company_id, current_user.id,
+        AuditAction.CREATE,
+        entity_type="tally_group",
+        entity_id=group.id,
+        description=f"Created account group: {name}",
+    )
+    return {
+        "id": str(group.id),
+        "name": group.name,
+        "parent": group.parent,
+        "tally_sync_status": group.tally_sync_status,
+        "tally_queued": tally_queued,
+    }
+
+
+class GroupUpdate(BaseModel):
+    name: Optional[str] = None
+    parent: Optional[str] = None
+    nature: Optional[str] = None
+
+
+@router.patch("/groups/{group_id}")
+def update_group(
+    group_id: str,
+    data: GroupUpdate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    group = db.query(TallyGroup).filter(
+        TallyGroup.id == uuid.UUID(group_id),
+        TallyGroup.company_id == current_user.company_id,
+        TallyGroup.is_active == True,
+    ).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    was_synced = group.tally_sync_status == "synced"
+    if data.name is not None:
+        group.name = data.name.strip()
+    if data.parent is not None:
+        group.parent = data.parent.strip() or None
+    if data.nature is not None:
+        group.nature = data.nature.strip() or None
+    group.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
+                      entity_type="tally_group", entity_id=group.id,
+                      description=f"Updated group: {group.name}")
+    return {
+        "id": str(group.id), "name": group.name, "tally_sync_status": group.tally_sync_status,
+        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
+    }
+
+
+@router.delete("/groups/{group_id}")
+def delete_group(
+    group_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    group = db.query(TallyGroup).filter(
+        TallyGroup.id == uuid.UUID(group_id),
+        TallyGroup.company_id == current_user.company_id,
+        TallyGroup.is_active == True,
+    ).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    _cancel_pending_job(db, group.tally_job_id)
+    # Groups from Tally sync are system-level — only allow soft-delete for FinPilot-created ones
+    if group.source == "tally_sync":
+        raise HTTPException(
+            status_code=400,
+            detail="System groups imported from TallyPrime cannot be deleted from FinPilot. Delete them in TallyPrime directly."
+        )
+    group.is_active = False
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                      entity_type="tally_group", entity_id=group.id,
+                      description=f"Deleted group: {group.name}")
+    return {"status": "deleted", "message": "Deleted successfully."}
+
+
+# ─── Conflict detection ───────────────────────────────────────────────────────
+
+@router.get("/conflicts")
+def list_conflicts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all Tally master records currently in CONFLICT state for this company."""
+    from app.models.tally_masters import TallyGodown as TallyGodownModel
+    cid = current_user.company_id
+    conflicts = []
+
+    for model, entity_type in [
+        (TallyLedger, "ledger"),
+        (TallyStockGroup, "stock_group"),
+        (TallyUnit, "unit"),
+        (TallyGodownModel, "godown"),
+        (TallyGroup, "group"),
+    ]:
+        records = db.query(model).filter(
+            model.company_id == cid,
+            model.tally_sync_status == "conflict",
+            model.is_active == True,
+        ).all()
+        for r in records:
+            conflicts.append({
+                "id": str(r.id),
+                "entity_type": entity_type,
+                "name": r.name,
+                "conflict_data": r.conflict_data,
+                "conflict_detected_at": r.conflict_detected_at.isoformat() if r.conflict_detected_at else None,
+            })
+
+    return {"conflicts": conflicts, "total": len(conflicts)}
+
+
+class ConflictResolution(BaseModel):
+    entity_type: str   # ledger | stock_group | unit | godown | group
+    entity_id: str
+    resolution: str    # keep_finpilot | keep_tally
+
+
+@router.post("/conflicts/resolve")
+def resolve_conflict(
+    data: ConflictResolution,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    """Resolve a conflict by choosing FinPilot or TallyPrime version."""
+    from app.services.conflict_service import resolve_conflict as _resolve
+    if data.resolution not in ("keep_finpilot", "keep_tally"):
+        raise HTTPException(status_code=422, detail="resolution must be 'keep_finpilot' or 'keep_tally'")
+    result = _resolve(db, data.entity_type, data.entity_id, data.resolution, current_user.company_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    audit_service.log(
+        db, current_user.company_id, current_user.id, AuditAction.UPDATE,
+        entity_type=data.entity_type,
+        description=f"Conflict resolved ({data.resolution}) for {data.entity_type} {data.entity_id}",
+    )
+    return result

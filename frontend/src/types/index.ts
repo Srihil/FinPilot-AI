@@ -170,22 +170,30 @@ export interface Vendor {
   created_at: string;
 }
 
-// Product/Inventory Types
+// Product/Inventory Types (matches backend products API response)
 export interface Product {
   id: string;
-  sku: string;
+  sku?: string;
   name: string;
   description?: string;
-  category: string;
-  unit: string;
-  unit_price: number;
-  cost_price?: number;
+  category?: string;
+  unit?: string;
+  purchase_price: number;
+  selling_price: number;
+  tax_rate?: number;
   stock_quantity: number;
-  low_stock_threshold: number;
+  reorder_threshold: number;
+  is_active: boolean;
   is_low_stock: boolean;
-  total_value: number;
-  status: 'ACTIVE' | 'INACTIVE';
+  track_inventory?: boolean;
+  inventory_value?: number;
   created_at: string;
+  // Legacy aliases (old InventoryPage used these — kept for backward compat)
+  unit_price?: number;
+  cost_price?: number;
+  total_value?: number;
+  status?: string;
+  low_stock_threshold?: number;
 }
 
 // Approval Types
@@ -445,4 +453,41 @@ export interface SyncHealth {
     created_at: string;
     completed_at: string | null;
   }>;
+}
+
+export interface TallyGroup {
+  id: string;
+  name: string;
+  parent?: string;
+  nature?: string;
+  source: TallySource;
+  tally_sync_status: TallySyncStatus;
+  synced_at?: string;
+  created_at: string;
+}
+
+export interface OrderItem {
+  id?: string;
+  stock_item_name?: string;
+  description?: string;
+  quantity: number;
+  unit?: string;
+  unit_price: number;
+  amount?: number;
+}
+
+export interface Order {
+  id: string;
+  order_number: string;
+  order_type: 'SALES' | 'PURCHASE';
+  party_name?: string;
+  party_ledger?: string;
+  order_date?: string;
+  due_date?: string;
+  total_amount: number;
+  narration?: string;
+  status: 'DRAFT' | 'CONFIRMED' | 'FULFILLED' | 'CANCELLED';
+  tally_sync_status: string;
+  created_at: string;
+  items: OrderItem[];
 }

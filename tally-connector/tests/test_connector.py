@@ -88,10 +88,22 @@ class TestExecuteJob:
 class TestAllowedOperations:
     def test_all_expected_operations_allowed(self):
         expected = {
+            # Read operations
             "READ_COMPANIES", "READ_LEDGERS", "READ_VOUCHERS", "READ_SALES",
             "READ_PURCHASES", "READ_RECEIVABLES", "READ_PAYABLES", "READ_STOCK_ITEMS",
+            # Accounting master writes
+            "CREATE_LEDGER", "CREATE_GROUP",
+            # Inventory master writes
+            "CREATE_STOCK_ITEM", "CREATE_STOCK_GROUP", "CREATE_UNIT", "CREATE_GODOWN",
+            # Voucher writes
             "CREATE_SALES_VOUCHER", "CREATE_PURCHASE_VOUCHER", "CREATE_RECEIPT_VOUCHER",
-            "CREATE_PAYMENT_VOUCHER", "CREATE_LEDGER", "CREATE_STOCK_ITEM",
+            "CREATE_PAYMENT_VOUCHER", "CREATE_JOURNAL_VOUCHER",
+            "CREATE_CREDIT_NOTE", "CREATE_DEBIT_NOTE", "CREATE_CONTRA_VOUCHER",
+            # Delete operations
+            "DELETE_LEDGER", "DELETE_STOCK_ITEM", "DELETE_STOCK_GROUP", "DELETE_UNIT", "DELETE_GODOWN",
+            # Voucher cancel (Tally-confirmed-first delete)
+            "CANCEL_VOUCHER",
+            # Sync
             "SYNC_FULL", "SYNC_PARTIAL",
         }
         assert expected == ALLOWED_OPERATIONS

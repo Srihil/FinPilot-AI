@@ -25,6 +25,8 @@ from app.models.approval import Approval, ApprovalStatus
 from app.models.tally_connector import TallyConnector, TallyPairingCode, ConnectorStatus
 from app.models.tally_job import TallyIntegrationJob, JobStatus, TallyJobOperation, WRITE_OPERATIONS
 from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, TallyGodown
+from app.models.invoice import Invoice
+from app.models.expense import Expense
 from app.models.user import User
 from app.services.audit_service import audit_service
 
@@ -42,6 +44,12 @@ _DELETE_MODELS = {
     TallyJobOperation.DELETE_STOCK_GROUP: TallyStockGroup,
     TallyJobOperation.DELETE_UNIT:        TallyUnit,
     TallyJobOperation.DELETE_GODOWN:      TallyGodown,
+}
+
+# Voucher CREATE operations (track on Invoice/Expense)
+_VOUCHER_CREATE_OPS = {
+    TallyJobOperation.CREATE_SALES_VOUCHER,
+    TallyJobOperation.CREATE_PURCHASE_VOUCHER,
 }
 
 router = APIRouter(prefix="/tally", tags=["tally"])
@@ -640,6 +648,41 @@ def submit_job_result(
                 if master:
                     master.is_active = False  # record confirmed deleted in Tally, now hide in FinPilot
 
+        # CANCEL_VOUCHER confirmed → soft-delete the invoice/expense in FinPilot
+        elif job.operation == TallyJobOperation.CANCEL_VOUCHER:
+            vref = (job.payload or {}).get("voucher_ref", "")
+            entity_type = (job.payload or {}).get("entity_type", "")
+            if vref:
+                if entity_type == "invoice":
+                    rec = db.query(Invoice).filter(
+                        Invoice.tally_voucher_ref == vref,
+                        Invoice.company_id == job.company_id,
+                    ).first()
+                    if rec:
+                        rec.is_deleted = True
+                        rec.tally_sync_status = "delete_success"
+                elif entity_type == "expense":
+                    rec = db.query(Expense).filter(
+                        Expense.tally_voucher_ref == vref,
+                        Expense.company_id == job.company_id,
+                    ).first()
+                    if rec:
+                        rec.is_deleted = True
+                        rec.tally_sync_status = "delete_success"
+
+        # Voucher CREATE confirmed → mark invoice/expense as synced
+        elif job.operation in _VOUCHER_CREATE_OPS:
+            vref = (job.payload or {}).get("voucher_number", "")
+            if vref:
+                for model in (Invoice, Expense):
+                    rec = db.query(model).filter(
+                        model.tally_voucher_ref == vref,
+                        model.company_id == job.company_id,
+                    ).first()
+                    if rec:
+                        rec.tally_sync_status = "synced"
+                        break
+
         # CREATE confirmed → mark synced
         elif job.operation in _MASTER_MODELS:
             model = _MASTER_MODELS[job.operation]
@@ -673,6 +716,19 @@ def submit_job_result(
         else:
             job.retry_count = (job.retry_count or 0) + 1
             job.status = JobStatus.FAILED if job.retry_count >= MAX_RETRY else JobStatus.RETRYING
+
+        # Handle CANCEL_VOUCHER failure → restore delete_failed so user can retry
+        if job.status == JobStatus.FAILED and job.operation == TallyJobOperation.CANCEL_VOUCHER:
+            vref = (job.payload or {}).get("voucher_ref", "")
+            entity_type = (job.payload or {}).get("entity_type", "")
+            if vref:
+                model = Invoice if entity_type == "invoice" else Expense
+                rec = db.query(model).filter(
+                    model.tally_voucher_ref == vref,
+                    model.company_id == job.company_id,
+                ).first()
+                if rec:
+                    rec.tally_sync_status = "delete_failed"
 
         # Handle master table status on final failure
         if job.status == JobStatus.FAILED:

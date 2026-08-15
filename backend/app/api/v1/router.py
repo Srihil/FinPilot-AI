@@ -4,6 +4,8 @@ from app.api.v1.endpoints import (
     invoices, expenses, approvals, assistant,
     analytics, audit_logs, settings, uploads, reports, tally, management,
 )
+from app.api.v1.endpoints.orders import router as orders_router
+from app.api.v1.endpoints.inventory import router as inventory_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -23,3 +25,5 @@ api_router.include_router(uploads.router)
 api_router.include_router(reports.router)
 api_router.include_router(tally.router)
 api_router.include_router(management.router)
+api_router.include_router(orders_router)
+api_router.include_router(inventory_router)

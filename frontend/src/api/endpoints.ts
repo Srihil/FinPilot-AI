@@ -10,8 +10,9 @@ import type {
   CompanySettings, AISettings,
   AnalyticsOverview, AnalyticsCharts,
   PaginatedResponse,
-  TallyLedger, TallyStockGroup, TallyUnit, TallyGodown,
+  TallyLedger, TallyGroup, TallyStockGroup, TallyUnit, TallyGodown,
   ManagementOverview, VoucherItem, SyncHealth,
+  Order,
 } from '../types';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
@@ -436,6 +437,58 @@ export const managementApi = {
   },
   deleteGodown: async (id: string) => {
     const res = await apiClient.delete(`/api/management/godowns/${id}`);
+    return res.data;
+  },
+};
+
+// ─── Groups ──────────────────────────────────────────────────────────────────
+
+export const groupsApi = {
+  list: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<TallyGroup>> => {
+    const res = await apiClient.get('/api/management/groups', { params });
+    return res.data;
+  },
+  create: async (data: { name: string; parent?: string; nature?: string }): Promise<TallyGroup> => {
+    const res = await apiClient.post('/api/management/groups', data);
+    return res.data;
+  },
+  update: async (id: string, data: { name?: string; parent?: string; nature?: string }) => {
+    const res = await apiClient.patch(`/api/management/groups/${id}`, data);
+    return res.data;
+  },
+  delete: async (id: string) => {
+    const res = await apiClient.delete(`/api/management/groups/${id}`);
+    return res.data;
+  },
+};
+
+// ─── Orders ──────────────────────────────────────────────────────────────────
+
+export const ordersApi = {
+  list: async (params: {
+    page?: number;
+    page_size?: number;
+    order_type?: string;
+    status?: string;
+    search?: string;
+  }): Promise<PaginatedResponse<Order>> => {
+    const res = await apiClient.get('/api/orders', { params });
+    return res.data;
+  },
+  create: async (data: Partial<Order>): Promise<Order> => {
+    const res = await apiClient.post('/api/orders', data);
+    return res.data;
+  },
+  get: async (id: string): Promise<Order> => {
+    const res = await apiClient.get(`/api/orders/${id}`);
+    return res.data;
+  },
+  update: async (id: string, data: Partial<Order>): Promise<Order> => {
+    const res = await apiClient.patch(`/api/orders/${id}`, data);
+    return res.data;
+  },
+  delete: async (id: string) => {
+    const res = await apiClient.delete(`/api/orders/${id}`);
     return res.data;
   },
 };

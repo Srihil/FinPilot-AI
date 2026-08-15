@@ -176,8 +176,8 @@ export default function InventoryPage() {
                           </span>
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-right font-semibold">{formatCurrency(product.unit_price)}</td>
-                      <td className="py-3 px-4 text-right font-semibold text-slate-900">{formatCurrency(product.total_value || 0)}</td>
+                      <td className="py-3 px-4 text-right font-semibold">{formatCurrency(product.unit_price ?? product.selling_price)}</td>
+                      <td className="py-3 px-4 text-right font-semibold text-slate-900">{formatCurrency(product.total_value ?? product.inventory_value ?? 0)}</td>
                       <td className="py-3 px-4">
                         {product.is_low_stock ? (
                           <Badge variant="secondary" className="text-amber-700 bg-amber-100">Low Stock</Badge>

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.base import get_db
@@ -9,7 +11,6 @@ from app.models.customer import Customer
 from app.models.vendor import Vendor
 from app.models.product import Product
 from app.models.expense import Expense, ExpenseStatus
-from app.agents.finance_agent import FinanceAgent
 from app.agents.transaction_agent import TransactionAgent
 from app.agents.entity_agent import EntityAgent
 from app.services.customer_service import customer_service
@@ -21,10 +22,30 @@ from app.schemas.vendor import VendorCreate
 from app.schemas.invoice import InvoiceCreate, InvoiceItemCreate
 from app.models.audit_log import AuditAction
 from app.services.audit_service import audit_service
+from app.tools.finance_tools import FinanceTools
+from app.ai.tools.master_tools import MasterTools
+from app.ai.tools.tally_tools import TallyTools
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 import uuid
+
+logger = logging.getLogger(__name__)
+
+# Lazy import to avoid ImportError if langgraph not installed yet
+def _run_graph_assistant(query, company_id, user_id, role, provider, history, db):
+    try:
+        from app.ai.graph.assistant_graph import run_assistant
+        ft = FinanceTools(db)
+        mt = MasterTools(db)
+        tt = TallyTools(db)
+        return run_assistant(query, company_id, user_id, role, provider, history, ft, mt, tt)
+    except ImportError:
+        # Fallback to legacy FinanceAgent if langgraph not installed
+        logger.warning("langgraph not installed, falling back to FinanceAgent")
+        from app.agents.finance_agent import FinanceAgent
+        agent = FinanceAgent(db)
+        return agent.chat(query, company_id, history, provider)
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
@@ -194,10 +215,19 @@ def send_message(
     # Load company's provider preference
     company = db.query(Company).filter(Company.id == current_user.company_id).first()
     provider_override = company.ai_provider if company and company.ai_provider else None
+    from app.core.config import settings
+    effective_provider = provider_override or settings.AI_PROVIDER
 
-    # Run finance agent
-    agent = FinanceAgent(db)
-    result = agent.chat(data.content, str(current_user.company_id), history_for_agent, provider_override)
+    # Run LangGraph assistant (with fallback to legacy FinanceAgent)
+    result = _run_graph_assistant(
+        data.content,
+        str(current_user.company_id),
+        str(current_user.id),
+        current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+        effective_provider,
+        history_for_agent,
+        db,
+    )
 
     # Save assistant message
     ai_msg = AIMessage(
@@ -403,13 +433,15 @@ def create_entity(
 
             tally_date = entity.invoice_date.strftime("%Y%m%d")
             amount_str = str(int(float(entity.total_amount)))
+            # Pre-generate REMOTEID so we can cancel later by this ref
+            vnum = f"FP-{uuid.uuid4().hex[:12].upper()}"
             if invoice_type == "SALES":
                 party_name = payload.get("customer_name", "")
                 tally_queued = queue_tally_write(
                     db, current_user.company_id, "CREATE_SALES_VOUCHER",
                     {"date": tally_date, "party_ledger": party_name,
                      "sales_ledger": "Sales", "amount": amount_str,
-                     "narration": entity.invoice_number},
+                     "narration": entity.invoice_number, "voucher_number": vnum},
                 )
             else:
                 party_name = payload.get("vendor_name", "")
@@ -417,9 +449,12 @@ def create_entity(
                     db, current_user.company_id, "CREATE_PURCHASE_VOUCHER",
                     {"date": tally_date, "party_ledger": party_name,
                      "purchase_ledger": "Purchases", "amount": amount_str,
-                     "narration": entity.invoice_number},
+                     "narration": entity.invoice_number, "voucher_number": vnum},
                 )
             if tally_queued:
+                # Store ref so we can cancel later
+                entity.tally_voucher_ref = vnum
+                entity.tally_sync_status = "pending"
                 db.commit()
 
         elif entity_type == "expense":
@@ -459,6 +494,7 @@ def create_entity(
             entity_id = str(expense.id)
 
             vendor_name = payload.get("vendor_name", "Cash")
+            vnum_exp = f"FP-{uuid.uuid4().hex[:12].upper()}"
             tally_queued = queue_tally_write(
                 db, current_user.company_id, "CREATE_PURCHASE_VOUCHER",
                 {
@@ -467,9 +503,12 @@ def create_entity(
                     "purchase_ledger": "Purchases",
                     "amount": str(int(amount)),
                     "narration": expense.title,
+                    "voucher_number": vnum_exp,
                 },
             )
             if tally_queued:
+                expense.tally_voucher_ref = vnum_exp
+                expense.tally_sync_status = "pending"
                 db.commit()
 
         elif entity_type == "stock_item":

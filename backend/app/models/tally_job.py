@@ -51,6 +51,8 @@ class TallyJobOperation(str, enum.Enum):
     DELETE_STOCK_GROUP = "DELETE_STOCK_GROUP"
     DELETE_UNIT = "DELETE_UNIT"
     DELETE_GODOWN = "DELETE_GODOWN"
+    # Voucher cancel (Tally-confirmed-first)
+    CANCEL_VOUCHER = "CANCEL_VOUCHER"
     # Sync
     SYNC_FULL = "SYNC_FULL"
     SYNC_PARTIAL = "SYNC_PARTIAL"

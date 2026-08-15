@@ -58,6 +58,11 @@ class Invoice(Base):
 
     is_deleted = Column(Boolean, default=False)
 
+    # TallyPrime sync tracking (added for Tally-confirmed-first delete)
+    tally_voucher_ref = Column(String(100), nullable=True)   # REMOTEID sent to Tally (FP-xxxx)
+    tally_sync_status = Column(String(50), default="local_only")
+    # local_only | pending | synced | failed | delete_pending | delete_failed
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

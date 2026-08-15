@@ -126,6 +126,8 @@ ALLOWED_OPERATIONS = {
     "CREATE_RECEIPT_VOUCHER", "CREATE_PAYMENT_VOUCHER",
     "CREATE_JOURNAL_VOUCHER", "CREATE_CREDIT_NOTE", "CREATE_DEBIT_NOTE",
     "CREATE_CONTRA_VOUCHER",
+    # Voucher cancel (Tally-confirmed-first delete)
+    "CANCEL_VOUCHER",
     # Sync
     "SYNC_FULL", "SYNC_PARTIAL",
 }
@@ -206,6 +208,8 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
             return tally.delete_godown(payload), None
         if op == "DELETE_STOCK_ITEM":
             return tally.delete_stock_item(payload), None
+        if op == "CANCEL_VOUCHER":
+            return tally.cancel_voucher(payload), None
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
             ledgers      = tally.get_ledgers()
             vouchers     = tally.get_vouchers()

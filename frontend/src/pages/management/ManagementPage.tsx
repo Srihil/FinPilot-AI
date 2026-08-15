@@ -5,6 +5,7 @@ import {
   Layers, Users, Building2, Package, BookOpen, FolderOpen, Scale, Warehouse,
   FileText, Plus, Search, ChevronRight, Loader2, AlertCircle,
   CheckCircle, Clock, WifiOff, Wifi, Activity, BarChart3, Database, ChevronLeft,
+  Edit, Trash2, AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -78,6 +79,66 @@ function JobStatusBadge({ status }: { status: string }) {
 }
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
+
+// ─── Shared Delete Dialog ─────────────────────────────────────────────────────
+
+function DeleteDialog({ name, entityLabel, wasSynced, onConfirm, onClose, loading }: {
+  name: string; entityLabel: string; wasSynced: boolean;
+  onConfirm: () => void; onClose: () => void; loading: boolean;
+}) {
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <Trash2 className="w-4 h-4" /> Delete {entityLabel}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-slate-700">
+            Are you sure you want to delete <strong>"{name}"</strong> from FinPilot?
+          </p>
+          {wasSynced ? (
+            <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-sm text-amber-800">
+                <p className="font-semibold mb-0.5">This record is synced to TallyPrime</p>
+                <p>Deleting here <strong>does not</strong> delete it from TallyPrime. You must remove it from TallyPrime manually.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <AlertCircle className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-slate-600">This record has not been synced to TallyPrime. It will be deleted from FinPilot only.</p>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="destructive" onClick={onConfirm} disabled={loading} className="gap-1.5">
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+            Delete from FinPilot
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Action buttons ───────────────────────────────────────────────────────────
+
+function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div className="flex gap-1">
+      <button onClick={onEdit} className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Edit">
+        <Edit className="w-3.5 h-3.5" />
+      </button>
+      <button onClick={onDelete} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete">
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
 
 function StatCard({ label, value, icon: Icon, color, onClick }: {
   label: string; value: number | string; icon: React.ElementType; color: string; onClick?: () => void;
@@ -289,6 +350,8 @@ function CustomersSubTab() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [deleting, setDeleting] = useState<Customer | null>(null);
+  const qc = useQueryClient();
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -299,6 +362,17 @@ function CustomersSubTab() {
     queryKey: ['customers', page, debouncedSearch],
     queryFn: () => customersApi.list({ page, page_size: 15, search: debouncedSearch || undefined }),
   });
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    try {
+      await customersApi.delete(deleting.id);
+      toast({ title: 'Customer deleted', variant: 'success' });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['management-overview'] });
+    } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
+    setDeleting(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -313,13 +387,13 @@ function CustomersSubTab() {
           <thead className="bg-slate-50 border-b border-slate-100">
             <tr>
               <TH>Name</TH><TH>Email</TH><TH>GSTIN</TH>
-              <TH right>Outstanding</TH><TH>Status</TH>
+              <TH right>Outstanding</TH><TH>Status</TH><TH>Actions</TH>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}><td colSpan={5} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
+                <tr key={i}><td colSpan={6} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
               ))
             ) : data?.items?.length ? data.items.map((c: Customer) => (
               <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -339,10 +413,11 @@ function CustomersSubTab() {
                     {c.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(c)} /></TD>
               </tr>
             )) : (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={6}>
                   <EmptyState icon={Users} title="No customers yet" desc="Add your first customer to get started." />
                 </td>
               </tr>
@@ -351,6 +426,11 @@ function CustomersSubTab() {
         </table>
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
+
+      {deleting && (
+        <DeleteDialog name={deleting.name} entityLabel="Customer" wasSynced={false}
+          onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={false} />
+      )}
     </div>
   );
 }
@@ -361,6 +441,8 @@ function VendorsSubTab() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [deleting, setDeleting] = useState<Vendor | null>(null);
+  const qc = useQueryClient();
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -371,6 +453,17 @@ function VendorsSubTab() {
     queryKey: ['vendors', page, debouncedSearch],
     queryFn: () => vendorsApi.list({ page, page_size: 15, search: debouncedSearch || undefined }),
   });
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    try {
+      await vendorsApi.delete(deleting.id);
+      toast({ title: 'Vendor deleted', variant: 'success' });
+      qc.invalidateQueries({ queryKey: ['vendors'] });
+      qc.invalidateQueries({ queryKey: ['management-overview'] });
+    } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
+    setDeleting(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -385,13 +478,13 @@ function VendorsSubTab() {
           <thead className="bg-slate-50 border-b border-slate-100">
             <tr>
               <TH>Name</TH><TH>Email</TH><TH>GSTIN</TH>
-              <TH right>Outstanding Payable</TH><TH>Status</TH>
+              <TH right>Outstanding Payable</TH><TH>Status</TH><TH>Actions</TH>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}><td colSpan={5} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
+                <tr key={i}><td colSpan={6} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
               ))
             ) : data?.items?.length ? data.items.map((v: Vendor) => (
               <tr key={v.id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -411,10 +504,11 @@ function VendorsSubTab() {
                     {v.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(v)} /></TD>
               </tr>
             )) : (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={6}>
                   <EmptyState icon={Building2} title="No vendors yet" desc="Add your first vendor to get started." />
                 </td>
               </tr>
@@ -423,6 +517,10 @@ function VendorsSubTab() {
         </table>
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
+      {deleting && (
+        <DeleteDialog name={deleting.name} entityLabel="Vendor" wasSynced={false}
+          onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={false} />
+      )}
     </div>
   );
 }
@@ -433,6 +531,8 @@ function ProductsSubTab() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [deleting, setDeleting] = useState<Product | null>(null);
+  const qc = useQueryClient();
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -443,6 +543,17 @@ function ProductsSubTab() {
     queryKey: ['products', page, debouncedSearch],
     queryFn: () => productsApi.list({ page, page_size: 15, search: debouncedSearch || undefined }),
   });
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    try {
+      await productsApi.delete(deleting.id);
+      toast({ title: 'Product deleted', variant: 'success' });
+      qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['management-overview'] });
+    } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
+    setDeleting(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -457,13 +568,13 @@ function ProductsSubTab() {
           <thead className="bg-slate-50 border-b border-slate-100">
             <tr>
               <TH>Name / SKU</TH><TH>Category</TH><TH>Unit</TH>
-              <TH right>Stock</TH><TH right>Value</TH><TH>Status</TH>
+              <TH right>Stock</TH><TH right>Value</TH><TH>Status</TH><TH>Actions</TH>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}><td colSpan={6} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
+                <tr key={i}><td colSpan={7} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
               ))
             ) : data?.items?.length ? data.items.map((p: Product) => (
               <tr key={p.id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -484,10 +595,11 @@ function ProductsSubTab() {
                     {p.status}
                   </span>
                 </TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(p)} /></TD>
               </tr>
             )) : (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={7}>
                   <EmptyState icon={Package} title="No products yet" desc="Add your first product to the inventory." />
                 </td>
               </tr>
@@ -496,6 +608,10 @@ function ProductsSubTab() {
         </table>
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
+      {deleting && (
+        <DeleteDialog name={deleting.name} entityLabel="Product" wasSynced={false}
+          onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={false} />
+      )}
     </div>
   );
 }
@@ -739,6 +855,9 @@ function LedgersSubTab() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [deleting, setDeleting] = useState<TallyLedger | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const qc = useQueryClient();
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -749,6 +868,20 @@ function LedgersSubTab() {
     queryKey: ['management-ledgers', page, debouncedSearch],
     queryFn: () => managementApi.ledgers({ page, page_size: 15, search: debouncedSearch || undefined }),
   });
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      const res = await managementApi.deleteLedger(deleting.id);
+      toast({ title: 'Ledger deleted', description: res.message, variant: 'success' });
+      if (res.was_synced) toast({ title: 'Action required in TallyPrime', description: 'Remove this ledger from TallyPrime manually.', variant: 'default' });
+      qc.invalidateQueries({ queryKey: ['management-ledgers'] });
+      qc.invalidateQueries({ queryKey: ['management-overview'] });
+    } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
+    setDeleteLoading(false);
+    setDeleting(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -767,13 +900,13 @@ function LedgersSubTab() {
             <tr>
               <TH>Ledger Name</TH><TH>Parent Group</TH>
               <TH right>Opening Balance</TH><TH right>Closing Balance</TH>
-              <TH>Source</TH><TH>Tally Sync</TH><TH>Last Synced</TH>
+              <TH>Source</TH><TH>Tally Sync</TH><TH>Last Synced</TH><TH>Actions</TH>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}><td colSpan={7} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
+                <tr key={i}><td colSpan={8} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
               ))
             ) : data?.items?.length ? data.items.map((l: TallyLedger) => (
               <tr key={l.id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -784,10 +917,11 @@ function LedgersSubTab() {
                 <TD><SyncBadge status={l.tally_sync_status} source={l.source} /></TD>
                 <TD><SyncBadge status={l.tally_sync_status} /></TD>
                 <TD className="text-slate-400 text-xs">{relTime(l.synced_at)}</TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(l)} /></TD>
               </tr>
             )) : (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={8}>
                   <EmptyState
                     icon={BookOpen}
                     title="No ledgers yet"
@@ -801,7 +935,10 @@ function LedgersSubTab() {
         </table>
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
-
+      {deleting && (
+        <DeleteDialog name={deleting.name} entityLabel="Ledger" wasSynced={deleting.tally_sync_status === 'synced'}
+          onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={deleteLoading} />
+      )}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Create Tally Ledger</DialogTitle></DialogHeader>
@@ -819,6 +956,9 @@ function StockGroupsSubTab() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [deleting, setDeleting] = useState<TallyStockGroup | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const qc = useQueryClient();
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -829,6 +969,19 @@ function StockGroupsSubTab() {
     queryKey: ['management-stock-groups', page, debouncedSearch],
     queryFn: () => managementApi.stockGroups({ page, page_size: 15, search: debouncedSearch || undefined }),
   });
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      const res = await managementApi.deleteStockGroup(deleting.id);
+      toast({ title: 'Stock group deleted', description: res.message, variant: 'success' });
+      qc.invalidateQueries({ queryKey: ['management-stock-groups'] });
+      qc.invalidateQueries({ queryKey: ['management-overview'] });
+    } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
+    setDeleteLoading(false);
+    setDeleting(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -844,12 +997,12 @@ function StockGroupsSubTab() {
       <div className="overflow-x-auto rounded-lg border border-slate-100">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-100">
-            <tr><TH>Group Name</TH><TH>Parent</TH><TH>Source</TH><TH>Tally Sync</TH><TH>Last Synced</TH></tr>
+            <tr><TH>Group Name</TH><TH>Parent</TH><TH>Source</TH><TH>Tally Sync</TH><TH>Last Synced</TH><TH>Actions</TH></tr>
           </thead>
           <tbody>
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}><td colSpan={5} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
+                <tr key={i}><td colSpan={6} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
               ))
             ) : data?.items?.length ? data.items.map((sg: TallyStockGroup) => (
               <tr key={sg.id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -858,10 +1011,11 @@ function StockGroupsSubTab() {
                 <TD><SyncBadge status={sg.tally_sync_status} source={sg.source} /></TD>
                 <TD><SyncBadge status={sg.tally_sync_status} /></TD>
                 <TD className="text-slate-400 text-xs">{relTime(sg.synced_at)}</TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(sg)} /></TD>
               </tr>
             )) : (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={6}>
                   <EmptyState
                     icon={FolderOpen}
                     title="No stock groups yet"
@@ -875,7 +1029,10 @@ function StockGroupsSubTab() {
         </table>
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
-
+      {deleting && (
+        <DeleteDialog name={deleting.name} entityLabel="Stock Group" wasSynced={deleting.tally_sync_status === 'synced'}
+          onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={deleteLoading} />
+      )}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Create Stock Group</DialogTitle></DialogHeader>
@@ -893,6 +1050,9 @@ function UnitsSubTab() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [deleting, setDeleting] = useState<TallyUnit | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const qc = useQueryClient();
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -903,6 +1063,19 @@ function UnitsSubTab() {
     queryKey: ['management-units', page, debouncedSearch],
     queryFn: () => managementApi.units({ page, page_size: 15, search: debouncedSearch || undefined }),
   });
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      const res = await managementApi.deleteUnit(deleting.id);
+      toast({ title: 'Unit deleted', description: res.message, variant: 'success' });
+      qc.invalidateQueries({ queryKey: ['management-units'] });
+      qc.invalidateQueries({ queryKey: ['management-overview'] });
+    } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
+    setDeleteLoading(false);
+    setDeleting(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -918,12 +1091,12 @@ function UnitsSubTab() {
       <div className="overflow-x-auto rounded-lg border border-slate-100">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-100">
-            <tr><TH>Name</TH><TH>Symbol</TH><TH>Decimals</TH><TH>Type</TH><TH>Source</TH><TH>Tally Sync</TH></tr>
+            <tr><TH>Name</TH><TH>Symbol</TH><TH>Decimals</TH><TH>Type</TH><TH>Source</TH><TH>Tally Sync</TH><TH>Actions</TH></tr>
           </thead>
           <tbody>
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}><td colSpan={6} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
+                <tr key={i}><td colSpan={7} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
               ))
             ) : data?.items?.length ? data.items.map((u: TallyUnit) => (
               <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -933,10 +1106,11 @@ function UnitsSubTab() {
                 <TD className="text-slate-500 capitalize">{u.unit_type}</TD>
                 <TD><SyncBadge status={u.tally_sync_status} source={u.source} /></TD>
                 <TD><SyncBadge status={u.tally_sync_status} /></TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(u)} /></TD>
               </tr>
             )) : (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={7}>
                   <EmptyState
                     icon={Scale}
                     title="No units yet"
@@ -950,7 +1124,10 @@ function UnitsSubTab() {
         </table>
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
-
+      {deleting && (
+        <DeleteDialog name={deleting.name} entityLabel="Unit" wasSynced={deleting.tally_sync_status === 'synced'}
+          onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={deleteLoading} />
+      )}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Create Unit of Measure</DialogTitle></DialogHeader>
@@ -968,6 +1145,9 @@ function GodownsSubTab() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [deleting, setDeleting] = useState<TallyGodown | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const qc = useQueryClient();
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -978,6 +1158,19 @@ function GodownsSubTab() {
     queryKey: ['management-godowns', page, debouncedSearch],
     queryFn: () => managementApi.godowns({ page, page_size: 15, search: debouncedSearch || undefined }),
   });
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      const res = await managementApi.deleteGodown(deleting.id);
+      toast({ title: 'Godown deleted', description: res.message, variant: 'success' });
+      qc.invalidateQueries({ queryKey: ['management-godowns'] });
+      qc.invalidateQueries({ queryKey: ['management-overview'] });
+    } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
+    setDeleteLoading(false);
+    setDeleting(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -993,12 +1186,12 @@ function GodownsSubTab() {
       <div className="overflow-x-auto rounded-lg border border-slate-100">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-100">
-            <tr><TH>Godown Name</TH><TH>Parent</TH><TH>Source</TH><TH>Tally Sync</TH><TH>Last Synced</TH></tr>
+            <tr><TH>Godown Name</TH><TH>Parent</TH><TH>Source</TH><TH>Tally Sync</TH><TH>Last Synced</TH><TH>Actions</TH></tr>
           </thead>
           <tbody>
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}><td colSpan={5} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
+                <tr key={i}><td colSpan={6} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
               ))
             ) : data?.items?.length ? data.items.map((g: TallyGodown) => (
               <tr key={g.id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -1007,10 +1200,11 @@ function GodownsSubTab() {
                 <TD><SyncBadge status={g.tally_sync_status} source={g.source} /></TD>
                 <TD><SyncBadge status={g.tally_sync_status} /></TD>
                 <TD className="text-slate-400 text-xs">{relTime(g.synced_at)}</TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(g)} /></TD>
               </tr>
             )) : (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={6}>
                   <EmptyState
                     icon={Warehouse}
                     title="No godowns yet"
@@ -1024,7 +1218,10 @@ function GodownsSubTab() {
         </table>
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
-
+      {deleting && (
+        <DeleteDialog name={deleting.name} entityLabel="Godown" wasSynced={deleting.tally_sync_status === 'synced'}
+          onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={deleteLoading} />
+      )}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Create Godown / Warehouse</DialogTitle></DialogHeader>

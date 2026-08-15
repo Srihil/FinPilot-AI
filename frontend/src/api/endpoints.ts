@@ -118,6 +118,10 @@ export const productsApi = {
     const response = await apiClient.put(`/api/products/${id}`, data);
     return response.data;
   },
+
+  delete: async (id: string): Promise<void> => {
+    await apiClient.delete(`/api/products/${id}`);
+  },
 };
 
 // ─── Invoices / Transactions ──────────────────────────────────────────────────
@@ -390,6 +394,42 @@ export const managementApi = {
 
   syncHealth: async (): Promise<SyncHealth> => {
     const res = await apiClient.get('/api/management/sync-health');
+    return res.data;
+  },
+
+  updateLedger: async (id: string, data: { name?: string; parent_group?: string; opening_balance?: number }) => {
+    const res = await apiClient.patch(`/api/management/ledgers/${id}`, data);
+    return res.data;
+  },
+  deleteLedger: async (id: string) => {
+    const res = await apiClient.delete(`/api/management/ledgers/${id}`);
+    return res.data;
+  },
+
+  updateStockGroup: async (id: string, data: { name?: string; parent?: string }) => {
+    const res = await apiClient.patch(`/api/management/stock-groups/${id}`, data);
+    return res.data;
+  },
+  deleteStockGroup: async (id: string) => {
+    const res = await apiClient.delete(`/api/management/stock-groups/${id}`);
+    return res.data;
+  },
+
+  updateUnit: async (id: string, data: { name?: string; symbol?: string; decimal_places?: number }) => {
+    const res = await apiClient.patch(`/api/management/units/${id}`, data);
+    return res.data;
+  },
+  deleteUnit: async (id: string) => {
+    const res = await apiClient.delete(`/api/management/units/${id}`);
+    return res.data;
+  },
+
+  updateGodown: async (id: string, data: { name?: string; parent?: string }) => {
+    const res = await apiClient.patch(`/api/management/godowns/${id}`, data);
+    return res.data;
+  },
+  deleteGodown: async (id: string) => {
+    const res = await apiClient.delete(`/api/management/godowns/${id}`);
     return res.data;
   },
 };

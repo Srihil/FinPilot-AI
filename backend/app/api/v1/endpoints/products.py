@@ -72,6 +72,25 @@ def create_product(
     return {"id": str(p.id), "name": p.name, "message": "Product created successfully"}
 
 
+@router.delete("/{product_id}")
+def delete_product(
+    product_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    p = db.query(Product).filter(
+        Product.id == uuid.UUID(product_id),
+        Product.company_id == current_user.company_id,
+        Product.is_active == True,
+    ).first()
+    if not p:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Product not found")
+    p.is_active = False
+    db.commit()
+    return {"deleted": True, "message": "Product deleted successfully."}
+
+
 @router.put("/{product_id}")
 def update_product(
     product_id: str,

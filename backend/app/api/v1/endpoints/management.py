@@ -54,6 +54,46 @@ def _paginate(query, page: int, page_size: int):
     }
 
 
+def _reconcile_sync_status(db: Session, records: list) -> bool:
+    """Auto-fix 'pending' tally_sync_status when the corresponding job already completed."""
+    pending_job_ids = [
+        r.tally_job_id for r in records
+        if getattr(r, 'tally_sync_status', None) == 'pending' and getattr(r, 'tally_job_id', None)
+    ]
+    if not pending_job_ids:
+        return False
+    jobs = {
+        j.id: j for j in db.query(TallyIntegrationJob).filter(
+            TallyIntegrationJob.id.in_(pending_job_ids),
+            TallyIntegrationJob.status.in_([JobStatus.SUCCESS, JobStatus.FAILED]),
+        ).all()
+    }
+    now = datetime.now(timezone.utc)
+    changed = False
+    for r in records:
+        job = jobs.get(getattr(r, 'tally_job_id', None))
+        if job:
+            if job.status == JobStatus.SUCCESS:
+                r.tally_sync_status = 'synced'
+                r.synced_at = job.completed_at or now
+                changed = True
+            elif job.status == JobStatus.FAILED:
+                r.tally_sync_status = 'failed'
+                changed = True
+    return changed
+
+
+def _cancel_pending_job(db: Session, job_id) -> None:
+    if not job_id:
+        return
+    job = db.query(TallyIntegrationJob).filter(
+        TallyIntegrationJob.id == job_id,
+        TallyIntegrationJob.status == JobStatus.PENDING,
+    ).first()
+    if job:
+        job.status = JobStatus.CANCELLED
+
+
 # ─── Overview ───────────────────────────────────────────────────────────────────
 
 @router.get("/overview")
@@ -178,6 +218,9 @@ def list_ledgers(
         q = q.filter(TallyLedger.name.ilike(f"%{search}%"))
     q = q.order_by(TallyLedger.name)
     result = _paginate(q, page, page_size)
+    records = result["items"]
+    if _reconcile_sync_status(db, records):
+        db.commit()
     result["items"] = [
         {
             "id": str(r.id),
@@ -190,7 +233,7 @@ def list_ledgers(
             "synced_at": r.synced_at.isoformat() if r.synced_at else None,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
-        for r in result["items"]
+        for r in records
     ]
     return result
 
@@ -276,6 +319,83 @@ def create_ledger(
     }
 
 
+class LedgerUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_group: Optional[str] = None
+    opening_balance: Optional[float] = None
+
+
+@router.patch("/ledgers/{ledger_id}")
+def update_ledger(
+    ledger_id: str,
+    data: LedgerUpdate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    ledger = db.query(TallyLedger).filter(
+        TallyLedger.id == uuid.UUID(ledger_id),
+        TallyLedger.company_id == current_user.company_id,
+        TallyLedger.is_active == True,
+    ).first()
+    if not ledger:
+        raise HTTPException(status_code=404, detail="Ledger not found")
+
+    was_synced = ledger.tally_sync_status == "synced"
+    if data.name is not None:
+        ledger.name = data.name.strip()
+    if data.parent_group is not None:
+        ledger.parent_group = data.parent_group
+    if data.opening_balance is not None:
+        ledger.opening_balance = data.opening_balance
+    ledger.updated_at = datetime.now(timezone.utc)
+
+    # If pending job, update its payload too
+    if ledger.tally_job_id and not was_synced:
+        job = db.query(TallyIntegrationJob).filter(
+            TallyIntegrationJob.id == ledger.tally_job_id,
+            TallyIntegrationJob.status == JobStatus.PENDING,
+        ).first()
+        if job and data.name:
+            job.payload = {**(job.payload or {}), "name": ledger.name}
+
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
+                      entity_type="tally_ledger", entity_id=ledger.id,
+                      description=f"Updated ledger: {ledger.name}")
+    return {
+        "id": str(ledger.id), "name": ledger.name,
+        "tally_sync_status": ledger.tally_sync_status,
+        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
+    }
+
+
+@router.delete("/ledgers/{ledger_id}")
+def delete_ledger(
+    ledger_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    ledger = db.query(TallyLedger).filter(
+        TallyLedger.id == uuid.UUID(ledger_id),
+        TallyLedger.company_id == current_user.company_id,
+        TallyLedger.is_active == True,
+    ).first()
+    if not ledger:
+        raise HTTPException(status_code=404, detail="Ledger not found")
+
+    was_synced = ledger.tally_sync_status == "synced"
+    _cancel_pending_job(db, ledger.tally_job_id)
+    ledger.is_active = False
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                      entity_type="tally_ledger", entity_id=ledger.id,
+                      description=f"Deleted ledger: {ledger.name}")
+    return {
+        "deleted": True, "was_synced": was_synced,
+        "message": "Deleted from FinPilot. This ledger still exists in TallyPrime — remove it there manually." if was_synced else "Deleted successfully.",
+    }
+
+
 # ─── Stock Group management ──────────────────────────────────────────────────────
 
 class StockGroupCreate(BaseModel):
@@ -299,6 +419,9 @@ def list_stock_groups(
         q = q.filter(TallyStockGroup.name.ilike(f"%{search}%"))
     q = q.order_by(TallyStockGroup.name)
     result = _paginate(q, page, page_size)
+    records = result["items"]
+    if _reconcile_sync_status(db, records):
+        db.commit()
     result["items"] = [
         {
             "id": str(r.id),
@@ -309,7 +432,7 @@ def list_stock_groups(
             "synced_at": r.synced_at.isoformat() if r.synced_at else None,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
-        for r in result["items"]
+        for r in records
     ]
     return result
 
@@ -390,6 +513,67 @@ def create_stock_group(
     }
 
 
+class StockGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    parent: Optional[str] = None
+
+
+@router.patch("/stock-groups/{sg_id}")
+def update_stock_group(
+    sg_id: str,
+    data: StockGroupUpdate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    sg = db.query(TallyStockGroup).filter(
+        TallyStockGroup.id == uuid.UUID(sg_id),
+        TallyStockGroup.company_id == current_user.company_id,
+        TallyStockGroup.is_active == True,
+    ).first()
+    if not sg:
+        raise HTTPException(status_code=404, detail="Stock group not found")
+    was_synced = sg.tally_sync_status == "synced"
+    if data.name is not None:
+        sg.name = data.name.strip()
+    if data.parent is not None:
+        sg.parent = data.parent.strip() or None
+    sg.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
+                      entity_type="tally_stock_group", entity_id=sg.id,
+                      description=f"Updated stock group: {sg.name}")
+    return {
+        "id": str(sg.id), "name": sg.name, "tally_sync_status": sg.tally_sync_status,
+        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
+    }
+
+
+@router.delete("/stock-groups/{sg_id}")
+def delete_stock_group(
+    sg_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    sg = db.query(TallyStockGroup).filter(
+        TallyStockGroup.id == uuid.UUID(sg_id),
+        TallyStockGroup.company_id == current_user.company_id,
+        TallyStockGroup.is_active == True,
+    ).first()
+    if not sg:
+        raise HTTPException(status_code=404, detail="Stock group not found")
+    was_synced = sg.tally_sync_status == "synced"
+    _cancel_pending_job(db, sg.tally_job_id)
+    sg.is_active = False
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                      entity_type="tally_stock_group", entity_id=sg.id,
+                      description=f"Deleted stock group: {sg.name}")
+    return {
+        "deleted": True, "was_synced": was_synced,
+        "message": "Deleted from FinPilot. This stock group still exists in TallyPrime — remove it there manually." if was_synced else "Deleted successfully.",
+    }
+
+
 # ─── Unit management ─────────────────────────────────────────────────────────────
 
 class UnitCreate(BaseModel):
@@ -426,6 +610,9 @@ def list_units(
         )
     q = q.order_by(TallyUnit.name)
     result = _paginate(q, page, page_size)
+    records = result["items"]
+    if _reconcile_sync_status(db, records):
+        db.commit()
     result["items"] = [
         {
             "id": str(r.id),
@@ -438,7 +625,7 @@ def list_units(
             "synced_at": r.synced_at.isoformat() if r.synced_at else None,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
-        for r in result["items"]
+        for r in records
     ]
     return result
 
@@ -524,6 +711,73 @@ def create_unit(
     }
 
 
+class UnitUpdate(BaseModel):
+    name: Optional[str] = None
+    symbol: Optional[str] = None
+    decimal_places: Optional[int] = None
+
+
+@router.patch("/units/{unit_id}")
+def update_unit(
+    unit_id: str,
+    data: UnitUpdate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    unit = db.query(TallyUnit).filter(
+        TallyUnit.id == uuid.UUID(unit_id),
+        TallyUnit.company_id == current_user.company_id,
+        TallyUnit.is_active == True,
+    ).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Unit not found")
+    was_synced = unit.tally_sync_status == "synced"
+    if data.name is not None:
+        unit.name = data.name.strip()
+    if data.symbol is not None:
+        sym = data.symbol.strip().replace(" ", "")[:8]
+        if not sym:
+            raise HTTPException(status_code=422, detail="Symbol cannot be empty")
+        unit.symbol = sym
+    if data.decimal_places is not None:
+        unit.decimal_places = data.decimal_places
+    unit.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
+                      entity_type="tally_unit", entity_id=unit.id,
+                      description=f"Updated unit: {unit.name}")
+    return {
+        "id": str(unit.id), "name": unit.name, "tally_sync_status": unit.tally_sync_status,
+        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
+    }
+
+
+@router.delete("/units/{unit_id}")
+def delete_unit(
+    unit_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    unit = db.query(TallyUnit).filter(
+        TallyUnit.id == uuid.UUID(unit_id),
+        TallyUnit.company_id == current_user.company_id,
+        TallyUnit.is_active == True,
+    ).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Unit not found")
+    was_synced = unit.tally_sync_status == "synced"
+    _cancel_pending_job(db, unit.tally_job_id)
+    unit.is_active = False
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                      entity_type="tally_unit", entity_id=unit.id,
+                      description=f"Deleted unit: {unit.name}")
+    return {
+        "deleted": True, "was_synced": was_synced,
+        "message": "Deleted from FinPilot. This unit still exists in TallyPrime — remove it there manually." if was_synced else "Deleted successfully.",
+    }
+
+
 # ─── Godown management ──────────────────────────────────────────────────────────
 
 class GodownCreate(BaseModel):
@@ -547,6 +801,9 @@ def list_godowns(
         q = q.filter(TallyGodown.name.ilike(f"%{search}%"))
     q = q.order_by(TallyGodown.name)
     result = _paginate(q, page, page_size)
+    records = result["items"]
+    if _reconcile_sync_status(db, records):
+        db.commit()
     result["items"] = [
         {
             "id": str(r.id),
@@ -557,7 +814,7 @@ def list_godowns(
             "synced_at": r.synced_at.isoformat() if r.synced_at else None,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
-        for r in result["items"]
+        for r in records
     ]
     return result
 
@@ -634,6 +891,67 @@ def create_godown(
         "parent": godown.parent,
         "tally_sync_status": godown.tally_sync_status,
         "tally_queued": tally_queued,
+    }
+
+
+class GodownUpdate(BaseModel):
+    name: Optional[str] = None
+    parent: Optional[str] = None
+
+
+@router.patch("/godowns/{godown_id}")
+def update_godown(
+    godown_id: str,
+    data: GodownUpdate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    godown = db.query(TallyGodown).filter(
+        TallyGodown.id == uuid.UUID(godown_id),
+        TallyGodown.company_id == current_user.company_id,
+        TallyGodown.is_active == True,
+    ).first()
+    if not godown:
+        raise HTTPException(status_code=404, detail="Godown not found")
+    was_synced = godown.tally_sync_status == "synced"
+    if data.name is not None:
+        godown.name = data.name.strip()
+    if data.parent is not None:
+        godown.parent = data.parent.strip() or None
+    godown.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
+                      entity_type="tally_godown", entity_id=godown.id,
+                      description=f"Updated godown: {godown.name}")
+    return {
+        "id": str(godown.id), "name": godown.name, "tally_sync_status": godown.tally_sync_status,
+        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
+    }
+
+
+@router.delete("/godowns/{godown_id}")
+def delete_godown(
+    godown_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    godown = db.query(TallyGodown).filter(
+        TallyGodown.id == uuid.UUID(godown_id),
+        TallyGodown.company_id == current_user.company_id,
+        TallyGodown.is_active == True,
+    ).first()
+    if not godown:
+        raise HTTPException(status_code=404, detail="Godown not found")
+    was_synced = godown.tally_sync_status == "synced"
+    _cancel_pending_job(db, godown.tally_job_id)
+    godown.is_active = False
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                      entity_type="tally_godown", entity_id=godown.id,
+                      description=f"Deleted godown: {godown.name}")
+    return {
+        "deleted": True, "was_synced": was_synced,
+        "message": "Deleted from FinPilot. This godown still exists in TallyPrime — remove it there manually." if was_synced else "Deleted successfully.",
     }
 
 

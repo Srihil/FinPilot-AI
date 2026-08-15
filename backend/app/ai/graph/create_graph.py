@@ -13,7 +13,11 @@ Actual DB writes and Tally job queuing happen in execute_node via existing servi
 AI cannot bypass RBAC, validation, or Tally job queue.
 """
 import logging
-from langgraph.graph import StateGraph, END
+try:
+    from langgraph.graph import StateGraph, END
+except ImportError:
+    StateGraph = None
+    END = None
 
 from app.ai.graph.state import CreateState
 from app.agents.entity_agent import EntityAgent
@@ -98,6 +102,8 @@ def validate_node(state: CreateState) -> dict:
 
 def build_create_graph():
     """Build and compile the entity creation LangGraph (extract + validate phase only)."""
+    if StateGraph is None:
+        raise ImportError("langgraph is not installed")
     graph = StateGraph(CreateState)
 
     graph.add_node("extract", extract_node)

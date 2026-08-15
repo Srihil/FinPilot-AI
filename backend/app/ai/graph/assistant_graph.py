@@ -15,7 +15,13 @@ import json
 import logging
 from typing import Literal
 
-from langgraph.graph import StateGraph, END
+try:
+    from langgraph.graph import StateGraph, END
+    _LANGGRAPH_AVAILABLE = True
+except ImportError:
+    _LANGGRAPH_AVAILABLE = False
+    StateGraph = None
+    END = None
 
 from app.ai.graph.state import AssistantState
 from app.ai.agents.supervisor import SupervisorAgent
@@ -219,6 +225,8 @@ def build_assistant_graph(
     master_tools: MasterTools,
     tally_tools: TallyTools,
 ):
+    if not _LANGGRAPH_AVAILABLE:
+        raise ImportError("langgraph is not installed")
     graph = StateGraph(AssistantState)
 
     graph.add_node("supervisor", supervisor_node)

@@ -1,4 +1,4 @@
-"""add tally_voucher_types table
+"""add tally_voucher_types table and CREATE_VOUCHER_TYPE enum value
 
 Revision ID: l6m7n8o9p0q1
 Revises: g1h2i3j4k5l6
@@ -17,29 +17,38 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # ALTER TYPE ... ADD VALUE cannot run inside a DDL transaction on older
+    # PostgreSQL builds. Use AUTOCOMMIT for this statement only, then restore.
+    connection = op.get_bind()
+    connection.execution_options(isolation_level="AUTOCOMMIT").execute(
+        sa.text("ALTER TYPE tallyjoboperation ADD VALUE IF NOT EXISTS 'CREATE_VOUCHER_TYPE'")
+    )
+
     op.create_table(
         'tally_voucher_types',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False, server_default=sa.text('gen_random_uuid()')),
+        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False,
+                  server_default=sa.text('gen_random_uuid()')),
         sa.Column('company_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('name', sa.String(500), nullable=False),
         sa.Column('parent', sa.String(255), nullable=True),
-        sa.Column('numbering_method', sa.String(50), nullable=True, server_default='Automatic'),
+        sa.Column('numbering_method', sa.String(50), nullable=True,
+                  server_default='Automatic'),
         sa.Column('tally_key', sa.String(512), nullable=False),
         sa.Column('source', sa.String(50), nullable=True, server_default='tally_sync'),
         sa.Column('tally_job_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('tally_sync_status', sa.String(50), nullable=True, server_default='pending'),
+        sa.Column('tally_sync_status', sa.String(50), nullable=True,
+                  server_default='pending'),
         sa.Column('synced_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('is_active', sa.Boolean(), nullable=True, server_default='true'),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True, server_default=sa.text('now()')),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True, server_default=sa.text('now()')),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True,
+                  server_default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True,
+                  server_default=sa.text('now()')),
         sa.ForeignKeyConstraint(['company_id'], ['companies.id']),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('ix_tally_voucher_types_company_id', 'tally_voucher_types', ['company_id'])
     op.create_index('ix_tally_voucher_types_tally_key', 'tally_voucher_types', ['tally_key'])
-
-    # Add CREATE_VOUCHER_TYPE to the enum if using PostgreSQL native enum
-    op.execute("ALTER TYPE tallyjoboperation ADD VALUE IF NOT EXISTS 'CREATE_VOUCHER_TYPE'")
 
 
 def downgrade() -> None:

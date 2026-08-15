@@ -137,12 +137,20 @@ class DemoTransactionExtractor:
 
 class LLMTransactionExtractor:
     def extract(self, text: str) -> dict:
-        headers = {
-            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-        }
+        if settings.AI_PROVIDER == "groq":
+            api_url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {settings.GROQ_API_KEY}", "Content-Type": "application/json"}
+            model = settings.GROQ_MODEL
+        else:
+            api_url = "https://openrouter.ai/api/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+            }
+            model = settings.AI_MODEL
+
         payload = {
-            "model": settings.AI_MODEL,
+            "model": model,
             "messages": [
                 {"role": "system", "content": EXTRACTION_PROMPT},
                 {"role": "user", "content": text},
@@ -151,7 +159,7 @@ class LLMTransactionExtractor:
             "response_format": {"type": "json_object"},
         }
         with httpx.Client(timeout=30) as client:
-            resp = client.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
+            resp = client.post(api_url, json=payload, headers=headers)
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
             return json.loads(content)

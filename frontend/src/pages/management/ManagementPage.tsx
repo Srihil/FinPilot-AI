@@ -1546,9 +1546,13 @@ function TransactionsTab({ initialLedgerFilter }: { initialLedgerFilter?: string
                   </p>
                 </div>
               ) : (
-                <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-100 rounded-lg">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <p className="text-sm text-amber-800">This is permanent and cannot be undone.</p>
+                <div className="space-y-2">
+                  <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-100 rounded-lg">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-sm text-amber-800">
+                      This will hide the transaction from FinPilot. <strong>If this transaction also exists in TallyPrime, you must delete it there manually.</strong>
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

@@ -1052,15 +1052,11 @@ def list_vouchers(
         inv_q = db.query(Invoice).options(
             joinedload(Invoice.customer),
             joinedload(Invoice.vendor),
-        ).filter(Invoice.company_id == cid)
+        ).filter(Invoice.company_id == cid, Invoice.is_deleted.is_not(True))
         if vt == "SALES":
             inv_q = inv_q.filter(Invoice.invoice_type == InvoiceType.SALES)
         elif vt == "PURCHASE":
             inv_q = inv_q.filter(Invoice.invoice_type == InvoiceType.PURCHASE)
-        if search:
-            inv_q = inv_q.filter(
-                or_(Invoice.invoice_number.ilike(f"%{search}%"))
-            )
         if date_from:
             try:
                 inv_q = inv_q.filter(Invoice.invoice_date >= datetime.fromisoformat(date_from))
@@ -1096,11 +1092,7 @@ def list_vouchers(
     if include_expenses:
         exp_q = db.query(Expense).options(
             joinedload(Expense.vendor),
-        ).filter(Expense.company_id == cid)
-        if search:
-            exp_q = exp_q.filter(
-                or_(Expense.title.ilike(f"%{search}%"), Expense.category.ilike(f"%{search}%"))
-            )
+        ).filter(Expense.company_id == cid, Expense.is_deleted.is_not(True))
         if date_from:
             try:
                 exp_q = exp_q.filter(Expense.expense_date >= datetime.fromisoformat(date_from))
@@ -1130,6 +1122,18 @@ def list_vouchers(
                 "title": exp.title,
                 "paid_amount": 0,
             })
+
+    # Unified case-insensitive search across all fields
+    if search:
+        sl = search.lower()
+        results = [
+            r for r in results
+            if sl in (r.get("voucher_number") or "").lower()
+            or sl in (r.get("party_name") or "").lower()
+            or sl in (r.get("title") or "").lower()
+            or sl in (r.get("voucher_type") or "").lower()
+            or sl in (r.get("status") or "").lower()
+        ]
 
     # Apply ledger_name filter (match against party name or title)
     if ledger_name:
@@ -1165,12 +1169,16 @@ def delete_voucher(
     current_user: User = Depends(require_admin_or_accountant),
     db: Session = Depends(get_db),
 ):
+    """Soft-delete a transaction. The record is hidden from FinPilot but not permanently destroyed,
+    so it can be recovered if needed. For records that exist in TallyPrime, they must be
+    deleted there manually (Tally voucher deletion via job queue is not yet supported)."""
     cid = current_user.company_id
 
     if entity_type == "invoice":
         record = db.query(Invoice).filter(
             Invoice.id == uuid.UUID(entity_id),
             Invoice.company_id == cid,
+            Invoice.is_deleted.is_not(True),
         ).first()
         if not record:
             raise HTTPException(status_code=404, detail="Invoice not found")
@@ -1180,31 +1188,28 @@ def delete_voucher(
                 detail=f"Cannot delete: ₹{float(record.paid_amount):,.2f} in payments are recorded against this invoice. Remove the payments first.",
             )
         name = record.invoice_number
-        db.query(Approval).filter(Approval.invoice_id == record.id).delete(synchronize_session=False)
-        db.delete(record)
-        db.flush()
+        record.is_deleted = True
         audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
                           entity_type="invoice", entity_id=record.id,
                           description=f"Deleted invoice: {name}")
         db.commit()
-        return {"deleted": True, "message": f"Invoice {name} deleted."}
+        return {"deleted": True, "message": f"Invoice {name} removed from FinPilot. If it exists in TallyPrime, delete it there manually."}
 
     elif entity_type == "expense":
         record = db.query(Expense).filter(
             Expense.id == uuid.UUID(entity_id),
             Expense.company_id == cid,
+            Expense.is_deleted.is_not(True),
         ).first()
         if not record:
             raise HTTPException(status_code=404, detail="Expense not found")
         name = record.title
-        db.query(Approval).filter(Approval.expense_id == record.id).delete(synchronize_session=False)
-        db.delete(record)
-        db.flush()
+        record.is_deleted = True
         audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
                           entity_type="expense", entity_id=record.id,
                           description=f"Deleted expense: {name}")
         db.commit()
-        return {"deleted": True, "message": f"Expense '{name}' deleted."}
+        return {"deleted": True, "message": f"Expense '{name}' removed from FinPilot. If it exists in TallyPrime, delete it there manually."}
 
     else:
         raise HTTPException(status_code=400, detail="entity_type must be 'invoice' or 'expense'")

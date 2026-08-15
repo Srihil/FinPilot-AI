@@ -110,7 +110,7 @@ const RELEASES_API = 'https://api.github.com/repos/Srihil/FinPilot-AI/releases/l
 function useLatestVersion() {
   const [version, setVersion] = useState<string>('');
   useEffect(() => {
-    fetch(RELEASES_API)
+    fetch(RELEASES_API, { cache: 'no-store' })
       .then(r => r.json())
       .then(d => setVersion(d.tag_name || ''))
       .catch(() => {});

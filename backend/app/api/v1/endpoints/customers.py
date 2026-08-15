@@ -103,5 +103,23 @@ def delete_customer(
     current_user: User = Depends(require_admin_or_accountant),
     db: Session = Depends(get_db),
 ):
+    import uuid as _uuid
+    from app.models.customer import Customer
+    customer = db.query(Customer).filter(
+        Customer.id == _uuid.UUID(customer_id),
+        Customer.company_id == current_user.company_id,
+    ).first()
+
     customer_service.delete(db, current_user.company_id, customer_id)
-    return {"message": "Customer deactivated successfully"}
+
+    # Queue Tally delete so the ledger is also removed from TallyPrime
+    tally_queued = False
+    if customer:
+        tally_queued = queue_tally_write(
+            db, current_user.company_id, "DELETE_LEDGER", {"name": customer.name}
+        )
+        if tally_queued:
+            db.commit()
+
+    msg = "Customer deleted from FinPilot and delete queued for TallyPrime." if tally_queued else "Customer deleted from FinPilot."
+    return {"message": msg, "tally_queued": tally_queued}

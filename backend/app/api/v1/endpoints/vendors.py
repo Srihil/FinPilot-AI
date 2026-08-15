@@ -76,5 +76,22 @@ def delete_vendor(
     current_user: User = Depends(require_admin_or_accountant),
     db: Session = Depends(get_db),
 ):
+    import uuid as _uuid
+    from app.models.vendor import Vendor
+    vendor = db.query(Vendor).filter(
+        Vendor.id == _uuid.UUID(vendor_id),
+        Vendor.company_id == current_user.company_id,
+    ).first()
+
     vendor_service.delete(db, current_user.company_id, vendor_id)
-    return {"message": "Vendor deactivated successfully"}
+
+    tally_queued = False
+    if vendor:
+        tally_queued = queue_tally_write(
+            db, current_user.company_id, "DELETE_LEDGER", {"name": vendor.name}
+        )
+        if tally_queued:
+            db.commit()
+
+    msg = "Vendor deleted from FinPilot and delete queued for TallyPrime." if tally_queued else "Vendor deleted from FinPilot."
+    return {"message": msg, "tally_queued": tally_queued}

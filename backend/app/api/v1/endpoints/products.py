@@ -78,17 +78,22 @@ def delete_product(
     current_user: User = Depends(require_admin_or_accountant),
     db: Session = Depends(get_db),
 ):
+    from fastapi import HTTPException
+    from app.services.tally_write_service import queue_tally_write
     p = db.query(Product).filter(
         Product.id == uuid.UUID(product_id),
         Product.company_id == current_user.company_id,
         Product.is_active == True,
     ).first()
     if not p:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Product not found")
     p.is_active = False
+    tally_queued = queue_tally_write(
+        db, current_user.company_id, "DELETE_STOCK_ITEM", {"name": p.name}
+    )
     db.commit()
-    return {"deleted": True, "message": "Product deleted successfully."}
+    msg = "Product deleted from FinPilot and delete queued for TallyPrime." if tally_queued else "Product deleted from FinPilot."
+    return {"deleted": True, "tally_queued": tally_queued, "message": msg}
 
 
 @router.put("/{product_id}")

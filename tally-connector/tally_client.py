@@ -518,6 +518,40 @@ class TallyClient:
             logger.warning("get_units: %s", e)
             return []
 
+    # ── Delete: Master records ────────────────────────────────────────────────
+
+    def _delete_master(self, tag: str, name: str) -> dict:
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <{tag} NAME="{name}" ACTION="Delete"></{tag}>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        deleted = root.find(".//DELETED")
+        errors = root.find(".//LINEERROR")
+        if errors is not None and errors.text:
+            raise TallyError(f"TallyPrime refused delete: {errors.text.strip()}")
+        return {"deleted": int(deleted.text) if deleted is not None and deleted.text else 0}
+
+    def delete_ledger(self, payload: dict) -> dict:
+        return self._delete_master("LEDGER", payload.get("name", ""))
+
+    def delete_stock_group(self, payload: dict) -> dict:
+        return self._delete_master("STOCKGROUP", payload.get("name", ""))
+
+    def delete_unit(self, payload: dict) -> dict:
+        return self._delete_master("UNIT", payload.get("name", ""))
+
+    def delete_godown(self, payload: dict) -> dict:
+        return self._delete_master("GODOWN", payload.get("name", ""))
+
+    def delete_stock_item(self, payload: dict) -> dict:
+        return self._delete_master("STOCKITEM", payload.get("name", ""))
+
     # ── Write: Create sales voucher ───────────────────────────────────────────
 
     def create_sales_voucher(self, payload: dict) -> dict:

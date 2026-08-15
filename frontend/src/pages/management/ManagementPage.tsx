@@ -96,28 +96,21 @@ function DeleteDialog({ name, entityLabel, wasSynced, onConfirm, onClose, loadin
         </DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-slate-700">
-            Are you sure you want to delete <strong>"{name}"</strong> from FinPilot?
+            Delete <strong>"{name}"</strong>?
           </p>
-          {wasSynced ? (
-            <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div className="text-sm text-amber-800">
-                <p className="font-semibold mb-0.5">This record is synced to TallyPrime</p>
-                <p>Deleting here <strong>does not</strong> delete it from TallyPrime. You must remove it from TallyPrime manually.</p>
-              </div>
+          <div className="flex items-start gap-2.5 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+            <CheckCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-800">
+              <p className="font-semibold mb-0.5">Deletes from both FinPilot and TallyPrime</p>
+              <p>A delete job will be sent to your connected TallyPrime. If the record has transactions in Tally, Tally will reject the delete and you'll see an error in the Sync Center.</p>
             </div>
-          ) : (
-            <div className="flex items-start gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-              <AlertCircle className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-              <p className="text-sm text-slate-600">This record has not been synced to TallyPrime. It will be deleted from FinPilot only.</p>
-            </div>
-          )}
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button variant="destructive" onClick={onConfirm} disabled={loading} className="gap-1.5">
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            Delete from FinPilot
+            Delete
           </Button>
         </DialogFooter>
       </DialogContent>

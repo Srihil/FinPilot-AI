@@ -119,6 +119,8 @@ ALLOWED_OPERATIONS = {
     "CREATE_LEDGER", "CREATE_GROUP",
     # Inventory masters
     "CREATE_STOCK_ITEM", "CREATE_STOCK_GROUP", "CREATE_UNIT", "CREATE_GODOWN",
+    # Delete operations
+    "DELETE_LEDGER", "DELETE_STOCK_ITEM", "DELETE_STOCK_GROUP", "DELETE_UNIT", "DELETE_GODOWN",
     # Vouchers
     "CREATE_SALES_VOUCHER", "CREATE_PURCHASE_VOUCHER",
     "CREATE_RECEIPT_VOUCHER", "CREATE_PAYMENT_VOUCHER",
@@ -194,6 +196,16 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
             return tally.create_debit_note(payload), None
         if op == "CREATE_CONTRA_VOUCHER":
             return tally.create_contra_voucher(payload), None
+        if op == "DELETE_LEDGER":
+            return tally.delete_ledger(payload), None
+        if op == "DELETE_STOCK_GROUP":
+            return tally.delete_stock_group(payload), None
+        if op == "DELETE_UNIT":
+            return tally.delete_unit(payload), None
+        if op == "DELETE_GODOWN":
+            return tally.delete_godown(payload), None
+        if op == "DELETE_STOCK_ITEM":
+            return tally.delete_stock_item(payload), None
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
             ledgers      = tally.get_ledgers()
             vouchers     = tally.get_vouchers()

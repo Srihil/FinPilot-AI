@@ -94,6 +94,26 @@ def _cancel_pending_job(db: Session, job_id) -> None:
         job.status = JobStatus.CANCELLED
 
 
+def _queue_tally_delete(db: Session, company_id: uuid.UUID, operation: TallyJobOperation, name: str) -> bool:
+    """Queue a Tally delete job. Returns True if queued, False if no active connector."""
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if not connector:
+        return False
+    import secrets as _secrets
+    ikey = f"delete::{operation.value}::{company_id}::{name.strip().lower()}::{_secrets.token_hex(4)}"
+    db.add(TallyIntegrationJob(
+        company_id=company_id,
+        connector_id=connector.id,
+        operation=operation,
+        payload={"name": name},
+        idempotency_key=ikey,
+    ))
+    return True
+
+
 # ─── Overview ───────────────────────────────────────────────────────────────────
 
 @router.get("/overview")
@@ -383,17 +403,19 @@ def delete_ledger(
     if not ledger:
         raise HTTPException(status_code=404, detail="Ledger not found")
 
-    was_synced = ledger.tally_sync_status == "synced"
     _cancel_pending_job(db, ledger.tally_job_id)
     ledger.is_active = False
+    db.flush()
+
+    tally_queued = _queue_tally_delete(
+        db, current_user.company_id, TallyJobOperation.DELETE_LEDGER, ledger.name
+    )
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
                       entity_type="tally_ledger", entity_id=ledger.id,
                       description=f"Deleted ledger: {ledger.name}")
-    return {
-        "deleted": True, "was_synced": was_synced,
-        "message": "Deleted from FinPilot. This ledger still exists in TallyPrime — remove it there manually." if was_synced else "Deleted successfully.",
-    }
+    msg = "Deleted from FinPilot and delete queued for TallyPrime." if tally_queued else "Deleted from FinPilot. No active connector — remove from TallyPrime manually."
+    return {"deleted": True, "tally_queued": tally_queued, "message": msg}
 
 
 # ─── Stock Group management ──────────────────────────────────────────────────────
@@ -561,17 +583,16 @@ def delete_stock_group(
     ).first()
     if not sg:
         raise HTTPException(status_code=404, detail="Stock group not found")
-    was_synced = sg.tally_sync_status == "synced"
     _cancel_pending_job(db, sg.tally_job_id)
     sg.is_active = False
+    db.flush()
+    tally_queued = _queue_tally_delete(db, current_user.company_id, TallyJobOperation.DELETE_STOCK_GROUP, sg.name)
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
                       entity_type="tally_stock_group", entity_id=sg.id,
                       description=f"Deleted stock group: {sg.name}")
-    return {
-        "deleted": True, "was_synced": was_synced,
-        "message": "Deleted from FinPilot. This stock group still exists in TallyPrime — remove it there manually." if was_synced else "Deleted successfully.",
-    }
+    msg = "Deleted from FinPilot and delete queued for TallyPrime." if tally_queued else "Deleted from FinPilot. No active connector — remove from TallyPrime manually."
+    return {"deleted": True, "tally_queued": tally_queued, "message": msg}
 
 
 # ─── Unit management ─────────────────────────────────────────────────────────────
@@ -765,17 +786,16 @@ def delete_unit(
     ).first()
     if not unit:
         raise HTTPException(status_code=404, detail="Unit not found")
-    was_synced = unit.tally_sync_status == "synced"
     _cancel_pending_job(db, unit.tally_job_id)
     unit.is_active = False
+    db.flush()
+    tally_queued = _queue_tally_delete(db, current_user.company_id, TallyJobOperation.DELETE_UNIT, unit.name)
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
                       entity_type="tally_unit", entity_id=unit.id,
                       description=f"Deleted unit: {unit.name}")
-    return {
-        "deleted": True, "was_synced": was_synced,
-        "message": "Deleted from FinPilot. This unit still exists in TallyPrime — remove it there manually." if was_synced else "Deleted successfully.",
-    }
+    msg = "Deleted from FinPilot and delete queued for TallyPrime." if tally_queued else "Deleted from FinPilot. No active connector — remove from TallyPrime manually."
+    return {"deleted": True, "tally_queued": tally_queued, "message": msg}
 
 
 # ─── Godown management ──────────────────────────────────────────────────────────
@@ -942,17 +962,16 @@ def delete_godown(
     ).first()
     if not godown:
         raise HTTPException(status_code=404, detail="Godown not found")
-    was_synced = godown.tally_sync_status == "synced"
     _cancel_pending_job(db, godown.tally_job_id)
     godown.is_active = False
+    db.flush()
+    tally_queued = _queue_tally_delete(db, current_user.company_id, TallyJobOperation.DELETE_GODOWN, godown.name)
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
                       entity_type="tally_godown", entity_id=godown.id,
                       description=f"Deleted godown: {godown.name}")
-    return {
-        "deleted": True, "was_synced": was_synced,
-        "message": "Deleted from FinPilot. This godown still exists in TallyPrime — remove it there manually." if was_synced else "Deleted successfully.",
-    }
+    msg = "Deleted from FinPilot and delete queued for TallyPrime." if tally_queued else "Deleted from FinPilot. No active connector — remove from TallyPrime manually."
+    return {"deleted": True, "tally_queued": tally_queued, "message": msg}
 
 
 # ─── Unified voucher view ────────────────────────────────────────────────────────

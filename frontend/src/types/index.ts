@@ -339,7 +339,7 @@ export interface ApiError {
 
 // ─── Management / Tally Master Types ──────────────────────────────────────────
 
-export type TallySyncStatus = 'pending' | 'synced' | 'failed';
+export type TallySyncStatus = 'pending' | 'synced' | 'failed' | 'finpilot' | 'delete_pending' | 'delete_failed';
 export type TallySource = 'tally_sync' | 'finpilot';
 
 export interface TallyLedger {

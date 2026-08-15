@@ -642,10 +642,10 @@ export default function TallyPage() {
                       <span className="text-xs text-orange-500">retry {job.retry_count}</span>
                     )}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right max-w-xs">
                     <p className="text-slate-400 text-xs">{relTime(job.completed_at || job.created_at)}</p>
                     {job.error_message && (
-                      <p className="text-red-500 text-xs truncate max-w-[200px]" title={job.error_message}>
+                      <p className="text-red-500 text-xs break-words whitespace-normal mt-0.5">
                         {job.error_message}
                       </p>
                     )}

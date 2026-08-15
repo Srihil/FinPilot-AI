@@ -1319,8 +1319,18 @@ def delete_voucher(
 # ─── Voucher Type management ─────────────────────────────────────────────────────
 
 BASE_VOUCHER_TYPES = [
-    "Sales", "Purchase", "Receipt", "Payment", "Journal",
-    "Contra", "Credit Note", "Debit Note",
+    # Core accounting
+    "Sales", "Purchase", "Receipt", "Payment", "Journal", "Contra",
+    "Credit Note", "Debit Note", "Reversing Journal", "Memorandum",
+    # Orders
+    "Sales Order", "Purchase Order",
+    # Inventory / Stock
+    "Stock Journal", "Physical Stock", "Delivery Note", "Receipt Note",
+    "Material In", "Material Out", "Rejections In", "Rejections Out",
+    # Job Work
+    "Job Work In Order", "Job Work Out Order",
+    # HR
+    "Attendance", "Payroll",
 ]
 
 

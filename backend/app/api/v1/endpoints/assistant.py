@@ -556,8 +556,12 @@ def create_entity(
             if tally_queued: db.commit()
 
         elif entity_type == "stock_group":
+            sg_parent = (payload.get("parent") or "").strip()
+            # Strip "Primary" — TallyPrime's implicit root cannot be referenced by name
+            if sg_parent.lower() in ("primary", ""):
+                sg_parent = ""
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_STOCK_GROUP",
-                {"name": payload.get("name", ""), "parent": payload.get("parent", "")})
+                {"name": payload.get("name", ""), "parent": sg_parent})
             if tally_queued: db.commit()
 
         elif entity_type == "unit":
@@ -567,8 +571,12 @@ def create_entity(
             if tally_queued: db.commit()
 
         elif entity_type == "godown":
+            gd_parent = (payload.get("parent") or "").strip()
+            # Strip implicit root names — not addressable in all TallyPrime editions
+            if gd_parent.lower() in ("main location", "primary", ""):
+                gd_parent = ""
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_GODOWN",
-                {"name": payload.get("name", ""), "parent": payload.get("parent", "Main Location")})
+                {"name": payload.get("name", ""), "parent": gd_parent})
             if tally_queued: db.commit()
 
         elif entity_type == "receipt":

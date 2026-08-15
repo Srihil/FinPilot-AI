@@ -791,16 +791,19 @@ class TallyClient:
 
     def create_stock_group(self, payload: dict) -> dict:
         name   = payload.get("name", "")
-        # Empty parent means top-level under the implicit root; "Primary" is the Tally
-        # root stock group but referencing it by name fails in EDU/some versions.
-        parent = payload.get("parent", "")
+        # "Primary" is TallyPrime's implicit root — it cannot be referenced by name
+        # in all editions (fails in EDU and some Silver builds). Omit the <PARENT>
+        # tag entirely for root-level groups so Tally places them at the top level.
+        raw_parent = (payload.get("parent") or "").strip()
+        use_parent = raw_parent and raw_parent.lower() != "primary"
+        parent_xml = f"<PARENT>{raw_parent}</PARENT>" if use_parent else ""
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <STOCKGROUP NAME="{name}" ACTION="Create">
         <NAME>{name}</NAME>
-        <PARENT>{parent}</PARENT>
+        {parent_xml}
       </STOCKGROUP>
     </TALLYMESSAGE>
   </DATA></BODY>
@@ -836,15 +839,20 @@ class TallyClient:
         return {"created": int(created.text) if created is not None and created.text else 0}
 
     def create_godown(self, payload: dict) -> dict:
-        name   = payload.get("name", "")
-        parent = payload.get("parent", "Main Location")
+        name = payload.get("name", "")
+        # Only include <PARENT> if a real named parent is given.
+        # "Main Location" is the default root godown in some Tally builds but is
+        # not guaranteed to exist (especially in EDU). Omit it for root godowns.
+        raw_parent = (payload.get("parent") or "").strip()
+        _skip = {"", "main location", "primary"}
+        parent_xml = f"<PARENT>{raw_parent}</PARENT>" if raw_parent.lower() not in _skip else ""
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <GODOWN NAME="{name}" ACTION="Create">
         <NAME>{name}</NAME>
-        <PARENT>{parent}</PARENT>
+        {parent_xml}
       </GODOWN>
     </TALLYMESSAGE>
   </DATA></BODY>

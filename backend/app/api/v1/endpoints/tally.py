@@ -78,6 +78,12 @@ def _translate_tally_error(error: str) -> str:
         return "TallyPrime refused the operation — the record may be in use or locked."
     if "invalid name" in e:
         return "TallyPrime rejected the name — check for special characters or length."
+    if "not a known" in e or "not found" in e or ("group" in e and ("primary" in e or "unknown" in e)):
+        return (
+            "TallyPrime could not find the specified parent group/godown. "
+            "'Primary' and 'Main Location' are implicit roots and cannot be referenced by name. "
+            "Leave the parent field empty to create a top-level record."
+        )
     return error or "Unknown TallyPrime error."
 
 

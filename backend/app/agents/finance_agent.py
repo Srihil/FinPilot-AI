@@ -12,11 +12,29 @@ Architecture:
   → Response to user
 """
 import json
+import re
 import httpx
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.tools.finance_tools import FinanceTools
 from typing import Optional
+
+
+def _parse_text_tool_calls(text: str) -> list[dict]:
+    """Parse Llama-style <function=name({...})></function> from response content or failed_generation."""
+    calls = []
+    for m in re.finditer(r'<function=(\w+)\((\{.*?\})\)\s*(?:</function>)?', text, re.DOTALL):
+        name, raw = m.group(1), m.group(2)
+        try:
+            args = json.loads(raw)
+        except json.JSONDecodeError:
+            args = {}
+        calls.append({
+            "id": f"call_{name}",
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args)},
+        })
+    return calls
 
 
 SYSTEM_PROMPT = """You are FinPilot AI, an intelligent finance assistant for businesses.
@@ -222,10 +240,38 @@ class GroqAgent:
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
+
         with httpx.Client(timeout=60) as client:
             resp = client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
+
+            # Groq returns 400 tool_use_failed when model outputs <function=...> text format.
+            # Rescue the call from failed_generation and return it as a proper tool_calls response.
+            if resp.status_code == 400:
+                body = resp.json()
+                err = body.get("error", {})
+                if err.get("code") == "tool_use_failed":
+                    failed_gen = err.get("failed_generation", "")
+                    parsed = _parse_text_tool_calls(failed_gen)
+                    if parsed:
+                        return {"choices": [{"message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": parsed,
+                        }}]}
+                resp.raise_for_status()
+
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+
+            # Also handle text-based <function=...> in content (model didn't use structured calls)
+            choice_msg = data["choices"][0]["message"]
+            if not choice_msg.get("tool_calls") and choice_msg.get("content"):
+                parsed = _parse_text_tool_calls(choice_msg["content"])
+                if parsed:
+                    choice_msg["tool_calls"] = parsed
+                    choice_msg["content"] = None
+
+            return data
 
 
 

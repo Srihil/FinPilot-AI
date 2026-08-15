@@ -307,6 +307,25 @@ export const settingsApi = {
   },
 };
 
+// ─── Tally ───────────────────────────────────────────────────────────────────
+
+export type TallyJobItem = {
+  id: string;
+  operation: string;
+  status: 'PENDING' | 'CLAIMED' | 'SUCCESS' | 'FAILED' | 'RETRYING';
+  created_at: string;
+  completed_at: string | null;
+  error_message: string | null;
+  retry_count: number;
+};
+
+export const tallyApi = {
+  activity: async (limit = 30): Promise<{ items: TallyJobItem[] }> => {
+    const response = await apiClient.get('/api/tally/activity', { params: { limit } });
+    return response.data;
+  },
+};
+
 // ─── AI Create ───────────────────────────────────────────────────────────────
 
 export const aiCreateApi = {

@@ -1,13 +1,18 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { Wand2, Zap, Loader2, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
-import { aiCreateApi } from '../../api/endpoints';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import {
+  Wand2, Zap, Loader2, CheckCircle, AlertCircle, RefreshCw,
+  Activity, X, Clock, CheckCircle2, XCircle, RotateCcw, ChevronRight,
+} from 'lucide-react';
+import { aiCreateApi, tallyApi, type TallyJobItem } from '../../api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { toast } from '../../components/ui/use-toast';
+
+// ─── Quick chips ─────────────────────────────────────────────────────────────
 
 const QUICK_GROUPS = [
   {
@@ -20,9 +25,11 @@ const QUICK_GROUPS = [
   },
   {
     label: 'Vouchers (Transactions)',
-    chips: ['Create Sales Invoice', 'Record Purchase Bill', 'Record Receipt from customer',
-            'Record Payment to vendor', 'Journal Entry', 'Credit Note (sales return)',
-            'Debit Note (purchase return)', 'Contra / bank transfer'],
+    chips: [
+      'Create Sales Invoice', 'Record Purchase Bill', 'Record Receipt from customer',
+      'Record Payment to vendor', 'Journal Entry', 'Credit Note (sales return)',
+      'Debit Note (purchase return)', 'Contra / bank transfer',
+    ],
   },
 ];
 
@@ -48,6 +55,217 @@ const ENTITY_COLORS: Record<string, string> = {
   contra: 'bg-cyan-100 text-cyan-800',
 };
 
+// ─── Tally activity helpers ───────────────────────────────────────────────────
+
+const OP_LABELS: Record<string, string> = {
+  CREATE_LEDGER: 'Create Ledger',
+  CREATE_STOCK_ITEM: 'Create Stock Item',
+  CREATE_STOCK_GROUP: 'Create Stock Group',
+  CREATE_UNIT: 'Create Unit',
+  CREATE_GODOWN: 'Create Godown',
+  CREATE_GROUP: 'Create Account Group',
+  CREATE_SALES_VOUCHER: 'Create Sales Invoice',
+  CREATE_PURCHASE_VOUCHER: 'Create Purchase Bill',
+  CREATE_RECEIPT_VOUCHER: 'Create Receipt',
+  CREATE_PAYMENT_VOUCHER: 'Create Payment',
+  CREATE_JOURNAL_VOUCHER: 'Create Journal Entry',
+  CREATE_CREDIT_NOTE: 'Create Credit Note',
+  CREATE_DEBIT_NOTE: 'Create Debit Note',
+  CREATE_CONTRA_VOUCHER: 'Bank / Cash Transfer',
+  SYNC_FULL: 'Full Sync',
+  SYNC_PARTIAL: 'Partial Sync',
+};
+
+function timeAgo(iso: string): string {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function interpretError(error: string | null | undefined, operation: string): string {
+  if (!error) return '';
+  const e = error.toLowerCase();
+
+  if (e.includes('bad unit name')) {
+    return 'TallyPrime rejected the unit symbol — it must be a short abbreviation with no spaces (e.g. "Nos", "Kgs", "Pcs"). Open TallyPrime → Inventory Masters → Units of Measure, create the unit manually, then retry.';
+  }
+  if (e.includes('stock group') && e.includes('does not exist')) {
+    const m = error.match(/'([^']+)'/);
+    const grp = m?.[1] ?? 'the specified group';
+    if (grp.toLowerCase() === 'primary') {
+      return '"Primary" is not a named group in this TallyPrime company — the root is implicit. Create the stock group directly without a parent, or create a named parent group first via TallyPrime → Inventory Masters → Stock Groups.';
+    }
+    return `Parent stock group "${grp}" was not found in TallyPrime. Go to Inventory Masters → Stock Groups and create "${grp}" first, then retry.`;
+  }
+  if (e.includes('ledger') && e.includes('does not exist')) {
+    const m = error.match(/'([^']+)'/);
+    const led = m?.[1] ?? 'the ledger';
+    return `Ledger "${led}" does not exist in TallyPrime. Go to Accounts → Ledgers, create a ledger named "${led}" under the correct group, then retry.`;
+  }
+  if (e.includes('group') && e.includes('does not exist')) {
+    const m = error.match(/'([^']+)'/);
+    const grp = m?.[1] ?? 'the group';
+    return `Account group "${grp}" was not found. Create it under Accounts → Groups in TallyPrime first.`;
+  }
+  if (e.includes('already exists') || e.includes('duplicate')) {
+    return 'This entry already exists in TallyPrime — no action needed, it was already there.';
+  }
+  if (e.includes('no company') || e.includes('company not open')) {
+    return 'No company file is open in TallyPrime. Open your company and retry.';
+  }
+  return error.replace(/^TallyPrime error:\s*/i, '').trim();
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg: Record<string, { cls: string; label: string; Icon: typeof Clock; spin?: boolean }> = {
+    PENDING:  { cls: 'bg-amber-100 text-amber-800',   label: 'Pending',    Icon: Clock },
+    CLAIMED:  { cls: 'bg-blue-100 text-blue-800',     label: 'Processing', Icon: Loader2, spin: true },
+    RETRYING: { cls: 'bg-orange-100 text-orange-800', label: 'Retrying',   Icon: RotateCcw },
+    SUCCESS:  { cls: 'bg-emerald-100 text-emerald-800', label: 'Success',  Icon: CheckCircle2 },
+    FAILED:   { cls: 'bg-red-100 text-red-800',       label: 'Failed',     Icon: XCircle },
+  };
+  const c = cfg[status] ?? { cls: 'bg-slate-100 text-slate-700', label: status, Icon: Clock };
+  const Icon = c.Icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${c.cls}`}>
+      <Icon className={`w-3 h-3 ${c.spin ? 'animate-spin' : ''}`} />
+      {c.label}
+    </span>
+  );
+}
+
+function JobCard({ job }: { job: TallyJobItem }) {
+  const opLabel = OP_LABELS[job.operation] ?? job.operation.replace(/_/g, ' ');
+  const smart = interpretError(job.error_message, job.operation);
+  const isActive = job.status === 'PENDING' || job.status === 'CLAIMED' || job.status === 'RETRYING';
+
+  return (
+    <div className={`rounded-xl border p-3.5 space-y-2 transition-all
+      ${job.status === 'FAILED' ? 'border-red-200 bg-red-50/60' :
+        job.status === 'SUCCESS' ? 'border-emerald-200 bg-emerald-50/40' :
+        isActive ? 'border-indigo-200 bg-indigo-50/40' :
+        'border-slate-200 bg-white'}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-800 leading-tight">{opLabel}</p>
+        <StatusBadge status={job.status} />
+      </div>
+
+      <div className="flex items-center gap-2 text-xs text-slate-500">
+        <Clock className="w-3 h-3 shrink-0" />
+        <span>{timeAgo(job.created_at)}</span>
+        {job.retry_count > 0 && (
+          <span className="ml-auto text-orange-600 font-medium">retry {job.retry_count}</span>
+        )}
+      </div>
+
+      {job.status === 'FAILED' && smart && (
+        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-100 border border-red-200">
+          <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
+          <p className="text-xs text-red-800 leading-relaxed">{smart}</p>
+        </div>
+      )}
+
+      {job.status === 'SUCCESS' && (
+        <p className="text-xs text-emerald-700 font-medium flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          Synced to TallyPrime successfully
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ActivityDrawer({
+  open,
+  onClose,
+  jobs,
+  isLoading,
+}: {
+  open: boolean;
+  onClose: () => void;
+  jobs: TallyJobItem[];
+  isLoading: boolean;
+}) {
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className={`fixed inset-0 bg-black/40 z-40 transition-opacity duration-300
+          ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        onClick={onClose}
+      />
+
+      {/* Panel */}
+      <div
+        className={`fixed right-0 top-0 h-full w-[400px] max-w-[95vw] bg-white shadow-2xl z-50
+          flex flex-col transform transition-transform duration-300 ease-out
+          ${open ? 'translate-x-0' : 'translate-x-full'}`}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shrink-0">
+          <div className="flex items-center gap-2.5">
+            <Activity className="w-5 h-5" />
+            <div>
+              <p className="font-semibold text-sm">Tally Sync Activity</p>
+              <p className="text-indigo-200 text-xs">Latest command at the top</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="rounded-xl border p-3.5 space-y-2">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+              ))}
+            </div>
+          ) : jobs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
+                <Activity className="w-6 h-6 text-slate-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-700">No activity yet</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Jobs appear here once you create something with AI
+                </p>
+              </div>
+            </div>
+          ) : (
+            jobs.map(job => <JobCard key={job.id} job={job} />)
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-4 py-3 border-t bg-slate-50 shrink-0">
+          <p className="text-[11px] text-slate-400 text-center">
+            Auto-refreshes every 5 seconds while open
+          </p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type ExtractionResult = {
   entity_type: string;
   data: Record<string, unknown>;
@@ -61,22 +279,44 @@ type CreationResult = {
   tally_queued: boolean;
 };
 
-// Returns a label for a field key
 function fieldLabel(key: string): string {
-  return key
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AICreatePage() {
   const [text, setText] = useState('');
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
   const [editableData, setEditableData] = useState<Record<string, unknown>>({});
   const [created, setCreated] = useState<CreationResult | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // ── Tally activity polling ────────────────────────────────────────────────
+  const { data: activityData, isLoading: activityLoading } = useQuery({
+    queryKey: ['tally-activity'],
+    queryFn: () => tallyApi.activity(30),
+    refetchInterval: drawerOpen ? 5000 : 20000,
+    retry: false,
+  });
+
+  const jobs = activityData?.items ?? [];
+  const pendingCount = jobs.filter(j =>
+    j.status === 'PENDING' || j.status === 'CLAIMED' || j.status === 'RETRYING'
+  ).length;
+  const failedCount = jobs.filter(j => j.status === 'FAILED').length;
+
+  // Dot colour for the trigger: red > amber > green > grey
+  const dotCls =
+    failedCount > 0 ? 'bg-red-500 animate-pulse' :
+    pendingCount > 0 ? 'bg-amber-400 animate-pulse' :
+    jobs.some(j => j.status === 'SUCCESS') ? 'bg-emerald-400' :
+    'bg-slate-300';
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
   const extractMutation = useMutation({
     mutationFn: () => aiCreateApi.extractEntity(text),
-    onSuccess: (result) => {
+    onSuccess: result => {
       setExtraction(result);
       setEditableData({ ...result.data });
       setCreated(null);
@@ -87,36 +327,24 @@ export default function AICreatePage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: () =>
-      aiCreateApi.createEntity(extraction!.entity_type, editableData),
-    onSuccess: (result) => {
+    mutationFn: () => aiCreateApi.createEntity(extraction!.entity_type, editableData),
+    onSuccess: result => {
       setCreated(result);
       toast({
         title: `${fieldLabel(result.entity_type)} created`,
         description: result.tally_queued
-          ? 'Also queued for Tally sync.'
+          ? 'Queued for Tally sync — check status in the activity drawer.'
           : 'Saved to FinPilot (no Tally connector active).',
         variant: 'success',
       });
     },
     onError: (err: unknown) => {
-      const message = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Something went wrong.';
+      const message =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        'Something went wrong.';
       toast({ title: 'Creation failed', description: message, variant: 'destructive' });
     },
   });
-
-  function handleQuickStart(chip: string) {
-    setText(chip);
-  }
-
-  function handleExtract() {
-    if (!text.trim()) return;
-    extractMutation.mutate();
-  }
-
-  function handleFieldChange(key: string, value: string) {
-    setEditableData((prev) => ({ ...prev, [key]: value }));
-  }
 
   function handleReset() {
     setText('');
@@ -130,7 +358,8 @@ export default function AICreatePage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-      {/* Header */}
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           <Wand2 className="w-6 h-6 text-indigo-600" />
@@ -141,7 +370,7 @@ export default function AICreatePage() {
         </p>
       </div>
 
-      {/* Input card */}
+      {/* ── Input card ─────────────────────────────────────────────────────── */}
       {!created && (
         <Card>
           <CardContent className="pt-6 space-y-4">
@@ -152,27 +381,29 @@ export default function AICreatePage() {
               <textarea
                 id="ai-input"
                 value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleExtract();
-                }}
+                onChange={e => setText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) extractMutation.mutate(); }}
                 rows={4}
                 placeholder="e.g. Add customer ABC Traders, email abc@traders.com, GST 27AABCU9603R1ZX..."
-                className="w-full px-3 py-2 rounded-md border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                className="w-full px-3 py-2 rounded-md border border-slate-200 text-sm text-slate-900
+                  placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
               />
             </div>
 
-            {/* Quick-start chips grouped by category */}
+            {/* Quick-start chips */}
             <div className="space-y-3">
-              {QUICK_GROUPS.map((group) => (
+              {QUICK_GROUPS.map(group => (
                 <div key={group.label}>
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">{group.label}</p>
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                    {group.label}
+                  </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {group.chips.map((chip) => (
+                    {group.chips.map(chip => (
                       <button
                         key={chip}
-                        onClick={() => handleQuickStart(chip)}
-                        className="text-xs px-2.5 py-1 rounded-full border border-slate-200 text-slate-600 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors"
+                        onClick={() => setText(chip)}
+                        className="text-xs px-2.5 py-1 rounded-full border border-slate-200 text-slate-600
+                          hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors"
                       >
                         {chip}
                       </button>
@@ -182,35 +413,23 @@ export default function AICreatePage() {
               ))}
             </div>
 
-            <Button
-              onClick={handleExtract}
-              disabled={!text.trim() || isLoading}
-              className="w-full"
-            >
+            <Button onClick={() => extractMutation.mutate()} disabled={!text.trim() || isLoading} className="w-full">
               {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Extracting...
-                </>
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Extracting...</>
               ) : (
-                <>
-                  <Wand2 className="w-4 h-4 mr-2" />
-                  Extract with AI
-                </>
+                <><Wand2 className="w-4 h-4 mr-2" />Extract with AI</>
               )}
             </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Loading skeleton */}
+      {/* ── Loading skeleton ────────────────────────────────────────────────── */}
       {isLoading && (
         <Card>
-          <CardHeader>
-            <Skeleton className="h-5 w-32" />
-          </CardHeader>
+          <CardHeader><Skeleton className="h-5 w-32" /></CardHeader>
           <CardContent className="space-y-3">
-            {[1, 2, 3].map((i) => (
+            {[1, 2, 3].map(i => (
               <div key={i} className="space-y-1">
                 <Skeleton className="h-4 w-20" />
                 <Skeleton className="h-9 w-full" />
@@ -220,13 +439,14 @@ export default function AICreatePage() {
         </Card>
       )}
 
-      {/* Extraction preview */}
+      {/* ── Extraction preview ──────────────────────────────────────────────── */}
       {extraction && !isLoading && !created && (
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Preview</CardTitle>
-              <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${ENTITY_COLORS[extraction.entity_type] || 'bg-slate-100 text-slate-700'}`}>
+              <span className={`text-xs font-medium px-2.5 py-1 rounded-full
+                ${ENTITY_COLORS[extraction.entity_type] ?? 'bg-slate-100 text-slate-700'}`}>
                 {fieldLabel(extraction.entity_type)}
               </span>
             </div>
@@ -244,7 +464,6 @@ export default function AICreatePage() {
           </CardHeader>
 
           <CardContent className="space-y-4">
-            {/* Editable fields */}
             <div className="grid gap-3">
               {Object.entries(editableData).map(([key, val]) => (
                 <div key={key} className="space-y-1">
@@ -254,53 +473,33 @@ export default function AICreatePage() {
                   <Input
                     id={`field-${key}`}
                     value={val != null ? String(val) : ''}
-                    onChange={(e) => handleFieldChange(key, e.target.value)}
+                    onChange={e => setEditableData(prev => ({ ...prev, [key]: e.target.value }))}
                     className="text-sm"
                   />
                 </div>
               ))}
             </div>
 
-            {/* Missing fields warning */}
-            {extraction.missing_fields && extraction.missing_fields.length > 0 && (
+            {extraction.missing_fields?.length > 0 && (
               <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <div>
                   <p className="text-xs font-medium text-amber-800">Missing information</p>
-                  <p className="text-xs text-amber-700 mt-0.5">
-                    {extraction.missing_fields.join(', ')}
-                  </p>
+                  <p className="text-xs text-amber-700 mt-0.5">{extraction.missing_fields.join(', ')}</p>
                 </div>
               </div>
             )}
 
-            {/* Action buttons */}
             <div className="flex gap-3 pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReset}
-                className="flex-1"
-              >
+              <Button variant="outline" size="sm" onClick={handleReset} className="flex-1">
                 <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
                 Start Over
               </Button>
-              <Button
-                onClick={() => createMutation.mutate()}
-                disabled={isCreating}
-                size="sm"
-                className="flex-1"
-              >
+              <Button onClick={() => createMutation.mutate()} disabled={isCreating} size="sm" className="flex-1">
                 {isCreating ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                    Creating...
-                  </>
+                  <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Creating...</>
                 ) : (
-                  <>
-                    <Zap className="w-3.5 h-3.5 mr-1.5" />
-                    Create &amp; Sync to Tally
-                  </>
+                  <><Zap className="w-3.5 h-3.5 mr-1.5" />Create &amp; Sync to Tally</>
                 )}
               </Button>
             </div>
@@ -308,7 +507,7 @@ export default function AICreatePage() {
         </Card>
       )}
 
-      {/* Success state */}
+      {/* ── Success state ───────────────────────────────────────────────────── */}
       {created && (
         <Card className="border-emerald-200 bg-emerald-50">
           <CardContent className="pt-6 space-y-4">
@@ -320,19 +519,74 @@ export default function AICreatePage() {
                 </p>
                 <p className="text-sm text-emerald-700 mt-0.5">
                   {created.tally_queued
-                    ? 'Queued for sync to TallyPrime.'
+                    ? 'Queued for sync to TallyPrime — tap the activity drawer to track status.'
                     : 'Saved to FinPilot (connect TallyPrime to sync).'}
                 </p>
-                {created.id && <p className="text-xs text-emerald-600 mt-1 font-mono">ID: {created.id}</p>}
+                {created.id && (
+                  <p className="text-xs text-emerald-600 mt-1 font-mono">ID: {created.id}</p>
+                )}
               </div>
             </div>
-            <Button onClick={handleReset} variant="outline" className="w-full border-emerald-300 text-emerald-800 hover:bg-emerald-100">
+
+            {created.tally_queued && (
+              <button
+                onClick={() => setDrawerOpen(true)}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-lg
+                  border border-emerald-300 bg-white/60 hover:bg-white/80 transition-colors text-sm
+                  text-emerald-800 font-medium"
+              >
+                <span className="flex items-center gap-2">
+                  <Activity className="w-4 h-4" />
+                  View Tally sync status
+                </span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+
+            <Button
+              onClick={handleReset}
+              variant="outline"
+              className="w-full border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+            >
               <Wand2 className="w-4 h-4 mr-2" />
               Create Another
             </Button>
           </CardContent>
         </Card>
       )}
+
+      {/* ── Activity drawer trigger (always visible) ────────────────────────── */}
+      <button
+        onClick={() => setDrawerOpen(true)}
+        className="fixed right-0 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-1.5
+          bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white
+          px-2 py-5 rounded-l-xl shadow-xl transition-all duration-150 group"
+        title="View Tally sync activity"
+      >
+        {/* Status dot */}
+        <span className={`w-2 h-2 rounded-full ${dotCls}`} />
+        <Activity className="w-4 h-4" />
+        <span
+          className="text-[10px] font-bold tracking-widest uppercase"
+          style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+        >
+          Activity
+        </span>
+        {failedCount > 0 && (
+          <span className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-red-500 text-white
+            text-[10px] font-bold flex items-center justify-center shadow">
+            {failedCount}
+          </span>
+        )}
+      </button>
+
+      {/* ── Activity drawer ─────────────────────────────────────────────────── */}
+      <ActivityDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        jobs={jobs}
+        isLoading={activityLoading}
+      />
     </div>
   );
 }

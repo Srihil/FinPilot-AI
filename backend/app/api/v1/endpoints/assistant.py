@@ -518,7 +518,7 @@ def create_entity(
 
         elif entity_type == "stock_group":
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_STOCK_GROUP",
-                {"name": payload.get("name", ""), "parent": payload.get("parent", "Primary")})
+                {"name": payload.get("name", ""), "parent": payload.get("parent", "")})
             if tally_queued: db.commit()
 
         elif entity_type == "unit":

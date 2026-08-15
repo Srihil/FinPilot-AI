@@ -565,7 +565,9 @@ class TallyClient:
 
     def create_stock_group(self, payload: dict) -> dict:
         name   = payload.get("name", "")
-        parent = payload.get("parent", "Primary")
+        # Empty parent means top-level under the implicit root; "Primary" is the Tally
+        # root stock group but referencing it by name fails in EDU/some versions.
+        parent = payload.get("parent", "")
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
@@ -583,8 +585,11 @@ class TallyClient:
         return {"created": int(created.text) if created is not None and created.text else 0}
 
     def create_unit(self, payload: dict) -> dict:
-        name     = payload.get("name", "Nos")
-        symbol   = payload.get("symbol", name)
+        name     = payload.get("name", "Nos").strip()
+        # Tally requires the symbol (ORIGINALNAME) to be a short abbreviation with no
+        # spaces — e.g. "Nos", "Kgs", "Pcs". Strip spaces and cap at 8 chars.
+        raw_sym  = payload.get("symbol", name).strip()
+        symbol   = raw_sym.replace(" ", "")[:8] or name.replace(" ", "")[:8] or "Nos"
         decimals = payload.get("decimal_places", "0")
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>

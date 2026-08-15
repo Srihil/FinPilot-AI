@@ -333,14 +333,20 @@ class FinanceAgent:
             }
 
         except Exception as e:
-            # Graceful fallback to demo mode on API errors
-            demo = DemoFinanceAgent()
-            response, tool_calls, tool_results = demo.respond(question, self.tools, company_id)
+            # Extract the actual API error body from httpx HTTPStatusError
+            error_detail = str(e)
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    body = e.response.json()
+                    error_detail = f"HTTP {e.response.status_code}: {body}"
+                except Exception:
+                    error_detail = f"HTTP {e.response.status_code}: {e.response.text[:800]}"
+
             return {
-                "response": response + f"\n\n*Note: AI provider unavailable ({type(e).__name__}). Showing demo response.*",
-                "tool_calls": tool_calls,
-                "tool_results": tool_results,
-                "is_demo": True,
-                "provider": "demo_fallback",
-                "error": str(e),
+                "response": f"The AI provider **{effective_provider}** returned an error. See the error details below.",
+                "tool_calls": [],
+                "tool_results": [],
+                "is_demo": False,
+                "provider": "error",
+                "error": error_detail,
             }

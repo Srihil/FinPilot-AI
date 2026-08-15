@@ -260,6 +260,8 @@ export interface Message {
   content: string;
   created_at: string;
   is_demo?: boolean;
+  provider?: string;
+  error?: string;
   tool_calls?: unknown[];
   tool_results?: unknown[];
 }

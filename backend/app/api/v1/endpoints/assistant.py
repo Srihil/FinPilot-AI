@@ -205,6 +205,7 @@ def send_message(
         "content": result["response"],
         "is_demo": result["is_demo"],
         "provider": result.get("provider"),
+        "error": result.get("error"),
         "tool_calls": result.get("tool_calls"),
         "created_at": ai_msg.created_at.isoformat(),
     }

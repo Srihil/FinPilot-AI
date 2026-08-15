@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send, Plus, Bot, User, Trash2, MessageSquare, Sparkles, Cpu } from 'lucide-react';
+import { Send, Plus, Bot, User, Trash2, MessageSquare, Sparkles, Cpu, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { assistantApi } from '../../api/endpoints';
@@ -20,6 +20,28 @@ const SUGGESTED_QUESTIONS = [
   'How does this month compare to last month?',
   'What is our current outstanding receivables?',
 ];
+
+function ErrorBox({ error }: { error: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2 rounded-lg border border-red-200 bg-red-50 text-xs overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-1.5 px-3 py-2 text-red-700 font-medium hover:bg-red-100 transition-colors text-left"
+      >
+        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+        <span className="flex-1">Provider error — click to {open ? 'hide' : 'show'} details</span>
+        {open ? <ChevronUp className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
+      </button>
+      {open && (
+        <pre className="px-3 py-2 text-red-800 whitespace-pre-wrap break-all border-t border-red-200 bg-red-50 font-mono leading-relaxed">
+          {error}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 export default function AssistantPage() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -281,18 +303,21 @@ export default function AssistantPage() {
                     {msg.role === 'user' ? (
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     ) : (
-                      <div className="prose prose-sm prose-slate max-w-none
-                        prose-headings:font-semibold prose-headings:text-slate-900 prose-headings:mt-3 prose-headings:mb-1
-                        prose-p:my-1.5 prose-p:leading-relaxed
-                        prose-strong:font-semibold prose-strong:text-slate-900
-                        prose-em:text-slate-600
-                        prose-ul:my-1.5 prose-ul:space-y-0.5 prose-li:my-0
-                        prose-code:bg-slate-100 prose-code:px-1 prose-code:rounded prose-code:text-xs prose-code:text-indigo-700 prose-code:font-mono
-                        [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.content}
-                        </ReactMarkdown>
-                      </div>
+                      <>
+                        <div className="prose prose-sm prose-slate max-w-none
+                          prose-headings:font-semibold prose-headings:text-slate-900 prose-headings:mt-3 prose-headings:mb-1
+                          prose-p:my-1.5 prose-p:leading-relaxed
+                          prose-strong:font-semibold prose-strong:text-slate-900
+                          prose-em:text-slate-600
+                          prose-ul:my-1.5 prose-ul:space-y-0.5 prose-li:my-0
+                          prose-code:bg-slate-100 prose-code:px-1 prose-code:rounded prose-code:text-xs prose-code:text-indigo-700 prose-code:font-mono
+                          [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
+                        {msg.error && <ErrorBox error={msg.error} />}
+                      </>
                     )}
                     <div className={cn("flex items-center gap-1.5 mt-2", msg.role === 'user' ? "justify-end" : "justify-start")}>
                       {msg.is_demo && msg.role === 'assistant' && (

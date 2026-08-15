@@ -390,6 +390,134 @@ class TallyClient:
         """Generate a unique voucher remote ID."""
         return f"FP-{int(time.time() * 1000) % 100000000:08d}"
 
+    # ── Read: Godowns ─────────────────────────────────────────────────────────
+
+    def get_godowns(self) -> list[dict]:
+        xml = """<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>FP Godowns</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP Godowns" ISMODIFY="No">
+            <TYPE>Godown</TYPE>
+            <FETCH>NAME,PARENT</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+    </DESC>
+  </BODY>
+</ENVELOPE>"""
+        try:
+            raw = self._post_xml(xml)
+            root = self._parse_response(raw)
+            godowns = []
+            for item in root.findall(".//GODOWN"):
+                name = (item.get("NAME") or "").strip()
+                parent_el = item.find("PARENT")
+                parent = parent_el.text.strip() if parent_el is not None and parent_el.text else ""
+                if name:
+                    godowns.append({"name": name, "parent": parent or None})
+            return godowns
+        except TallyError as e:
+            logger.warning("get_godowns: %s", e)
+            return []
+
+    # ── Read: Stock Groups ────────────────────────────────────────────────────
+
+    def get_stock_groups(self) -> list[dict]:
+        xml = """<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>FP StockGroups</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP StockGroups" ISMODIFY="No">
+            <TYPE>Stockgroup</TYPE>
+            <FETCH>NAME,PARENT</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+    </DESC>
+  </BODY>
+</ENVELOPE>"""
+        try:
+            raw = self._post_xml(xml)
+            root = self._parse_response(raw)
+            groups = []
+            for item in root.findall(".//STOCKGROUP"):
+                name = (item.get("NAME") or "").strip()
+                parent_el = item.find("PARENT")
+                parent = parent_el.text.strip() if parent_el is not None and parent_el.text else ""
+                # Skip the implicit root group "Primary"
+                if name and name.lower() != "primary":
+                    groups.append({"name": name, "parent": parent if parent and parent.lower() != "primary" else None})
+            return groups
+        except TallyError as e:
+            logger.warning("get_stock_groups: %s", e)
+            return []
+
+    # ── Read: Units ───────────────────────────────────────────────────────────
+
+    def get_units(self) -> list[dict]:
+        xml = """<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>FP Units</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP Units" ISMODIFY="No">
+            <TYPE>Unit</TYPE>
+            <FETCH>NAME,ORIGINALNAME,DECIMALPLACES,UOMTYPE</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+    </DESC>
+  </BODY>
+</ENVELOPE>"""
+        try:
+            raw = self._post_xml(xml)
+            root = self._parse_response(raw)
+            units = []
+            for item in root.findall(".//UNIT"):
+                name = (item.get("NAME") or "").strip()
+                sym_el = item.find("ORIGINALNAME")
+                dec_el = item.find("DECIMALPLACES")
+                typ_el = item.find("UOMTYPE")
+                symbol = sym_el.text.strip() if sym_el is not None and sym_el.text else name
+                decimals = int(dec_el.text.strip()) if dec_el is not None and dec_el.text and dec_el.text.strip().isdigit() else 0
+                unit_type = (typ_el.text.strip().lower() if typ_el is not None and typ_el.text else "simple")
+                if name:
+                    units.append({"name": name, "symbol": symbol, "decimal_places": decimals, "unit_type": unit_type})
+            return units
+        except TallyError as e:
+            logger.warning("get_units: %s", e)
+            return []
+
     # ── Write: Create sales voucher ───────────────────────────────────────────
 
     def create_sales_voucher(self, payload: dict) -> dict:

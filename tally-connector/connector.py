@@ -195,17 +195,26 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
         if op == "CREATE_CONTRA_VOUCHER":
             return tally.create_contra_voucher(payload), None
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
-            ledgers  = tally.get_ledgers()
-            vouchers = tally.get_vouchers()
-            stock    = tally.get_stock_items()
+            ledgers      = tally.get_ledgers()
+            vouchers     = tally.get_vouchers()
+            stock        = tally.get_stock_items()
+            godowns      = tally.get_godowns()
+            stock_groups = tally.get_stock_groups()
+            units        = tally.get_units()
             return {
                 "synced": True,
-                "ledgers": ledgers,
-                "vouchers": vouchers,
-                "stock_items": stock,
-                "ledger_count": len(ledgers),
-                "voucher_count": len(vouchers),
-                "stock_item_count": len(stock),
+                "ledgers":      ledgers,
+                "vouchers":     vouchers,
+                "stock_items":  stock,
+                "godowns":      godowns,
+                "stock_groups": stock_groups,
+                "units":        units,
+                "ledger_count":      len(ledgers),
+                "voucher_count":     len(vouchers),
+                "stock_item_count":  len(stock),
+                "godown_count":      len(godowns),
+                "stock_group_count": len(stock_groups),
+                "unit_count":        len(units),
             }, None
     except TallyError as e:
         return None, str(e)

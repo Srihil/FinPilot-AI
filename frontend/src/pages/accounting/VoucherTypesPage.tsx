@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
 import { managementApi } from '../../api/endpoints';
+import type { VoucherTypeItem } from '../../types';
 import { cn } from '../../utils/cn';
 
 const BASE_TYPES = [
@@ -72,7 +73,7 @@ export default function VoucherTypesPage() {
   });
 
   // Group by parent type
-  const grouped: Record<string, typeof data.items> = {};
+  const grouped: Record<string, VoucherTypeItem[]> = {};
   (data?.items || []).forEach(vt => {
     const key = vt.parent || vt.name;
     if (!grouped[key]) grouped[key] = [];

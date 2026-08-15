@@ -1063,6 +1063,9 @@ def list_vouchers(
                 (inv.customer.name if inv.customer else None) or
                 (inv.vendor.name if inv.vendor else None)
             )
+            inv_sync = getattr(inv, "tally_sync_status", None) or "local_only"
+            inv_notes = getattr(inv, "notes", None) or ""
+            inv_source = "tally_sync" if "[tally-sync]" in inv_notes else "finpilot"
             results.append({
                 "id": str(inv.id),
                 "voucher_number": inv.invoice_number,
@@ -1072,8 +1075,8 @@ def list_vouchers(
                 "party_name": party_name,
                 "amount": float(inv.total_amount or 0),
                 "status": inv.status.value if inv.status else "DRAFT",
-                "source": "finpilot",
-                "tally_sync_status": getattr(inv, "tally_sync_status", None) or "local_only",
+                "source": inv_source,
+                "tally_sync_status": inv_sync,
                 "created_at": inv.created_at.isoformat() if inv.created_at else None,
                 "entity_type": "invoice",
                 "paid_amount": float(inv.paid_amount or 0),
@@ -1096,6 +1099,10 @@ def list_vouchers(
 
         for exp in exp_q.all():
             party_name = (exp.vendor.name if exp.vendor else None) or exp.title
+            exp_sync = getattr(exp, "tally_sync_status", None) or "local_only"
+            # Determine source: if notes has [tally-sync] tag it came from TallyPrime
+            exp_notes = getattr(exp, "notes", None) or ""
+            exp_source = "tally_sync" if "[tally-sync]" in exp_notes else "finpilot"
             results.append({
                 "id": str(exp.id),
                 "voucher_number": getattr(exp, "ref_number", None) or f"EXP-{str(exp.id)[:8].upper()}",
@@ -1105,8 +1112,8 @@ def list_vouchers(
                 "party_name": party_name,
                 "amount": float(exp.amount or 0),
                 "status": exp.status.value if exp.status else "DRAFT",
-                "source": "finpilot",
-                "tally_sync_status": "pending",
+                "source": exp_source,
+                "tally_sync_status": exp_sync,
                 "created_at": exp.created_at.isoformat() if exp.created_at else None,
                 "entity_type": "expense",
                 "title": exp.title,
@@ -1497,23 +1504,29 @@ def clear_local_vouchers(
     TALLY_TAG = "[tally-sync]"
     cid = current_user.company_id
 
-    # Local invoices: no tally_voucher_ref AND not imported from Tally
+    # Delete all invoices NOT imported from TallyPrime.
+    # notes IS NULL  → locally created, never tagged
+    # notes NOT LIKE '%[tally-sync]%' → created in FinPilot, not from Tally
     local_invoices = db.query(Invoice).filter(
         Invoice.company_id == cid,
         Invoice.is_deleted.is_not(True),
-        Invoice.tally_voucher_ref.is_(None),
-        ~Invoice.notes.like(f"%{TALLY_TAG}%"),
+        or_(
+            Invoice.notes.is_(None),
+            ~Invoice.notes.like(f"%{TALLY_TAG}%"),
+        ),
     ).all()
     deleted_invoices = len(local_invoices)
     for inv in local_invoices:
         inv.is_deleted = True
 
-    # Local expenses: no tally_voucher_ref AND not imported from Tally
+    # Same for expenses
     local_expenses = db.query(Expense).filter(
         Expense.company_id == cid,
         Expense.is_deleted.is_not(True),
-        Expense.tally_voucher_ref.is_(None),
-        ~Expense.notes.like(f"%{TALLY_TAG}%"),
+        or_(
+            Expense.notes.is_(None),
+            ~Expense.notes.like(f"%{TALLY_TAG}%"),
+        ),
     ).all()
     deleted_expenses = len(local_expenses)
     for exp in local_expenses:

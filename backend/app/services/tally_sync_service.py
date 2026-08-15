@@ -472,6 +472,7 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
                 currency="INR",
                 notes=narration_tag,
                 customer_id=customer.id if customer else None,
+                tally_sync_status="synced",
             ))
             created_invoices += 1
 
@@ -496,6 +497,7 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
                 status=ExpenseStatus.APPROVED,
                 notes=narration_tag,
                 vendor_id=vendor.id if vendor else None,
+                tally_sync_status="synced",
             ))
             created_expenses += 1
 

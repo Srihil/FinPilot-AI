@@ -217,6 +217,7 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
             godowns      = tally.get_godowns()
             stock_groups = tally.get_stock_groups()
             units        = tally.get_units()
+            groups       = tally.get_groups()
             return {
                 "synced": True,
                 "ledgers":      ledgers,
@@ -225,12 +226,14 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
                 "godowns":      godowns,
                 "stock_groups": stock_groups,
                 "units":        units,
+                "groups":       groups,
                 "ledger_count":      len(ledgers),
                 "voucher_count":     len(vouchers),
                 "stock_item_count":  len(stock),
                 "godown_count":      len(godowns),
                 "stock_group_count": len(stock_groups),
                 "unit_count":        len(units),
+                "group_count":       len(groups),
             }, None
     except TallyError as e:
         return None, str(e)

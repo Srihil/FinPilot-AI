@@ -16,7 +16,7 @@ from app.models.vendor import Vendor
 from app.models.invoice import Invoice, InvoiceStatus, InvoiceType
 from app.models.expense import Expense, ExpenseStatus
 from app.models.product import Product
-from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, TallyGodown
+from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, TallyGodown, TallyGroup
 
 TALLY_TAG = "[tally-sync]"
 DEBTOR_GROUPS = {"sundry debtors", "debtors", "trade receivables"}
@@ -263,6 +263,50 @@ def sync_units(db: Session, company_id: uuid.UUID, units: list[dict]) -> dict:
     return {"created": created, "updated": updated}
 
 
+# ─── Account Groups ───────────────────────────────────────────────────────────
+
+def sync_groups(db: Session, company_id: uuid.UUID, groups: list[dict]) -> dict:
+    created = 0
+    updated = 0
+    now = datetime.now(timezone.utc)
+
+    for item in groups:
+        name = item.get("name", "").strip()
+        if not name or name.lower() == "primary":
+            continue
+        parent = item.get("parent") or None
+        if parent and parent.lower() == "primary":
+            parent = None
+
+        key = _tally_key(company_id, name)
+        existing = db.query(TallyGroup).filter(
+            TallyGroup.company_id == company_id,
+            TallyGroup.tally_key == key,
+        ).first()
+
+        if existing:
+            existing.parent = parent
+            existing.tally_sync_status = "synced"
+            existing.synced_at = now
+            existing.source = "tally_sync"
+            updated += 1
+        else:
+            db.add(TallyGroup(
+                company_id=company_id,
+                name=name,
+                parent=parent,
+                tally_key=key,
+                source="tally_sync",
+                tally_sync_status="synced",
+                synced_at=now,
+                is_active=True,
+            ))
+            created += 1
+
+    db.flush()
+    return {"created": created, "updated": updated}
+
+
 # ─── Stock Items → Products ────────────────────────────────────────────────────
 
 def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]) -> dict:
@@ -425,6 +469,7 @@ def process_sync_result(db: Session, company_id: uuid.UUID, result: dict) -> dic
     godowns      = result.get("godowns", [])
     stock_groups = result.get("stock_groups", [])
     units        = result.get("units", [])
+    groups       = result.get("groups", [])
 
     ledger_stats      = {"customers": 0, "vendors": 0, "ledgers": 0}
     voucher_stats     = {"invoices": 0, "expenses": 0}
@@ -432,6 +477,7 @@ def process_sync_result(db: Session, company_id: uuid.UUID, result: dict) -> dic
     godown_stats      = {"created": 0, "updated": 0}
     stock_group_stats = {"created": 0, "updated": 0}
     unit_stats        = {"created": 0, "updated": 0}
+    group_stats       = {"created": 0, "updated": 0}
 
     if ledgers:
         ledger_stats = sync_ledgers(db, company_id, ledgers)
@@ -451,6 +497,9 @@ def process_sync_result(db: Session, company_id: uuid.UUID, result: dict) -> dic
     if units:
         unit_stats = sync_units(db, company_id, units)
 
+    if groups:
+        group_stats = sync_groups(db, company_id, groups)
+
     return {
         "imported_customers":    ledger_stats["customers"],
         "imported_vendors":      ledger_stats["vendors"],
@@ -465,4 +514,6 @@ def process_sync_result(db: Session, company_id: uuid.UUID, result: dict) -> dic
         "updated_stock_groups":  stock_group_stats["updated"],
         "imported_units":        unit_stats["created"],
         "updated_units":         unit_stats["updated"],
+        "imported_groups":       group_stats["created"],
+        "updated_groups":        group_stats["updated"],
     }

@@ -439,6 +439,50 @@ class TallyClient:
             logger.warning("get_godowns: %s", e)
             return []
 
+    # ── Read: Account Groups ─────────────────────────────────────────────────
+
+    def get_groups(self) -> list[dict]:
+        xml = """<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>FP Groups</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP Groups" ISMODIFY="No">
+            <TYPE>Group</TYPE>
+            <FETCH>NAME,PARENT</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+    </DESC>
+  </BODY>
+</ENVELOPE>"""
+        try:
+            raw = self._post_xml(xml)
+            root = self._parse_response(raw)
+            groups = []
+            for item in root.findall(".//GROUP"):
+                name = (item.get("NAME") or "").strip()
+                parent_el = item.find("PARENT")
+                parent = parent_el.text.strip() if parent_el is not None and parent_el.text else ""
+                if name and name.lower() != "primary":
+                    groups.append({
+                        "name": name,
+                        "parent": parent if parent and parent.lower() != "primary" else None,
+                    })
+            return groups
+        except TallyError as e:
+            logger.warning("get_groups: %s", e)
+            return []
+
     # ── Read: Stock Groups ────────────────────────────────────────────────────
 
     def get_stock_groups(self) -> list[dict]:

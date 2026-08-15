@@ -418,7 +418,9 @@ export interface VoucherItem {
   date?: string;
   voucher_type: string;
   party?: string;
+  party_name?: string;
   amount: number;
+  paid_amount?: number;
   status: string;
   source: TallySource;
   tally_sync_status: TallySyncStatus;

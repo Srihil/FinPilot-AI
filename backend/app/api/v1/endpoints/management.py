@@ -8,13 +8,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, validator
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth.dependencies import get_current_user, require_admin_or_accountant, require_admin
 from app.db.base import get_db
 from app.models.audit_log import AuditAction
 from app.models.customer import Customer
 from app.models.expense import Expense
+from app.models.approval import Approval
 from app.models.invoice import Invoice, InvoiceType
 from app.models.payment import Payment
 from app.models.product import Product
@@ -1035,6 +1036,7 @@ def list_vouchers(
     search: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    ledger_name: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1045,10 +1047,12 @@ def list_vouchers(
     vt = (voucher_type or "").upper()
     include_invoices = vt in ("", "ALL", "SALES", "PURCHASE")
     include_expenses = vt in ("", "ALL", "EXPENSE", "PURCHASE")
-    include_payments = vt in ("", "ALL", "PAYMENT", "RECEIPT")
 
     if include_invoices:
-        inv_q = db.query(Invoice).filter(Invoice.company_id == cid)
+        inv_q = db.query(Invoice).options(
+            joinedload(Invoice.customer),
+            joinedload(Invoice.vendor),
+        ).filter(Invoice.company_id == cid)
         if vt == "SALES":
             inv_q = inv_q.filter(Invoice.invoice_type == InvoiceType.SALES)
         elif vt == "PURCHASE":
@@ -1069,24 +1073,34 @@ def list_vouchers(
                 pass
 
         for inv in inv_q.all():
+            party_name = (
+                (inv.customer.name if inv.customer else None) or
+                (inv.vendor.name if inv.vendor else None)
+            )
             results.append({
                 "id": str(inv.id),
                 "voucher_number": inv.invoice_number,
                 "date": inv.invoice_date.isoformat() if inv.invoice_date else None,
                 "voucher_type": inv.invoice_type.value if inv.invoice_type else "INVOICE",
                 "party": inv.customer_id and str(inv.customer_id),
+                "party_name": party_name,
                 "amount": float(inv.total_amount or 0),
                 "status": inv.status.value if inv.status else "DRAFT",
                 "source": "finpilot",
                 "tally_sync_status": "synced" if getattr(inv, "tally_synced", False) else "pending",
                 "created_at": inv.created_at.isoformat() if inv.created_at else None,
                 "entity_type": "invoice",
+                "paid_amount": float(inv.paid_amount or 0),
             })
 
     if include_expenses:
-        exp_q = db.query(Expense).filter(Expense.company_id == cid)
+        exp_q = db.query(Expense).options(
+            joinedload(Expense.vendor),
+        ).filter(Expense.company_id == cid)
         if search:
-            exp_q = exp_q.filter(Expense.title.ilike(f"%{search}%"))
+            exp_q = exp_q.filter(
+                or_(Expense.title.ilike(f"%{search}%"), Expense.category.ilike(f"%{search}%"))
+            )
         if date_from:
             try:
                 exp_q = exp_q.filter(Expense.expense_date >= datetime.fromisoformat(date_from))
@@ -1099,12 +1113,14 @@ def list_vouchers(
                 pass
 
         for exp in exp_q.all():
+            party_name = (exp.vendor.name if exp.vendor else None) or exp.title
             results.append({
                 "id": str(exp.id),
                 "voucher_number": getattr(exp, "ref_number", None) or f"EXP-{str(exp.id)[:8].upper()}",
                 "date": exp.expense_date.isoformat() if exp.expense_date else None,
                 "voucher_type": "EXPENSE",
                 "party": None,
+                "party_name": party_name,
                 "amount": float(exp.amount or 0),
                 "status": exp.status.value if exp.status else "DRAFT",
                 "source": "finpilot",
@@ -1112,7 +1128,17 @@ def list_vouchers(
                 "created_at": exp.created_at.isoformat() if exp.created_at else None,
                 "entity_type": "expense",
                 "title": exp.title,
+                "paid_amount": 0,
             })
+
+    # Apply ledger_name filter (match against party name or title)
+    if ledger_name:
+        lf = ledger_name.lower()
+        results = [
+            r for r in results
+            if lf in (r.get("party_name") or "").lower()
+            or lf in (r.get("title") or "").lower()
+        ]
 
     # Sort by date desc
     results.sort(key=lambda x: x.get("date") or x.get("created_at") or "", reverse=True)
@@ -1130,6 +1156,58 @@ def list_vouchers(
         "page_size": page_size,
         "total_pages": max(1, (total + page_size - 1) // page_size),
     }
+
+
+@router.delete("/vouchers/{entity_type}/{entity_id}")
+def delete_voucher(
+    entity_type: str,
+    entity_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    cid = current_user.company_id
+
+    if entity_type == "invoice":
+        record = db.query(Invoice).filter(
+            Invoice.id == uuid.UUID(entity_id),
+            Invoice.company_id == cid,
+        ).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        if float(record.paid_amount or 0) > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete: ₹{float(record.paid_amount):,.2f} in payments are recorded against this invoice. Remove the payments first.",
+            )
+        name = record.invoice_number
+        db.query(Approval).filter(Approval.invoice_id == record.id).delete(synchronize_session=False)
+        db.delete(record)
+        db.flush()
+        audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
+                          entity_type="invoice", entity_id=record.id,
+                          description=f"Deleted invoice: {name}")
+        db.commit()
+        return {"deleted": True, "message": f"Invoice {name} deleted."}
+
+    elif entity_type == "expense":
+        record = db.query(Expense).filter(
+            Expense.id == uuid.UUID(entity_id),
+            Expense.company_id == cid,
+        ).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Expense not found")
+        name = record.title
+        db.query(Approval).filter(Approval.expense_id == record.id).delete(synchronize_session=False)
+        db.delete(record)
+        db.flush()
+        audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
+                          entity_type="expense", entity_id=record.id,
+                          description=f"Deleted expense: {name}")
+        db.commit()
+        return {"deleted": True, "message": f"Expense '{name}' deleted."}
+
+    else:
+        raise HTTPException(status_code=400, detail="entity_type must be 'invoice' or 'expense'")
 
 
 # ─── Sync health ─────────────────────────────────────────────────────────────────

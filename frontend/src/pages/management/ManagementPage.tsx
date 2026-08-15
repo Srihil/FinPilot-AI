@@ -5,7 +5,7 @@ import {
   Layers, Users, Building2, Package, BookOpen, FolderOpen, Scale, Warehouse,
   FileText, Plus, Search, ChevronRight, Loader2, AlertCircle,
   CheckCircle, Clock, WifiOff, Wifi, Activity, BarChart3, Database, ChevronLeft,
-  Edit, Trash2, AlertTriangle,
+  Edit, Trash2, AlertTriangle, Eye, X,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -862,7 +862,7 @@ function GodownForm({ onClose }: { onClose: () => void }) {
 
 // ─── Ledgers sub-tab ──────────────────────────────────────────────────────────
 
-function LedgersSubTab() {
+function LedgersSubTab({ onViewTransactions }: { onViewTransactions?: (ledgerName: string) => void }) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -932,7 +932,16 @@ function LedgersSubTab() {
                 <TD><SyncBadge status={l.tally_sync_status} source={l.source} /></TD>
                 <TD><SyncBadge status={l.tally_sync_status} /></TD>
                 <TD className="text-slate-400 text-xs">{relTime(l.synced_at)}</TD>
-                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(l)} deleteDisabled={l.tally_sync_status === 'delete_pending'} /></TD>
+                <TD>
+                  <div className="flex gap-1">
+                    {onViewTransactions && (
+                      <button onClick={() => onViewTransactions(l.name)} className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="View transactions for this ledger">
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <RowActions onEdit={() => {}} onDelete={() => setDeleting(l)} deleteDisabled={l.tally_sync_status === 'delete_pending'} />
+                  </div>
+                </TD>
               </tr>
             )) : (
               <tr>
@@ -1266,7 +1275,7 @@ const MASTER_ICONS: Record<MasterTab, React.ElementType> = {
   Products: Package, 'Stock Groups': FolderOpen, Units: Scale, Godowns: Warehouse,
 };
 
-function MastersTab({ initialSub }: { initialSub?: MasterTab }) {
+function MastersTab({ initialSub, onViewLedgerTransactions }: { initialSub?: MasterTab; onViewLedgerTransactions?: (name: string) => void }) {
   const [sub, setSub] = useState<MasterTab>(initialSub || 'Customers');
 
   useEffect(() => {
@@ -1277,7 +1286,7 @@ function MastersTab({ initialSub }: { initialSub?: MasterTab }) {
     switch (sub) {
       case 'Customers': return <CustomersSubTab />;
       case 'Vendors': return <VendorsSubTab />;
-      case 'Ledgers': return <LedgersSubTab />;
+      case 'Ledgers': return <LedgersSubTab onViewTransactions={onViewLedgerTransactions} />;
       case 'Products': return <ProductsSubTab />;
       case 'Stock Groups': return <StockGroupsSubTab />;
       case 'Units': return <UnitsSubTab />;
@@ -1328,33 +1337,69 @@ const VOUCHER_TYPE_BADGE: Record<string, string> = {
   INVOICE: 'bg-indigo-100 text-indigo-700',
 };
 
-function TransactionsTab() {
+function TransactionsTab({ initialLedgerFilter }: { initialLedgerFilter?: string }) {
   const [vtype, setVtype] = useState<string>('ALL');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [ledgerFilter, setLedgerFilter] = useState(initialLedgerFilter || '');
+  const [debouncedLedger, setDebouncedLedger] = useState(initialLedgerFilter || '');
+  const [deleting, setDeleting] = useState<VoucherItem | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    setLedgerFilter(initialLedgerFilter || '');
+    setDebouncedLedger(initialLedgerFilter || '');
+    setPage(1);
+  }, [initialLedgerFilter]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedLedger(ledgerFilter), 300);
+    return () => clearTimeout(t);
+  }, [ledgerFilter]);
+
   const { data, isLoading } = useQuery({
-    queryKey: ['management-vouchers', vtype, page, debouncedSearch, dateFrom, dateTo],
+    queryKey: ['management-vouchers', vtype, page, debouncedSearch, dateFrom, dateTo, debouncedLedger],
     queryFn: () => managementApi.vouchers({
       page, page_size: 20,
       voucher_type: vtype === 'ALL' ? undefined : vtype,
       search: debouncedSearch || undefined,
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
+      ledger_name: debouncedLedger || undefined,
     }),
   });
 
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      const res = await managementApi.deleteVoucher(deleting.entity_type, deleting.id);
+      toast({ title: 'Deleted', description: res.message, variant: 'success' });
+      qc.invalidateQueries({ queryKey: ['management-vouchers'] });
+      qc.invalidateQueries({ queryKey: ['management-overview'] });
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      toast({ title: 'Cannot delete', description: err?.response?.data?.detail || 'Delete failed', variant: 'destructive' });
+    }
+    setDeleteLoading(false);
+    setDeleting(null);
+  };
+
+  const colCount = 8;
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-3">
+      {/* Filters row */}
+      <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
         <div className="flex gap-1 p-1 bg-slate-100 rounded-lg shrink-0">
           {VOUCHER_TYPES.map(t => (
             <button
@@ -1369,55 +1414,101 @@ function TransactionsTab() {
             </button>
           ))}
         </div>
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 min-w-[160px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <Input placeholder="Search…" className="pl-9" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+        </div>
+        {/* Ledger filter */}
+        <div className="relative min-w-[180px] max-w-xs">
+          <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Input
+            placeholder="Filter by ledger…"
+            className={cn("pl-9 pr-8", ledgerFilter && "border-indigo-300 bg-indigo-50")}
+            value={ledgerFilter}
+            onChange={e => { setLedgerFilter(e.target.value); setPage(1); }}
+          />
+          {ledgerFilter && (
+            <button onClick={() => { setLedgerFilter(''); setDebouncedLedger(''); setPage(1); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
         <Input type="date" className="max-w-[160px]" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }} />
         <Input type="date" className="max-w-[160px]" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} />
       </div>
+
+      {/* Active ledger filter banner */}
+      {ledgerFilter && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-indigo-800">
+          <BookOpen className="w-4 h-4 shrink-0" />
+          <span>Showing transactions for ledger: <strong>{ledgerFilter}</strong></span>
+          <button onClick={() => { setLedgerFilter(''); setDebouncedLedger(''); setPage(1); }} className="ml-auto text-indigo-500 hover:text-indigo-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-lg border border-slate-100">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-100">
             <tr>
               <TH>Voucher #</TH><TH>Date</TH><TH>Type</TH>
-              <TH>Description</TH><TH right>Amount</TH>
-              <TH>Status</TH><TH>Source</TH>
+              <TH>Party / Ledger</TH><TH right>Amount</TH>
+              <TH>Status</TH><TH>Source</TH><TH>Actions</TH>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               Array.from({ length: 8 }).map((_, i) => (
-                <tr key={i}><td colSpan={7} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
+                <tr key={i}><td colSpan={colCount} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
               ))
             ) : data?.items?.length ? data.items.map((v: VoucherItem) => (
               <tr key={`${v.entity_type}-${v.id}`} className="border-b border-slate-50 hover:bg-slate-50">
-                <TD><p className="font-mono text-xs font-medium text-slate-700">{v.voucher_number}</p></TD>
+                <TD>
+                  <p className="font-mono text-xs font-medium text-slate-700">{v.voucher_number}</p>
+                  <p className="text-xs text-slate-400 capitalize">{v.entity_type}</p>
+                </TD>
                 <TD className="text-slate-500">{v.date ? formatDate(v.date) : '—'}</TD>
                 <TD>
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${VOUCHER_TYPE_BADGE[v.voucher_type] ?? 'bg-slate-100 text-slate-600'}`}>
                     {v.voucher_type}
                   </span>
                 </TD>
-                <TD className="text-slate-600">{v.title || v.party || '—'}</TD>
+                <TD className="text-slate-700">
+                  {v.party_name || v.title || '—'}
+                </TD>
                 <TD right className="font-semibold text-slate-900">{formatCurrency(v.amount)}</TD>
                 <TD>
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                     v.status === 'APPROVED' || v.status === 'PAID' ? 'bg-emerald-100 text-emerald-700' :
                     v.status === 'PENDING_APPROVAL' ? 'bg-amber-100 text-amber-700' :
+                    v.status === 'CANCELLED' ? 'bg-slate-100 text-slate-500' :
                     'bg-slate-100 text-slate-600'
                   }`}>{v.status}</span>
                 </TD>
                 <TD><SyncBadge status={v.tally_sync_status} source={v.source} /></TD>
+                <TD>
+                  <button
+                    onClick={() => setDeleting(v)}
+                    className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    title="Delete transaction"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </TD>
               </tr>
             )) : (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={colCount}>
                   <EmptyState
                     icon={FileText}
-                    title={vtype === 'ALL' ? 'No transactions yet' : `No ${VOUCHER_TYPE_LABELS[vtype]} transactions`}
-                    desc="Transactions created in FinPilot or synced from TallyPrime appear here."
+                    title={ledgerFilter ? `No transactions for "${ledgerFilter}"` : vtype === 'ALL' ? 'No transactions yet' : `No ${VOUCHER_TYPE_LABELS[vtype]} transactions`}
+                    desc={ledgerFilter ? 'No vouchers found linked to this ledger.' : 'Transactions created in FinPilot or synced from TallyPrime appear here.'}
+                    action={ledgerFilter ? (
+                      <Button variant="outline" size="sm" onClick={() => { setLedgerFilter(''); setDebouncedLedger(''); }}>
+                        <X className="w-3.5 h-3.5 mr-1" /> Clear ledger filter
+                      </Button>
+                    ) : undefined}
                   />
                 </td>
               </tr>
@@ -1426,6 +1517,50 @@ function TransactionsTab() {
         </table>
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
+
+      {/* Delete confirmation */}
+      {deleting && (
+        <Dialog open onOpenChange={() => setDeleting(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-600">
+                <Trash2 className="w-4 h-4" /> Delete Transaction
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-slate-700">
+                Delete <strong>{deleting.voucher_number}</strong>
+                {deleting.party_name ? <> ({deleting.party_name})</> : ''}?
+              </p>
+              {(deleting.paid_amount ?? 0) > 0 ? (
+                <div className="flex items-start gap-2.5 p-3 bg-red-50 border border-red-100 rounded-lg">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-800">
+                    This invoice has <strong>{formatCurrency(deleting.paid_amount ?? 0)}</strong> in recorded payments and cannot be deleted. Remove the payments first.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-100 rounded-lg">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-sm text-amber-800">This is permanent and cannot be undone.</p>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleting(null)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleteLoading || (deleting.paid_amount ?? 0) > 0}
+                className="gap-1.5"
+              >
+                {deleteLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -1436,10 +1571,16 @@ export default function ManagementPage() {
   const navigate = useNavigate();
   const [mainTab, setMainTab] = useState<MainTab>('Overview');
   const [masterSub, setMasterSub] = useState<MasterTab | undefined>(undefined);
+  const [transLedgerFilter, setTransLedgerFilter] = useState('');
 
   const navigateTo = useCallback((tab: MainTab, sub?: MasterTab) => {
     setMainTab(tab);
     if (sub) setMasterSub(sub);
+  }, []);
+
+  const goToLedgerTransactions = useCallback((ledgerName: string) => {
+    setTransLedgerFilter(ledgerName);
+    setMainTab('Transactions');
   }, []);
 
   const MAIN_TAB_ICONS: Record<MainTab, React.ElementType> = {
@@ -1462,7 +1603,7 @@ export default function ManagementPage() {
             return (
               <button
                 key={tab}
-                onClick={() => setMainTab(tab)}
+                onClick={() => { setMainTab(tab); if (tab === 'Transactions') setTransLedgerFilter(''); }}
                 className={cn(
                   "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
                   mainTab === tab
@@ -1481,8 +1622,8 @@ export default function ManagementPage() {
       {/* Tab content */}
       <div>
         {mainTab === 'Overview' && <OverviewTab onNavigate={navigateTo} onGoTally={() => navigate('/tally')} />}
-        {mainTab === 'Masters' && <MastersTab initialSub={masterSub} />}
-        {mainTab === 'Transactions' && <TransactionsTab />}
+        {mainTab === 'Masters' && <MastersTab initialSub={masterSub} onViewLedgerTransactions={goToLedgerTransactions} />}
+        {mainTab === 'Transactions' && <TransactionsTab initialLedgerFilter={transLedgerFilter} />}
       </div>
     </div>
   );

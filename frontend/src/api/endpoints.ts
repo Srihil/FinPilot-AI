@@ -387,9 +387,15 @@ export const managementApi = {
     search?: string;
     date_from?: string;
     date_to?: string;
+    ledger_name?: string;
   }): Promise<PaginatedResponse<VoucherItem>> => {
     const res = await apiClient.get('/api/management/vouchers', { params });
     return res.data;
+  },
+
+  deleteVoucher: async (entityType: 'invoice' | 'expense', id: string) => {
+    const res = await apiClient.delete(`/api/management/vouchers/${entityType}/${id}`);
+    return res.data as { deleted: boolean; message: string };
   },
 
   syncHealth: async (): Promise<SyncHealth> => {

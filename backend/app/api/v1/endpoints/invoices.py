@@ -3,7 +3,11 @@ from sqlalchemy.orm import Session
 from app.db.base import get_db
 from app.auth.dependencies import get_current_user, require_admin_or_accountant, require_approver
 from app.models.user import User
+from app.models.customer import Customer
+from app.models.vendor import Vendor
+from app.models.invoice import InvoiceType
 from app.services.invoice_service import invoice_service
+from app.services.tally_write_service import queue_tally_write
 from app.schemas.invoice import InvoiceCreate, InvoiceUpdate
 from app.models.audit_log import AuditAction
 from app.services.audit_service import audit_service
@@ -86,6 +90,43 @@ def create_invoice(
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.CREATE,
                       entity_type="invoice", entity_id=inv.id,
                       description=f"Invoice {inv.invoice_number} created")
+    try:
+        tally_date = inv.invoice_date.strftime("%Y%m%d")
+        amount_str = str(int(float(inv.total_amount)))
+        if inv.invoice_type == InvoiceType.SALES:
+            customer_name = ""
+            if inv.customer_id:
+                cust = db.query(Customer).filter(Customer.id == inv.customer_id).first()
+                customer_name = cust.name if cust else ""
+            tally_queued = queue_tally_write(
+                db, current_user.company_id, "CREATE_SALES_VOUCHER",
+                {
+                    "date": tally_date,
+                    "party_ledger": customer_name,
+                    "sales_ledger": "Sales",
+                    "amount": amount_str,
+                    "narration": inv.invoice_number,
+                },
+            )
+        else:
+            vendor_name = ""
+            if inv.vendor_id:
+                vend = db.query(Vendor).filter(Vendor.id == inv.vendor_id).first()
+                vendor_name = vend.name if vend else ""
+            tally_queued = queue_tally_write(
+                db, current_user.company_id, "CREATE_PURCHASE_VOUCHER",
+                {
+                    "date": tally_date,
+                    "party_ledger": vendor_name,
+                    "purchase_ledger": "Purchases",
+                    "amount": amount_str,
+                    "narration": inv.invoice_number,
+                },
+            )
+        if tally_queued:
+            db.commit()
+    except Exception:
+        pass
     return _serialize(inv)
 
 

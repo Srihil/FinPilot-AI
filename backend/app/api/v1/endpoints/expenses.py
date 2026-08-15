@@ -4,10 +4,12 @@ from app.db.base import get_db
 from app.auth.dependencies import get_current_user, require_admin_or_accountant, require_approver
 from app.models.user import User
 from app.models.expense import Expense, ExpenseStatus
+from app.models.vendor import Vendor
 from app.models.approval import Approval, ApprovalEntityType, ApprovalStatus
 from app.schemas.expense import ExpenseCreate, ExpenseUpdate
 from app.models.audit_log import AuditAction
 from app.services.audit_service import audit_service
+from app.services.tally_write_service import queue_tally_write
 from datetime import datetime, timezone
 from typing import Optional
 import math
@@ -82,6 +84,26 @@ def create_expense(
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.CREATE,
                       entity_type="expense", entity_id=e.id,
                       description=f"Expense '{e.title}' created for ₹{float(e.total_amount):,.0f}")
+    try:
+        vendor_name = "Cash"
+        if e.vendor_id:
+            vend = db.query(Vendor).filter(Vendor.id == e.vendor_id).first()
+            if vend:
+                vendor_name = vend.name
+        tally_queued = queue_tally_write(
+            db, current_user.company_id, "CREATE_PURCHASE_VOUCHER",
+            {
+                "date": e.expense_date.strftime("%Y%m%d"),
+                "party_ledger": vendor_name,
+                "purchase_ledger": "Purchases",
+                "amount": str(int(float(e.total_amount))),
+                "narration": e.title,
+            },
+        )
+        if tally_queued:
+            db.commit()
+    except Exception:
+        pass
     return _serialize(e)
 
 

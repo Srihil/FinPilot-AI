@@ -1,16 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.base import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_admin_or_accountant
 from app.models.user import User
 from app.models.company import Company
 from app.models.ai_conversation import AIConversation, AIMessage, MessageRole
+from app.models.customer import Customer
+from app.models.vendor import Vendor
+from app.models.product import Product
+from app.models.expense import Expense, ExpenseStatus
 from app.agents.finance_agent import FinanceAgent
 from app.agents.transaction_agent import TransactionAgent
+from app.agents.entity_agent import EntityAgent
+from app.services.customer_service import customer_service
+from app.services.vendor_service import vendor_service
+from app.services.invoice_service import invoice_service
+from app.services.tally_write_service import queue_tally_write
+from app.schemas.customer import CustomerCreate
+from app.schemas.vendor import VendorCreate
+from app.schemas.invoice import InvoiceCreate, InvoiceItemCreate
 from app.models.audit_log import AuditAction
 from app.services.audit_service import audit_service
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
+from datetime import datetime, timezone
 import uuid
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
@@ -30,6 +43,15 @@ class MessageCreate(BaseModel):
 
 class TransactionProposal(BaseModel):
     text: str
+
+
+class EntityExtractRequest(BaseModel):
+    text: str
+
+
+class EntityCreateRequest(BaseModel):
+    entity_type: str
+    data: Dict[str, Any]
 
 
 @router.get("/conversations")
@@ -224,3 +246,361 @@ def propose_transaction(
                       description=f"AI transaction proposal: {data.text[:100]}")
 
     return result
+
+
+@router.post("/extract-entity")
+def extract_entity(
+    data: EntityExtractRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Extract structured entity data from natural language using AI."""
+    agent = EntityAgent()
+    result = agent.extract(data.text)
+
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.AI_QUERY,
+                      description=f"AI entity extraction: {data.text[:100]}")
+
+    return result
+
+
+@router.post("/create-entity")
+def create_entity(
+    data: EntityCreateRequest,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    """Create an entity in FinPilot DB and queue a Tally write job."""
+    entity_type = data.entity_type.lower()
+    payload = data.data
+    entity_id = None
+    tally_queued = False
+
+    try:
+        if entity_type == "customer":
+            create_data = CustomerCreate(
+                name=payload.get("name", ""),
+                email=payload.get("email"),
+                phone=payload.get("phone"),
+                address=payload.get("address"),
+                city=payload.get("city"),
+                state=payload.get("state"),
+                gst_number=payload.get("gstin") or payload.get("gst_number"),
+                notes=payload.get("notes"),
+            )
+            entity = customer_service.create(db, current_user.company_id, create_data)
+            entity_id = str(entity.id)
+            tally_queued = queue_tally_write(
+                db, current_user.company_id, "CREATE_LEDGER",
+                {"name": entity.name, "group": "Sundry Debtors", "opening_balance": "0"},
+            )
+            if tally_queued:
+                db.commit()
+
+        elif entity_type == "vendor":
+            create_data = VendorCreate(
+                name=payload.get("name", ""),
+                email=payload.get("email"),
+                phone=payload.get("phone"),
+                address=payload.get("address"),
+                city=payload.get("city"),
+                state=payload.get("state"),
+                gst_number=payload.get("gstin") or payload.get("gst_number"),
+                notes=payload.get("notes"),
+            )
+            entity = vendor_service.create(db, current_user.company_id, create_data)
+            entity_id = str(entity.id)
+            tally_queued = queue_tally_write(
+                db, current_user.company_id, "CREATE_LEDGER",
+                {"name": entity.name, "group": "Sundry Creditors", "opening_balance": "0"},
+            )
+            if tally_queued:
+                db.commit()
+
+        elif entity_type == "product":
+            product = Product(
+                company_id=current_user.company_id,
+                name=payload.get("name", ""),
+                sku=payload.get("sku"),
+                selling_price=float(payload.get("selling_price") or 0),
+                purchase_price=float(payload.get("cost_price") or 0),
+                unit=payload.get("unit", "pcs"),
+                stock_quantity=float(payload.get("quantity") or 0),
+            )
+            db.add(product)
+            db.commit()
+            db.refresh(product)
+            entity_id = str(product.id)
+            tally_queued = queue_tally_write(
+                db, current_user.company_id, "CREATE_STOCK_ITEM",
+                {
+                    "name": product.name,
+                    "unit": product.unit,
+                    "rate": str(int(float(product.selling_price or 0))),
+                },
+            )
+            if tally_queued:
+                db.commit()
+
+        elif entity_type == "invoice":
+            # Find customer if customer_name is given
+            customer_id = payload.get("customer_id")
+            vendor_id = payload.get("vendor_id")
+            invoice_type = payload.get("invoice_type", "SALES").upper()
+
+            if not customer_id and payload.get("customer_name") and invoice_type == "SALES":
+                cust = db.query(Customer).filter(
+                    Customer.company_id == current_user.company_id,
+                    Customer.name.ilike(f"%{payload['customer_name']}%"),
+                    Customer.is_active == True,
+                ).first()
+                if cust:
+                    customer_id = str(cust.id)
+
+            if not vendor_id and payload.get("vendor_name") and invoice_type == "PURCHASE":
+                vend = db.query(Vendor).filter(
+                    Vendor.company_id == current_user.company_id,
+                    Vendor.name.ilike(f"%{payload['vendor_name']}%"),
+                    Vendor.is_active == True,
+                ).first()
+                if vend:
+                    vendor_id = str(vend.id)
+
+            amount = float(payload.get("amount") or 0)
+            invoice_date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            try:
+                inv_date = datetime.fromisoformat(invoice_date_str)
+            except Exception:
+                inv_date = datetime.now(timezone.utc)
+
+            create_data = InvoiceCreate(
+                customer_id=customer_id,
+                vendor_id=vendor_id,
+                invoice_number=payload.get("narration") or f"AI-{uuid.uuid4().hex[:8].upper()}",
+                invoice_type=invoice_type,
+                invoice_date=inv_date,
+                items=[
+                    InvoiceItemCreate(
+                        description=payload.get("narration") or "AI-created item",
+                        quantity=1,
+                        unit_price=amount,
+                    )
+                ] if amount else [],
+            )
+            entity = invoice_service.create(db, current_user.company_id, current_user.id, create_data)
+            entity_id = str(entity.id)
+
+            tally_date = entity.invoice_date.strftime("%Y%m%d")
+            amount_str = str(int(float(entity.total_amount)))
+            if invoice_type == "SALES":
+                party_name = payload.get("customer_name", "")
+                tally_queued = queue_tally_write(
+                    db, current_user.company_id, "CREATE_SALES_VOUCHER",
+                    {"date": tally_date, "party_ledger": party_name,
+                     "sales_ledger": "Sales", "amount": amount_str,
+                     "narration": entity.invoice_number},
+                )
+            else:
+                party_name = payload.get("vendor_name", "")
+                tally_queued = queue_tally_write(
+                    db, current_user.company_id, "CREATE_PURCHASE_VOUCHER",
+                    {"date": tally_date, "party_ledger": party_name,
+                     "purchase_ledger": "Purchases", "amount": amount_str,
+                     "narration": entity.invoice_number},
+                )
+            if tally_queued:
+                db.commit()
+
+        elif entity_type == "expense":
+            expense_date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            try:
+                exp_date = datetime.fromisoformat(expense_date_str)
+            except Exception:
+                exp_date = datetime.now(timezone.utc)
+
+            vendor_id = payload.get("vendor_id")
+            if not vendor_id and payload.get("vendor_name"):
+                vend = db.query(Vendor).filter(
+                    Vendor.company_id == current_user.company_id,
+                    Vendor.name.ilike(f"%{payload['vendor_name']}%"),
+                    Vendor.is_active == True,
+                ).first()
+                if vend:
+                    vendor_id = str(vend.id)
+
+            amount = float(payload.get("amount") or 0)
+            expense = Expense(
+                company_id=current_user.company_id,
+                created_by=current_user.id,
+                vendor_id=uuid.UUID(vendor_id) if vendor_id else None,
+                title=payload.get("title", "AI-created expense"),
+                description=payload.get("description"),
+                category=payload.get("category"),
+                expense_date=exp_date,
+                amount=amount,
+                tax_amount=0,
+                total_amount=amount,
+                status=ExpenseStatus.DRAFT,
+            )
+            db.add(expense)
+            db.commit()
+            db.refresh(expense)
+            entity_id = str(expense.id)
+
+            vendor_name = payload.get("vendor_name", "Cash")
+            tally_queued = queue_tally_write(
+                db, current_user.company_id, "CREATE_PURCHASE_VOUCHER",
+                {
+                    "date": exp_date.strftime("%Y%m%d"),
+                    "party_ledger": vendor_name,
+                    "purchase_ledger": "Purchases",
+                    "amount": str(int(amount)),
+                    "narration": expense.title,
+                },
+            )
+            if tally_queued:
+                db.commit()
+
+        elif entity_type == "stock_item":
+            product = Product(
+                company_id=current_user.company_id,
+                name=payload.get("name", ""),
+                sku=payload.get("sku"),
+                selling_price=float(payload.get("selling_price") or 0),
+                purchase_price=float(payload.get("cost_price") or 0),
+                unit=payload.get("unit", "Nos"),
+                stock_quantity=float(payload.get("quantity") or 0),
+            )
+            db.add(product)
+            db.commit()
+            db.refresh(product)
+            entity_id = str(product.id)
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_STOCK_ITEM",
+                {"name": product.name, "unit": product.unit,
+                 "selling_price": str(int(float(product.selling_price or 0))),
+                 "stock_group": payload.get("stock_group", "Primary")})
+            if tally_queued: db.commit()
+
+        elif entity_type == "sales_invoice":
+            payload["invoice_type"] = "SALES"
+            payload["customer_name"] = payload.get("customer_name", "")
+            return create_entity(EntityCreateRequest(entity_type="invoice", data=payload),
+                                 current_user, db)
+
+        elif entity_type == "purchase_bill":
+            payload["invoice_type"] = "PURCHASE"
+            payload["vendor_name"] = payload.get("vendor_name", "")
+            return create_entity(EntityCreateRequest(entity_type="invoice", data=payload),
+                                 current_user, db)
+
+        # TallyPrime-only entities (no FinPilot DB model — just queue write job)
+        elif entity_type == "ledger":
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_LEDGER",
+                {"name": payload.get("name", ""), "group": payload.get("group", "Sundry Debtors"),
+                 "opening_balance": str(payload.get("opening_balance", "0"))})
+            if tally_queued: db.commit()
+
+        elif entity_type == "group":
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_GROUP",
+                {"name": payload.get("name", ""), "parent": payload.get("parent", "Capital Account")})
+            if tally_queued: db.commit()
+
+        elif entity_type == "stock_group":
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_STOCK_GROUP",
+                {"name": payload.get("name", ""), "parent": payload.get("parent", "Primary")})
+            if tally_queued: db.commit()
+
+        elif entity_type == "unit":
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_UNIT",
+                {"name": payload.get("name", ""), "symbol": payload.get("symbol", ""),
+                 "decimal_places": str(payload.get("decimal_places", "0"))})
+            if tally_queued: db.commit()
+
+        elif entity_type == "godown":
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_GODOWN",
+                {"name": payload.get("name", ""), "parent": payload.get("parent", "Main Location")})
+            if tally_queued: db.commit()
+
+        elif entity_type == "receipt":
+            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            try: d = datetime.fromisoformat(date_str)
+            except Exception: d = datetime.now(timezone.utc)
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_RECEIPT_VOUCHER",
+                {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
+                 "account_ledger": payload.get("account_ledger", "Cash"),
+                 "amount": str(int(float(payload.get("amount", 0)))),
+                 "narration": payload.get("narration", "Receipt")})
+            if tally_queued: db.commit()
+
+        elif entity_type == "payment":
+            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            try: d = datetime.fromisoformat(date_str)
+            except Exception: d = datetime.now(timezone.utc)
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_PAYMENT_VOUCHER",
+                {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
+                 "account_ledger": payload.get("account_ledger", "Cash"),
+                 "amount": str(int(float(payload.get("amount", 0)))),
+                 "narration": payload.get("narration", "Payment")})
+            if tally_queued: db.commit()
+
+        elif entity_type == "journal":
+            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            try: d = datetime.fromisoformat(date_str)
+            except Exception: d = datetime.now(timezone.utc)
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_JOURNAL_VOUCHER",
+                {"date": d.strftime("%Y%m%d"), "dr_ledger": payload.get("dr_ledger", ""),
+                 "cr_ledger": payload.get("cr_ledger", ""),
+                 "amount": str(int(float(payload.get("amount", 0)))),
+                 "narration": payload.get("narration", "Journal Entry")})
+            if tally_queued: db.commit()
+
+        elif entity_type == "credit_note":
+            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            try: d = datetime.fromisoformat(date_str)
+            except Exception: d = datetime.now(timezone.utc)
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_CREDIT_NOTE",
+                {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
+                 "sales_ledger": payload.get("sales_ledger", "Sales"),
+                 "amount": str(int(float(payload.get("amount", 0)))),
+                 "narration": payload.get("narration", "Sales Return")})
+            if tally_queued: db.commit()
+
+        elif entity_type == "debit_note":
+            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            try: d = datetime.fromisoformat(date_str)
+            except Exception: d = datetime.now(timezone.utc)
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_DEBIT_NOTE",
+                {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
+                 "purchase_ledger": payload.get("purchase_ledger", "Purchases"),
+                 "amount": str(int(float(payload.get("amount", 0)))),
+                 "narration": payload.get("narration", "Purchase Return")})
+            if tally_queued: db.commit()
+
+        elif entity_type == "contra":
+            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            try: d = datetime.fromisoformat(date_str)
+            except Exception: d = datetime.now(timezone.utc)
+            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_CONTRA_VOUCHER",
+                {"date": d.strftime("%Y%m%d"), "from_account": payload.get("from_account", "Cash"),
+                 "to_account": payload.get("to_account", "Bank"),
+                 "amount": str(int(float(payload.get("amount", 0)))),
+                 "narration": payload.get("narration", "Fund Transfer")})
+            if tally_queued: db.commit()
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown entity_type: {entity_type}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create entity: {str(e)}")
+
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.CREATE,
+                      entity_type=entity_type, entity_id=uuid.UUID(entity_id) if entity_id else None,
+                      description=f"AI-created {entity_type}")
+
+    return {
+        "id": entity_id,
+        "entity_type": entity_type,
+        "tally_queued": tally_queued,
+    }

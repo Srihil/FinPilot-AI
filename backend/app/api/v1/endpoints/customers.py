@@ -4,6 +4,7 @@ from app.db.base import get_db
 from app.auth.dependencies import get_current_user, require_admin_or_accountant
 from app.models.user import User
 from app.services.customer_service import customer_service
+from app.services.tally_write_service import queue_tally_write
 from app.schemas.customer import CustomerCreate, CustomerUpdate
 from typing import Optional
 import math
@@ -73,6 +74,15 @@ def create_customer(
     db: Session = Depends(get_db),
 ):
     c = customer_service.create(db, current_user.company_id, data)
+    try:
+        tally_queued = queue_tally_write(
+            db, current_user.company_id, "CREATE_LEDGER",
+            {"name": c.name, "group": "Sundry Debtors", "opening_balance": "0"},
+        )
+        if tally_queued:
+            db.commit()
+    except Exception:
+        pass
     return {"id": str(c.id), "name": c.name, "message": "Customer created successfully"}
 
 

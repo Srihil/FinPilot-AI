@@ -4,6 +4,7 @@ from app.db.base import get_db
 from app.auth.dependencies import get_current_user, require_admin_or_accountant
 from app.models.user import User
 from app.services.vendor_service import vendor_service
+from app.services.tally_write_service import queue_tally_write
 from app.schemas.vendor import VendorCreate, VendorUpdate
 from typing import Optional
 import math
@@ -46,6 +47,15 @@ def create_vendor(
     db: Session = Depends(get_db),
 ):
     v = vendor_service.create(db, current_user.company_id, data)
+    try:
+        tally_queued = queue_tally_write(
+            db, current_user.company_id, "CREATE_LEDGER",
+            {"name": v.name, "group": "Sundry Creditors", "opening_balance": "0"},
+        )
+        if tally_queued:
+            db.commit()
+    except Exception:
+        pass
     return {"id": str(v.id), "name": v.name, "message": "Vendor created successfully"}
 
 

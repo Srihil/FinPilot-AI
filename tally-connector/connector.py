@@ -112,10 +112,19 @@ def post_result(job_id: str, status: str, result: Optional[dict], error: Optiona
 # ─── Job execution ────────────────────────────────────────────────────────────
 
 ALLOWED_OPERATIONS = {
+    # Read
     "READ_COMPANIES", "READ_LEDGERS", "READ_VOUCHERS", "READ_SALES",
     "READ_PURCHASES", "READ_RECEIVABLES", "READ_PAYABLES", "READ_STOCK_ITEMS",
-    "CREATE_SALES_VOUCHER", "CREATE_PURCHASE_VOUCHER", "CREATE_RECEIPT_VOUCHER",
-    "CREATE_PAYMENT_VOUCHER", "CREATE_LEDGER", "CREATE_STOCK_ITEM",
+    # Accounting masters
+    "CREATE_LEDGER", "CREATE_GROUP",
+    # Inventory masters
+    "CREATE_STOCK_ITEM", "CREATE_STOCK_GROUP", "CREATE_UNIT", "CREATE_GODOWN",
+    # Vouchers
+    "CREATE_SALES_VOUCHER", "CREATE_PURCHASE_VOUCHER",
+    "CREATE_RECEIPT_VOUCHER", "CREATE_PAYMENT_VOUCHER",
+    "CREATE_JOURNAL_VOUCHER", "CREATE_CREDIT_NOTE", "CREATE_DEBIT_NOTE",
+    "CREATE_CONTRA_VOUCHER",
+    # Sync
     "SYNC_FULL", "SYNC_PARTIAL",
 }
 
@@ -154,16 +163,37 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
         if op == "READ_STOCK_ITEMS":
             items = tally.get_stock_items()
             return {"stock_items": items, "count": len(items)}, None
+        # Accounting masters
+        if op == "CREATE_LEDGER":
+            return tally.create_ledger(payload), None
+        if op == "CREATE_GROUP":
+            return tally.create_group(payload), None
+        # Inventory masters
+        if op == "CREATE_STOCK_ITEM":
+            return tally.create_stock_item(payload), None
+        if op == "CREATE_STOCK_GROUP":
+            return tally.create_stock_group(payload), None
+        if op == "CREATE_UNIT":
+            return tally.create_unit(payload), None
+        if op == "CREATE_GODOWN":
+            return tally.create_godown(payload), None
+        # Vouchers
         if op == "CREATE_SALES_VOUCHER":
             return tally.create_sales_voucher(payload), None
         if op == "CREATE_PURCHASE_VOUCHER":
             return tally.create_purchase_voucher(payload), None
-        if op in ("CREATE_RECEIPT_VOUCHER", "CREATE_PAYMENT_VOUCHER"):
-            return None, f"{op} not yet implemented"
-        if op == "CREATE_LEDGER":
-            return tally.create_ledger(payload), None
-        if op == "CREATE_STOCK_ITEM":
-            return None, "CREATE_STOCK_ITEM not yet implemented"
+        if op == "CREATE_RECEIPT_VOUCHER":
+            return tally.create_receipt_voucher(payload), None
+        if op == "CREATE_PAYMENT_VOUCHER":
+            return tally.create_payment_voucher(payload), None
+        if op == "CREATE_JOURNAL_VOUCHER":
+            return tally.create_journal_voucher(payload), None
+        if op == "CREATE_CREDIT_NOTE":
+            return tally.create_credit_note(payload), None
+        if op == "CREATE_DEBIT_NOTE":
+            return tally.create_debit_note(payload), None
+        if op == "CREATE_CONTRA_VOUCHER":
+            return tally.create_contra_voucher(payload), None
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
             ledgers  = tally.get_ledgers()
             vouchers = tally.get_vouchers()

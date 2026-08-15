@@ -24,6 +24,7 @@ import ReportsPage from './pages/reports/ReportsPage';
 import AuditLogsPage from './pages/audit/AuditLogsPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import TallyPage from './pages/tally/TallyPage';
+import AICreatePage from './pages/ai-create/AICreatePage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -62,6 +63,7 @@ export default function App() {
               <Route path="/audit-logs" element={<AuditLogsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/tally" element={<TallyPage />} />
+              <Route path="/ai-create" element={<AICreatePage />} />
             </Route>
 
             {/* Fallback */}

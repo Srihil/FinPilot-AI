@@ -306,3 +306,29 @@ export const settingsApi = {
     return response.data;
   },
 };
+
+// ─── AI Create ───────────────────────────────────────────────────────────────
+
+export const aiCreateApi = {
+  extractEntity: async (text: string): Promise<{
+    entity_type: string;
+    data: Record<string, unknown>;
+    confidence: number;
+    missing_fields: string[];
+  }> => {
+    const response = await apiClient.post('/api/assistant/extract-entity', { text });
+    return response.data;
+  },
+
+  createEntity: async (
+    entity_type: string,
+    data: Record<string, unknown>
+  ): Promise<{
+    id: string;
+    entity_type: string;
+    tally_queued: boolean;
+  }> => {
+    const response = await apiClient.post('/api/assistant/create-entity', { entity_type, data });
+    return response.data;
+  },
+};

@@ -510,3 +510,326 @@ class TallyClient:
         root = self._parse_response(raw)
         created = root.find(".//CREATED")
         return {"created": int(created.text) if created is not None and created.text else 0}
+
+    # ── Write: Create stock item ──────────────────────────────────────────────
+
+    def create_stock_item(self, payload: dict) -> dict:
+        name = payload.get("name", "")
+        unit = payload.get("unit", "Nos")
+        rate = str(payload.get("rate", payload.get("selling_price", "0")))
+        group = payload.get("stock_group", "Primary")
+
+        xml = f"""<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Import</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>All Masters</ID>
+  </HEADER>
+  <BODY>
+    <DESC/>
+    <DATA>
+      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        <STOCKITEM NAME="{name}" ACTION="Create">
+          <NAME>{name}</NAME>
+          <PARENT>{group}</PARENT>
+          <BASEUNITS>{unit}</BASEUNITS>
+        </STOCKITEM>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    # ── Write: Accounting master — Group ──────────────────────────────────────
+
+    def create_group(self, payload: dict) -> dict:
+        """Create an account Group (e.g., under 'Current Assets')."""
+        name   = payload.get("name", "")
+        parent = payload.get("parent", "Capital Account")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <GROUP NAME="{name}" ACTION="Create">
+        <NAME>{name}</NAME>
+        <PARENT>{parent}</PARENT>
+      </GROUP>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    # ── Write: Inventory Masters ──────────────────────────────────────────────
+
+    def create_stock_group(self, payload: dict) -> dict:
+        name   = payload.get("name", "")
+        parent = payload.get("parent", "Primary")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <STOCKGROUP NAME="{name}" ACTION="Create">
+        <NAME>{name}</NAME>
+        <PARENT>{parent}</PARENT>
+      </STOCKGROUP>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    def create_unit(self, payload: dict) -> dict:
+        name     = payload.get("name", "Nos")
+        symbol   = payload.get("symbol", name)
+        decimals = payload.get("decimal_places", "0")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <UNIT NAME="{name}" ACTION="Create">
+        <NAME>{name}</NAME>
+        <ORIGINALNAME>{symbol}</ORIGINALNAME>
+        <DECIMALPLACES>{decimals}</DECIMALPLACES>
+        <UOMTYPE>Simple</UOMTYPE>
+      </UNIT>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    def create_godown(self, payload: dict) -> dict:
+        name   = payload.get("name", "")
+        parent = payload.get("parent", "Main Location")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <GODOWN NAME="{name}" ACTION="Create">
+        <NAME>{name}</NAME>
+        <PARENT>{parent}</PARENT>
+      </GODOWN>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    # ── Write: Vouchers (Receipt, Payment, Journal, Credit/Debit Note, Contra) ─
+
+    def create_receipt_voucher(self, payload: dict) -> dict:
+        """Money received FROM customer INTO bank/cash account."""
+        date      = payload.get("date", "")
+        party     = payload.get("party_ledger", "")          # customer ledger
+        account   = payload.get("account_ledger", "Cash")    # bank/cash
+        amount    = str(payload.get("amount", "0")).lstrip("-")
+        narration = payload.get("narration", "")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="Receipt" ACTION="Create">
+        <DATE>{date}</DATE>
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>Receipt</VOUCHERTYPENAME>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{account}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+          <AMOUNT>-{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{party}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+      </VOUCHER>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    def create_payment_voucher(self, payload: dict) -> dict:
+        """Money paid TO vendor FROM bank/cash account."""
+        date      = payload.get("date", "")
+        party     = payload.get("party_ledger", "")          # vendor ledger
+        account   = payload.get("account_ledger", "Cash")    # bank/cash
+        amount    = str(payload.get("amount", "0")).lstrip("-")
+        narration = payload.get("narration", "")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="Payment" ACTION="Create">
+        <DATE>{date}</DATE>
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>Payment</VOUCHERTYPENAME>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{party}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{account}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+          <AMOUNT>-{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+      </VOUCHER>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    def create_journal_voucher(self, payload: dict) -> dict:
+        """General journal entry: dr_ledger Dr, cr_ledger Cr."""
+        date      = payload.get("date", "")
+        dr_ledger = payload.get("dr_ledger", "")
+        cr_ledger = payload.get("cr_ledger", "")
+        amount    = str(payload.get("amount", "0")).lstrip("-")
+        narration = payload.get("narration", "")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="Journal" ACTION="Create">
+        <DATE>{date}</DATE>
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>Journal</VOUCHERTYPENAME>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{dr_ledger}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+          <AMOUNT>-{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{cr_ledger}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+      </VOUCHER>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    def create_credit_note(self, payload: dict) -> dict:
+        """Sales return: reduces receivable, reduces sales."""
+        date          = payload.get("date", "")
+        party         = payload.get("party_ledger", "")
+        sales_ledger  = payload.get("sales_ledger", "Sales")
+        amount        = str(payload.get("amount", "0")).lstrip("-")
+        narration     = payload.get("narration", "Sales Return")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="Credit Note" ACTION="Create">
+        <DATE>{date}</DATE>
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>Credit Note</VOUCHERTYPENAME>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{sales_ledger}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+          <AMOUNT>-{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{party}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+      </VOUCHER>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    def create_debit_note(self, payload: dict) -> dict:
+        """Purchase return: reduces payable, reduces purchases."""
+        date             = payload.get("date", "")
+        party            = payload.get("party_ledger", "")
+        purchase_ledger  = payload.get("purchase_ledger", "Purchases")
+        amount           = str(payload.get("amount", "0")).lstrip("-")
+        narration        = payload.get("narration", "Purchase Return")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="Debit Note" ACTION="Create">
+        <DATE>{date}</DATE>
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>Debit Note</VOUCHERTYPENAME>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{party}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+          <AMOUNT>-{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{purchase_ledger}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+      </VOUCHER>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    def create_contra_voucher(self, payload: dict) -> dict:
+        """Cash/bank transfer between two cash or bank accounts."""
+        date       = payload.get("date", "")
+        from_acct  = payload.get("from_account", "Cash")
+        to_acct    = payload.get("to_account", "Bank")
+        amount     = str(payload.get("amount", "0")).lstrip("-")
+        narration  = payload.get("narration", "Fund transfer")
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="Contra" ACTION="Create">
+        <DATE>{date}</DATE>
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>Contra</VOUCHERTYPENAME>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{to_acct}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+          <AMOUNT>-{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{from_acct}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+      </VOUCHER>
+    </TALLYMESSAGE>
+  </DATA></BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}

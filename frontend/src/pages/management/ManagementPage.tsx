@@ -1433,8 +1433,14 @@ function TransactionsTab({ initialLedgerFilter }: { initialLedgerFilter?: string
             </button>
           )}
         </div>
-        <Input type="date" className="max-w-[160px]" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }} />
-        <Input type="date" className="max-w-[160px]" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} />
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-medium text-slate-500 shrink-0">From</span>
+          <Input type="date" className="max-w-[145px]" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }} />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-medium text-slate-500 shrink-0">To</span>
+          <Input type="date" className="max-w-[145px]" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} />
+        </div>
       </div>
 
       {/* Active ledger filter banner */}

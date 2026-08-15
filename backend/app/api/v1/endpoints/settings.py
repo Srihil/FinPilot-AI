@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing import Optional, Literal
 import uuid
 
-VALID_PROVIDERS = {"groq", "openrouter", "ollama"}
+VALID_PROVIDERS = {"groq", "openrouter"}
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -94,21 +94,10 @@ def get_ai_settings(
     db: Session = Depends(get_db),
 ):
     company = db.query(Company).filter(Company.id == current_user.company_id).first()
-    # Company's stored choice overrides the env-var default
     active_provider = (company.ai_provider if company and company.ai_provider else None) or settings.AI_PROVIDER
-
-    def _is_demo(p: str) -> bool:
-        if p == "demo":
-            return True
-        if p == "openrouter" and not settings.OPENROUTER_API_KEY:
-            return True
-        if p == "groq" and not settings.GROQ_API_KEY:
-            return True
-        return False
 
     return {
         "provider": active_provider,
-        "is_demo_mode": _is_demo(active_provider),
         "available_providers": [
             {
                 "id": "groq",
@@ -121,13 +110,6 @@ def get_ai_settings(
                 "name": "OpenRouter",
                 "description": "Free models — gemma-4-26b-a4b-it",
                 "configured": bool(settings.OPENROUTER_API_KEY),
-            },
-            {
-                "id": "ollama",
-                "name": "Ollama (Local)",
-                "description": "Runs on your machine — not available when using the cloud backend",
-                "configured": bool(settings.OLLAMA_BASE_URL),
-                "local_only": True,
             },
         ],
     }

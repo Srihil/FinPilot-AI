@@ -228,28 +228,6 @@ class GroqAgent:
             return resp.json()
 
 
-class OllamaAgent:
-    """Uses local Ollama with tool calling (Ollama supports tools in newer versions)."""
-
-    def __init__(self):
-        self.base_url = settings.OLLAMA_BASE_URL
-        self.model = settings.OLLAMA_MODEL
-
-    def chat(self, messages: list, tools: list) -> dict:
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": False,
-        }
-        with httpx.Client(timeout=120) as client:
-            resp = client.post(f"{self.base_url}/api/chat", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            # Normalize to OpenAI format
-            return {
-                "choices": [{"message": {"role": "assistant", "content": data.get("message", {}).get("content", "")}}]
-            }
-
 
 class FinanceAgent:
     """Main orchestrator. Routes to the correct provider."""
@@ -269,9 +247,7 @@ class FinanceAgent:
         messages.append({"role": "user", "content": question})
 
         try:
-            if effective_provider == "ollama":
-                provider = OllamaAgent()
-            elif effective_provider == "groq":
+            if effective_provider == "groq":
                 provider = GroqAgent()
             else:
                 provider = OpenRouterAgent()
@@ -315,15 +291,7 @@ class FinanceAgent:
         except Exception as e:
             error_detail = str(e)
 
-            # Ollama connection refused = not running locally
-            if effective_provider == "ollama" and ("Connection refused" in error_detail or "ConnectError" in type(e).__name__):
-                error_detail = (
-                    "Ollama is not reachable. Ollama is a local-only service — it must run on "
-                    "the same machine as the FinPilot backend.\n\n"
-                    "• If you are using the cloud version, switch to Groq or OpenRouter in Settings → AI Config.\n"
-                    "• If running locally, start Ollama first: run `ollama serve` in your terminal."
-                )
-            elif hasattr(e, 'response') and e.response is not None:
+            if hasattr(e, 'response') and e.response is not None:
                 try:
                     body = e.response.json()
                     error_detail = f"HTTP {e.response.status_code}: {body}"

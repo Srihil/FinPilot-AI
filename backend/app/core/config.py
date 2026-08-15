@@ -16,14 +16,12 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://localhost:4173"
 
-    AI_PROVIDER: str = "demo"  # openrouter | groq | ollama | demo
-    AI_MODEL: str = "mistralai/mistral-7b-instruct:free"
+    AI_PROVIDER: str = "groq"  # groq | openrouter
+    AI_MODEL: str = "google/gemma-4-26b-a4b-it:free"
     OPENROUTER_API_KEY: str = ""
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.1-8b-instant"
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3.2"
-    DEMO_MODE: bool = True
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    DEMO_MODE: bool = False
 
     MAX_UPLOAD_SIZE_MB: int = 10
     UPLOAD_DIR: str = "./uploads"
@@ -48,14 +46,6 @@ class Settings(BaseSettings):
 
     @property
     def is_demo_mode(self) -> bool:
-        if self.DEMO_MODE:
-            return True
-        if self.AI_PROVIDER == "demo":
-            return True
-        if self.AI_PROVIDER == "openrouter" and not self.OPENROUTER_API_KEY:
-            return True
-        if self.AI_PROVIDER == "groq" and not self.GROQ_API_KEY:
-            return True
         return False
 
     class Config:

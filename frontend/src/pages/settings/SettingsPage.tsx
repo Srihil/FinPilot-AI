@@ -135,10 +135,6 @@ function AISettingsForm() {
   const providers = data?.available_providers ?? [];
   const isDirty = selected !== data?.provider;
 
-  // Detect if we're talking to a cloud backend (not localhost)
-  const apiUrl = import.meta.env.VITE_API_URL ?? '';
-  const isCloudBackend = !apiUrl.includes('localhost') && !apiUrl.includes('127.0.0.1');
-
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
@@ -151,43 +147,34 @@ function AISettingsForm() {
       <div className="space-y-3">
         {providers.map(p => {
           const isSelected = selected === p.id;
-          const isDisabled = p.local_only && isCloudBackend;
           return (
             <button
               key={p.id}
               type="button"
-              onClick={() => !isDisabled && setSelected(p.id)}
-              disabled={isDisabled}
-              title={isDisabled ? 'Ollama runs locally — not available with the cloud backend' : undefined}
+              onClick={() => setSelected(p.id)}
               className={`w-full flex items-center gap-4 p-4 rounded-lg border-2 text-left transition-all ${
-                isDisabled
-                  ? 'border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed'
-                  : isSelected
-                    ? 'border-indigo-500 bg-indigo-50'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
+                isSelected
+                  ? 'border-indigo-500 bg-indigo-50'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
               }`}
             >
               <div className="shrink-0 text-indigo-600">
-                {isSelected && !isDisabled
+                {isSelected
                   ? <CheckCircle2 className="w-5 h-5" />
                   : <Circle className="w-5 h-5 text-slate-300" />}
               </div>
               <div className="flex-1 min-w-0">
-                <p className={`font-medium text-sm ${isSelected && !isDisabled ? 'text-indigo-900' : 'text-slate-800'}`}>
+                <p className={`font-medium text-sm ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>
                   {p.name}
                 </p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {isDisabled ? 'Only works when FinPilot backend runs on your local machine' : p.description}
-                </p>
+                <p className="text-xs text-slate-500 mt-0.5">{p.description}</p>
               </div>
               <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
-                isDisabled
-                  ? 'bg-amber-100 text-amber-700'
-                  : p.configured
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : 'bg-slate-100 text-slate-500'
+                p.configured
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : 'bg-slate-100 text-slate-500'
               }`}>
-                {isDisabled ? 'Local only' : p.configured ? 'Configured' : 'Not set up'}
+                {p.configured ? 'Configured' : 'Not set up'}
               </span>
             </button>
           );

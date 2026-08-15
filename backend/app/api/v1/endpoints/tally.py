@@ -577,18 +577,32 @@ def poll_jobs(
     connector = _resolve_connector(credentials, db)
 
     # Update heartbeat opportunistically
-    connector.last_heartbeat = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    connector.last_heartbeat = now
 
+    # Reset CLAIMED jobs that have been stuck for >5 min (connector crashed before posting result)
+    stale_cutoff = now - timedelta(minutes=5)
+    stale = db.query(TallyIntegrationJob).filter(
+        TallyIntegrationJob.company_id == connector.company_id,
+        TallyIntegrationJob.status == JobStatus.CLAIMED,
+        TallyIntegrationJob.claimed_at < stale_cutoff,
+    ).all()
+    for j in stale:
+        j.status = JobStatus.PENDING
+        j.claimed_at = None
+
+    # Pick up PENDING/RETRYING jobs for the company — no connector_id filter so that
+    # a replaced/re-paired connector can still process jobs queued for the old connector.
     jobs = db.query(TallyIntegrationJob).filter(
         TallyIntegrationJob.company_id == connector.company_id,
-        TallyIntegrationJob.connector_id == connector.id,
         TallyIntegrationJob.status.in_([JobStatus.PENDING, JobStatus.RETRYING]),
     ).order_by(TallyIntegrationJob.created_at).limit(5).all()
 
-    # Mark as CLAIMED
+    # Mark as CLAIMED and update connector_id so result submission can find the job
     for j in jobs:
         j.status = JobStatus.CLAIMED
-        j.claimed_at = datetime.now(timezone.utc)
+        j.claimed_at = now
+        j.connector_id = connector.id
     db.commit()
 
     return {

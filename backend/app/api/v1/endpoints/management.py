@@ -298,27 +298,23 @@ def create_ledger(
 
     tally_queued = False
     if connector:
-        ikey = f"create_ledger::{key}"
-        existing_job = db.query(TallyIntegrationJob).filter(
-            TallyIntegrationJob.idempotency_key == ikey
-        ).first()
-        if not existing_job:
-            job = TallyIntegrationJob(
-                company_id=current_user.company_id,
-                connector_id=connector.id,
-                created_by=current_user.id,
-                operation=TallyJobOperation.CREATE_LEDGER,
-                payload={
-                    "name": name,
-                    "group": data.parent_group or "Sundry Debtors",
-                    "opening_balance": str(int(data.opening_balance or 0)),
-                },
-                idempotency_key=ikey,
-            )
-            db.add(job)
-            db.flush()
-            ledger.tally_job_id = job.id
-            tally_queued = True
+        ikey = f"create_ledger::{ledger.id}"
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            created_by=current_user.id,
+            operation=TallyJobOperation.CREATE_LEDGER,
+            payload={
+                "name": name,
+                "group": data.parent_group or "Sundry Debtors",
+                "opening_balance": str(int(data.opening_balance or 0)),
+            },
+            idempotency_key=ikey,
+        )
+        db.add(job)
+        db.flush()
+        ledger.tally_job_id = job.id
+        tally_queued = True
 
     db.commit()
     db.refresh(ledger)
@@ -509,24 +505,22 @@ def create_stock_group(
 
     tally_queued = False
     if connector:
-        ikey = f"create_stock_group::{key}"
-        if not db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-            payload = {"name": name}
-            # Only include parent if it's a real parent (not "Primary")
-            if data.parent and data.parent.strip().lower() not in ("", "primary"):
-                payload["parent"] = data.parent.strip()
-            job = TallyIntegrationJob(
-                company_id=current_user.company_id,
-                connector_id=connector.id,
-                created_by=current_user.id,
-                operation=TallyJobOperation.CREATE_STOCK_GROUP,
-                payload=payload,
-                idempotency_key=ikey,
-            )
-            db.add(job)
-            db.flush()
-            sg.tally_job_id = job.id
-            tally_queued = True
+        payload = {"name": name}
+        # Only include parent if it's a real parent (not "Primary")
+        if data.parent and data.parent.strip().lower() not in ("", "primary"):
+            payload["parent"] = data.parent.strip()
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            created_by=current_user.id,
+            operation=TallyJobOperation.CREATE_STOCK_GROUP,
+            payload=payload,
+            idempotency_key=f"create_stock_group::{sg.id}",
+        )
+        db.add(job)
+        db.flush()
+        sg.tally_job_id = job.id
+        tally_queued = True
 
     db.commit()
     db.refresh(sg)
@@ -716,24 +710,22 @@ def create_unit(
 
     tally_queued = False
     if connector:
-        ikey = f"create_unit::{key}"
-        if not db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-            job = TallyIntegrationJob(
-                company_id=current_user.company_id,
-                connector_id=connector.id,
-                created_by=current_user.id,
-                operation=TallyJobOperation.CREATE_UNIT,
-                payload={
-                    "name": name,
-                    "symbol": symbol,
-                    "decimal_places": str(data.decimal_places or 0),
-                },
-                idempotency_key=ikey,
-            )
-            db.add(job)
-            db.flush()
-            unit.tally_job_id = job.id
-            tally_queued = True
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            created_by=current_user.id,
+            operation=TallyJobOperation.CREATE_UNIT,
+            payload={
+                "name": name,
+                "symbol": symbol,
+                "decimal_places": str(data.decimal_places or 0),
+            },
+            idempotency_key=f"create_unit::{unit.id}",
+        )
+        db.add(job)
+        db.flush()
+        unit.tally_job_id = job.id
+        tally_queued = True
 
     db.commit()
     db.refresh(unit)
@@ -911,23 +903,21 @@ def create_godown(
 
     tally_queued = False
     if connector:
-        ikey = f"create_godown::{key}"
-        if not db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-            payload = {"name": name}
-            if data.parent and data.parent.strip():
-                payload["parent"] = data.parent.strip()
-            job = TallyIntegrationJob(
-                company_id=current_user.company_id,
-                connector_id=connector.id,
-                created_by=current_user.id,
-                operation=TallyJobOperation.CREATE_GODOWN,
-                payload=payload,
-                idempotency_key=ikey,
-            )
-            db.add(job)
-            db.flush()
-            godown.tally_job_id = job.id
-            tally_queued = True
+        payload = {"name": name}
+        if data.parent and data.parent.strip():
+            payload["parent"] = data.parent.strip()
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            created_by=current_user.id,
+            operation=TallyJobOperation.CREATE_GODOWN,
+            payload=payload,
+            idempotency_key=f"create_godown::{godown.id}",
+        )
+        db.add(job)
+        db.flush()
+        godown.tally_job_id = job.id
+        tally_queued = True
 
     db.commit()
     db.refresh(godown)
@@ -1471,23 +1461,21 @@ def create_group(
 
     tally_queued = False
     if connector:
-        ikey = f"create_group::{key}"
-        if not db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-            payload = {"name": name}
-            if data.parent and data.parent.strip():
-                payload["parent"] = data.parent.strip()
-            job = TallyIntegrationJob(
-                company_id=current_user.company_id,
-                connector_id=connector.id,
-                created_by=current_user.id,
-                operation=TallyJobOperation.CREATE_GROUP,
-                payload=payload,
-                idempotency_key=ikey,
-            )
-            db.add(job)
-            db.flush()
-            group.tally_job_id = job.id
-            tally_queued = True
+        payload = {"name": name}
+        if data.parent and data.parent.strip():
+            payload["parent"] = data.parent.strip()
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            created_by=current_user.id,
+            operation=TallyJobOperation.CREATE_GROUP,
+            payload=payload,
+            idempotency_key=f"create_group::{group.id}",
+        )
+        db.add(job)
+        db.flush()
+        group.tally_job_id = job.id
+        tally_queued = True
 
     db.commit()
     db.refresh(group)

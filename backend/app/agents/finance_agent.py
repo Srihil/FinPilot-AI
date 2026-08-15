@@ -258,10 +258,20 @@ class FinanceAgent:
         self.db = db
         self.tools = FinanceTools(db)
 
-    def chat(self, question: str, company_id: str, conversation_history: list = None) -> dict:
-        is_demo = settings.is_demo_mode
+    def chat(self, question: str, company_id: str, conversation_history: list = None,
+             provider_override: Optional[str] = None) -> dict:
+        effective_provider = provider_override or settings.AI_PROVIDER
 
-        if is_demo:
+        def _is_demo(p: str) -> bool:
+            if settings.DEMO_MODE or p == "demo":
+                return True
+            if p == "openrouter" and not settings.OPENROUTER_API_KEY:
+                return True
+            if p == "groq" and not settings.GROQ_API_KEY:
+                return True
+            return False
+
+        if _is_demo(effective_provider):
             demo = DemoFinanceAgent()
             response, tool_calls, tool_results = demo.respond(question, self.tools, company_id)
             return {
@@ -279,9 +289,9 @@ class FinanceAgent:
         messages.append({"role": "user", "content": question})
 
         try:
-            if settings.AI_PROVIDER == "ollama":
+            if effective_provider == "ollama":
                 provider = OllamaAgent()
-            elif settings.AI_PROVIDER == "groq":
+            elif effective_provider == "groq":
                 provider = GroqAgent()
             else:
                 provider = OpenRouterAgent()
@@ -319,7 +329,7 @@ class FinanceAgent:
                 "tool_calls": tool_calls_made,
                 "tool_results": tool_results,
                 "is_demo": False,
-                "provider": settings.AI_PROVIDER,
+                "provider": effective_provider,
             }
 
         except Exception as e:

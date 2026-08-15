@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.db.base import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
+from app.models.company import Company
 from app.models.ai_conversation import AIConversation, AIMessage, MessageRole
 from app.agents.finance_agent import FinanceAgent
 from app.agents.transaction_agent import TransactionAgent
@@ -168,9 +169,13 @@ def send_message(
         for m in history[:-1]  # exclude the message we just added
     ]
 
+    # Load company's provider preference
+    company = db.query(Company).filter(Company.id == current_user.company_id).first()
+    provider_override = company.ai_provider if company and company.ai_provider else None
+
     # Run finance agent
     agent = FinanceAgent(db)
-    result = agent.chat(data.content, str(current_user.company_id), history_for_agent)
+    result = agent.chat(data.content, str(current_user.company_id), history_for_agent, provider_override)
 
     # Save assistant message
     ai_msg = AIMessage(

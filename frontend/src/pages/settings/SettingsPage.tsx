@@ -10,13 +10,12 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Switch } from '../../components/ui/switch';
 import { Separator } from '../../components/ui/separator';
 import { toast } from '../../components/ui/use-toast';
 import { useAuth } from '../../auth/AuthContext';
-import { Save, Key, Building2, Brain, Plug, Shield } from 'lucide-react';
-import type { CompanySettings, AISettings } from '../../types';
+import { Save, Key, Building2, Brain, Plug, Shield, CheckCircle2, Circle, Zap } from 'lucide-react';
+import type { CompanySettings } from '../../types';
 
 // Company Settings Form
 const companySchema = z.object({
@@ -116,109 +115,79 @@ function AISettingsForm() {
     queryFn: settingsApi.getAI,
   });
 
-  const [provider, setProvider] = useState<string>('demo');
-  const [model, setModel] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [baseUrl, setBaseUrl] = useState('');
+  const [selected, setSelected] = useState<string>('demo');
 
   useEffect(() => {
-    if (data) {
-      setProvider(data.provider || 'demo');
-      setModel(data.model || '');
-      setApiKey(data.api_key || '');
-      setBaseUrl(data.base_url || '');
-    }
+    if (data) setSelected(data.provider || 'demo');
   }, [data]);
 
   const mutation = useMutation({
-    mutationFn: settingsApi.updateAI,
+    mutationFn: (provider: string) => settingsApi.updateAI({ provider } as any),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'ai'] });
-      toast({ title: 'AI settings updated', variant: 'success' });
+      toast({ title: 'AI provider updated', variant: 'success' });
     },
-    onError: () => toast({ title: 'Failed to update AI settings', variant: 'destructive' }),
+    onError: () => toast({ title: 'Failed to update AI provider', variant: 'destructive' }),
   });
 
-  const MODELS_BY_PROVIDER: Record<string, string[]> = {
-    openrouter: ['anthropic/claude-3-5-sonnet', 'openai/gpt-4o', 'google/gemini-pro', 'meta-llama/llama-3-70b-instruct'],
-    ollama: ['llama3', 'mistral', 'codellama', 'gemma'],
-    demo: ['demo-model'],
-  };
+  if (isLoading) return <div className="space-y-3">{[1,2,3,4].map(i => <Skeleton key={i} className="h-16" />)}</div>;
 
-  if (isLoading) return <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-10" />)}</div>;
+  const providers = data?.available_providers ?? [];
+  const isDirty = selected !== data?.provider;
 
   return (
     <div className="space-y-5">
-      <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-lg">
-        <p className="text-sm text-indigo-800">
-          <span className="font-semibold">Demo Mode</span> uses a built-in AI that responds with sample financial data.
-          Configure OpenRouter or Ollama for real AI capabilities.
+      <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+        <Zap className="w-4 h-4 text-indigo-600 shrink-0" />
+        <p className="text-sm text-slate-600">
+          API keys and models are configured server-side. Select which provider to use for your AI assistant.
         </p>
       </div>
 
-      <div className="space-y-4">
-        <div className="space-y-1.5">
-          <Label>AI Provider</Label>
-          <Select value={provider} onValueChange={setProvider}>
-            <SelectTrigger className="w-56">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="demo">Demo Mode (No API key needed)</SelectItem>
-              <SelectItem value="openrouter">OpenRouter</SelectItem>
-              <SelectItem value="ollama">Ollama (Local)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {provider !== 'demo' && (
-          <>
-            <div className="space-y-1.5">
-              <Label>Model</Label>
-              <Select value={model} onValueChange={setModel}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {MODELS_BY_PROVIDER[provider]?.map(m => (
-                    <SelectItem key={m} value={m}>{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {provider === 'openrouter' && (
-              <div className="space-y-1.5">
-                <Label>API Key</Label>
-                <Input
-                  type="password"
-                  placeholder="sk-or-..."
-                  value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
-                />
+      <div className="space-y-3">
+        {providers.map(p => {
+          const isSelected = selected === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setSelected(p.id)}
+              className={`w-full flex items-center gap-4 p-4 rounded-lg border-2 text-left transition-all ${
+                isSelected
+                  ? 'border-indigo-500 bg-indigo-50'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
+            >
+              <div className="shrink-0 text-indigo-600">
+                {isSelected
+                  ? <CheckCircle2 className="w-5 h-5" />
+                  : <Circle className="w-5 h-5 text-slate-300" />}
               </div>
-            )}
-
-            {provider === 'ollama' && (
-              <div className="space-y-1.5">
-                <Label>Ollama Base URL</Label>
-                <Input
-                  placeholder="http://localhost:11434"
-                  value={baseUrl}
-                  onChange={e => setBaseUrl(e.target.value)}
-                />
+              <div className="flex-1 min-w-0">
+                <p className={`font-medium text-sm ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>
+                  {p.name}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">{p.description}</p>
               </div>
-            )}
-          </>
-        )}
+              <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
+                p.configured
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : 'bg-slate-100 text-slate-500'
+              }`}>
+                {p.configured ? 'Configured' : 'Not set up'}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <Button
-        onClick={() => mutation.mutate({ provider: provider as AISettings['provider'], model, api_key: apiKey, base_url: baseUrl })}
+        onClick={() => mutation.mutate(selected)}
         loading={mutation.isPending}
+        disabled={!isDirty}
       >
         <Save className="w-4 h-4 mr-2" />
-        Save AI Settings
+        Save Provider
       </Button>
     </div>
   );

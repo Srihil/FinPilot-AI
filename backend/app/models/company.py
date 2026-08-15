@@ -24,6 +24,7 @@ class Company(Base):
     website = Column(String(255))
     currency = Column(String(10), default="INR")
     fiscal_year_start = Column(String(10), default="04-01")  # MM-DD
+    ai_provider = Column(String(20), nullable=True)  # overrides env var when set
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

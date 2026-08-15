@@ -307,12 +307,17 @@ export interface CompanySettings {
   currency: string;
 }
 
+export interface AIProvider {
+  id: string;
+  name: string;
+  description: string;
+  configured: boolean;
+}
+
 export interface AISettings {
-  provider: 'demo' | 'openrouter' | 'ollama';
-  model?: string;
-  api_key?: string;
-  base_url?: string;
-  temperature?: number;
+  provider: 'demo' | 'groq' | 'openrouter' | 'ollama';
+  is_demo_mode: boolean;
+  available_providers: AIProvider[];
 }
 
 // Pagination Types

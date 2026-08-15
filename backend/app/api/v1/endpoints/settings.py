@@ -9,8 +9,10 @@ from app.core.config import settings
 from app.models.audit_log import AuditAction
 from app.services.audit_service import audit_service
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Literal
 import uuid
+
+VALID_PROVIDERS = {"demo", "groq", "openrouter", "ollama"}
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -21,8 +23,7 @@ class ProfileUpdate(BaseModel):
 
 
 class AISettingsUpdate(BaseModel):
-    provider: Optional[str] = None
-    model: Optional[str] = None
+    provider: str
 
 
 @router.get("/company")
@@ -88,24 +89,71 @@ def update_profile(
 
 
 @router.get("/ai")
-def get_ai_settings(current_user: User = Depends(get_current_user)):
+def get_ai_settings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    company = db.query(Company).filter(Company.id == current_user.company_id).first()
+    # Company's stored choice overrides the env-var default
+    active_provider = (company.ai_provider if company and company.ai_provider else None) or settings.AI_PROVIDER
+
+    def _is_demo(p: str) -> bool:
+        if p == "demo":
+            return True
+        if p == "openrouter" and not settings.OPENROUTER_API_KEY:
+            return True
+        if p == "groq" and not settings.GROQ_API_KEY:
+            return True
+        return False
+
     return {
-        "provider": settings.AI_PROVIDER,
-        "model": settings.AI_MODEL,
-        "groq_model": settings.GROQ_MODEL,
-        "ollama_model": settings.OLLAMA_MODEL,
-        "is_demo_mode": settings.is_demo_mode,
-        "tally_enabled": settings.TALLY_ENABLED,
+        "provider": active_provider,
+        "is_demo_mode": _is_demo(active_provider),
         "available_providers": [
-            {"id": "demo", "name": "Demo Mode (no API key required)", "configured": True},
-            {"id": "openrouter", "name": "OpenRouter (free models available)", "configured": bool(settings.OPENROUTER_API_KEY)},
-            {"id": "groq", "name": "Groq (fast inference, free tier)", "configured": bool(settings.GROQ_API_KEY)},
-            {"id": "ollama", "name": "Ollama (local, fully private)", "configured": bool(settings.OLLAMA_BASE_URL)},
+            {
+                "id": "demo",
+                "name": "Demo Mode",
+                "description": "Built-in rule-based responses — no API key needed",
+                "configured": True,
+            },
+            {
+                "id": "groq",
+                "name": "Groq",
+                "description": "Fast inference — llama-3.3-70b-versatile",
+                "configured": bool(settings.GROQ_API_KEY),
+            },
+            {
+                "id": "openrouter",
+                "name": "OpenRouter",
+                "description": "Free models — gemma-4-26b-a4b-it",
+                "configured": bool(settings.OPENROUTER_API_KEY),
+            },
+            {
+                "id": "ollama",
+                "name": "Ollama (Local)",
+                "description": "Fully private — runs on your machine",
+                "configured": bool(settings.OLLAMA_BASE_URL),
+            },
         ],
-        "openrouter_configured": bool(settings.OPENROUTER_API_KEY),
-        "groq_configured": bool(settings.GROQ_API_KEY),
-        "ollama_configured": bool(settings.OLLAMA_BASE_URL),
     }
+
+
+@router.put("/ai")
+def update_ai_settings(
+    data: AISettingsUpdate,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if data.provider not in VALID_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Invalid provider. Must be one of: {', '.join(VALID_PROVIDERS)}")
+    company = db.query(Company).filter(Company.id == current_user.company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    company.ai_provider = data.provider
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.SETTINGS_CHANGE,
+                      entity_type="ai", description=f"AI provider changed to {data.provider}")
+    return {"message": "AI provider updated", "provider": data.provider}
 
 
 @router.get("/users")

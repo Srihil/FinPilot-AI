@@ -255,7 +255,7 @@ export default function DashboardPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Recent Transactions</CardTitle>
-          <a href="/transactions" className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
+          <a href="/management?tab=Transactions" className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
             View all <ArrowUpRight className="w-3 h-3" />
           </a>
         </CardHeader>

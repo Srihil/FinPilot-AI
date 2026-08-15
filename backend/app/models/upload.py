@@ -24,6 +24,10 @@ class UploadType(str, enum.Enum):
     EXPENSES = "expenses"
     PAYMENTS = "payments"
     INVOICE_PDF = "invoice_pdf"
+    LEDGERS = "ledgers"
+    STOCK_GROUPS = "stock_groups"
+    UNITS = "units"
+    GODOWNS = "godowns"
 
 
 class Upload(Base):

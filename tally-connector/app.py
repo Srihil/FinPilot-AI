@@ -35,8 +35,12 @@ _stop_event = threading.Event()
 ALLOWED_OPS = {
     "READ_COMPANIES", "READ_LEDGERS", "READ_VOUCHERS", "READ_SALES",
     "READ_PURCHASES", "READ_RECEIVABLES", "READ_PAYABLES", "READ_STOCK_ITEMS",
-    "CREATE_SALES_VOUCHER", "CREATE_PURCHASE_VOUCHER", "CREATE_RECEIPT_VOUCHER",
-    "CREATE_PAYMENT_VOUCHER", "CREATE_LEDGER", "CREATE_STOCK_ITEM",
+    "CREATE_LEDGER", "CREATE_GROUP",
+    "CREATE_STOCK_ITEM", "CREATE_STOCK_GROUP", "CREATE_UNIT", "CREATE_GODOWN",
+    "CREATE_SALES_VOUCHER", "CREATE_PURCHASE_VOUCHER",
+    "CREATE_RECEIPT_VOUCHER", "CREATE_PAYMENT_VOUCHER",
+    "CREATE_JOURNAL_VOUCHER", "CREATE_CREDIT_NOTE", "CREATE_DEBIT_NOTE",
+    "CREATE_CONTRA_VOUCHER",
     "SYNC_FULL", "SYNC_PARTIAL",
 }
 
@@ -206,12 +210,34 @@ def _execute_job(tally: TallyClient, job: dict):
             d = tally.get_payables(); return {"payables": d, "count": len(d)}, None
         if op == "READ_STOCK_ITEMS":
             d = tally.get_stock_items(); return {"stock_items": d, "count": len(d)}, None
+        if op == "CREATE_LEDGER":
+            return tally.create_ledger(pl), None
+        if op == "CREATE_GROUP":
+            return tally.create_group(pl), None
+        if op == "CREATE_STOCK_ITEM":
+            return tally.create_stock_item(pl), None
+        if op == "CREATE_STOCK_GROUP":
+            return tally.create_stock_group(pl), None
+        if op == "CREATE_UNIT":
+            return tally.create_unit(pl), None
+        if op == "CREATE_GODOWN":
+            return tally.create_godown(pl), None
         if op == "CREATE_SALES_VOUCHER":
             return tally.create_sales_voucher(pl), None
         if op == "CREATE_PURCHASE_VOUCHER":
             return tally.create_purchase_voucher(pl), None
-        if op == "CREATE_LEDGER":
-            return tally.create_ledger(pl), None
+        if op == "CREATE_RECEIPT_VOUCHER":
+            return tally.create_receipt_voucher(pl), None
+        if op == "CREATE_PAYMENT_VOUCHER":
+            return tally.create_payment_voucher(pl), None
+        if op == "CREATE_JOURNAL_VOUCHER":
+            return tally.create_journal_voucher(pl), None
+        if op == "CREATE_CREDIT_NOTE":
+            return tally.create_credit_note(pl), None
+        if op == "CREATE_DEBIT_NOTE":
+            return tally.create_debit_note(pl), None
+        if op == "CREATE_CONTRA_VOUCHER":
+            return tally.create_contra_voucher(pl), None
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
             ledgers = tally.get_ledgers()
             vouchers = tally.get_vouchers()

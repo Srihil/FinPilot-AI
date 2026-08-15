@@ -100,6 +100,9 @@ function toast({ ...props }: ToastInput) {
     },
   })
 
+  // Auto-dismiss after 10 seconds; user can still close manually before that
+  setTimeout(dismiss, 10000)
+
   return { id, dismiss, update }
 }
 

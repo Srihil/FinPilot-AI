@@ -57,6 +57,14 @@ class TallyClient:
             raise TallyError("TallyPrime request timed out. Is a company file open?")
         except httpx.HTTPStatusError as e:
             raise TallyError(f"TallyPrime returned HTTP {e.response.status_code}")
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ProtocolError) as e:
+            # TallyPrime crashed mid-request (e.g., c0000005 Access Violation).
+            # This usually happens when deleting a master type with a known Tally bug
+            # or when the record has dependencies. Treat as a Tally-side failure.
+            raise TallyError(
+                f"TallyPrime closed the connection unexpectedly (possible crash or unsupported operation). "
+                f"Check TallyPrime is still running. Detail: {e}"
+            )
 
     @staticmethod
     def _sanitize_xml(xml_text: str) -> str:
@@ -521,13 +529,25 @@ class TallyClient:
     # ── Delete: Master records ────────────────────────────────────────────────
 
     def _delete_master(self, tag: str, name: str) -> dict:
+        # Use explicit <NAME> child element — more stable across TallyPrime versions
+        # than the empty-tag format which triggers c0000005 crashes in some builds.
         xml = f"""<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
-  <BODY><DESC/><DATA>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <{tag} NAME="{name}" ACTION="Delete"></{tag}>
-    </TALLYMESSAGE>
-  </DATA></BODY>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Import</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>All Masters</ID>
+  </HEADER>
+  <BODY>
+    <DESC/>
+    <DATA>
+      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        <{tag} NAME="{name}" ACTION="Delete">
+          <NAME>{name}</NAME>
+        </{tag}>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
 </ENVELOPE>"""
         raw = self._post_xml(xml)
         root = self._parse_response(raw)

@@ -24,8 +24,17 @@ from app.models.audit_log import AuditAction
 from app.models.approval import Approval, ApprovalStatus
 from app.models.tally_connector import TallyConnector, TallyPairingCode, ConnectorStatus
 from app.models.tally_job import TallyIntegrationJob, JobStatus, TallyJobOperation, WRITE_OPERATIONS
+from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, TallyGodown
 from app.models.user import User
 from app.services.audit_service import audit_service
+
+# Map write operations to their master table model and tally_key lookup
+_MASTER_MODELS = {
+    TallyJobOperation.CREATE_LEDGER:      TallyLedger,
+    TallyJobOperation.CREATE_STOCK_GROUP: TallyStockGroup,
+    TallyJobOperation.CREATE_UNIT:        TallyUnit,
+    TallyJobOperation.CREATE_GODOWN:      TallyGodown,
+}
 
 router = APIRouter(prefix="/tally", tags=["tally"])
 
@@ -570,14 +579,15 @@ def submit_job_result(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    now = datetime.now(timezone.utc)
+
     if body.status == "SUCCESS":
         job.status = JobStatus.SUCCESS
         job.result = body.result
         job.error_message = None
 
         if job.operation in (TallyJobOperation.SYNC_FULL, TallyJobOperation.SYNC_PARTIAL):
-            connector.last_sync_at = datetime.now(timezone.utc)
-            # Import Tally data into FinPilot
+            connector.last_sync_at = now
             if body.result:
                 try:
                     from app.services.tally_sync_service import process_sync_result
@@ -586,11 +596,38 @@ def submit_job_result(
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).warning("Sync import error: %s", e)
+
+        # Update the corresponding master record's sync status
+        elif job.operation in _MASTER_MODELS:
+            model = _MASTER_MODELS[job.operation]
+            name = (job.payload or {}).get("name", "").strip()
+            if name:
+                tally_key = f"{job.company_id}::{name.lower()}"
+                master = db.query(model).filter(
+                    model.company_id == job.company_id,
+                    model.tally_key == tally_key,
+                ).first()
+                if master:
+                    master.tally_sync_status = "synced"
+                    master.synced_at = now
+
     elif body.status == "FAILED":
         job.retry_count = (job.retry_count or 0) + 1
         job.error_message = body.error_message
         if job.retry_count >= MAX_RETRY:
             job.status = JobStatus.FAILED
+            # Mark the master record as failed so the UI shows it
+            if job.operation in _MASTER_MODELS:
+                model = _MASTER_MODELS[job.operation]
+                name = (job.payload or {}).get("name", "").strip()
+                if name:
+                    tally_key = f"{job.company_id}::{name.lower()}"
+                    master = db.query(model).filter(
+                        model.company_id == job.company_id,
+                        model.tally_key == tally_key,
+                    ).first()
+                    if master:
+                        master.tally_sync_status = "failed"
         else:
             job.status = JobStatus.RETRYING
     else:

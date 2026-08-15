@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Layers, Users, Building2, Package, BookOpen, FolderOpen, Scale, Warehouse,
-  FileText, Plus, Search, ChevronRight, Loader2, AlertCircle,
+  Plus, Search, ChevronRight, Loader2, AlertCircle,
   CheckCircle, Clock, WifiOff, Wifi, Activity, BarChart3, Database, ChevronLeft,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
@@ -15,12 +15,12 @@ import { Skeleton } from '../../components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { toast } from '../../components/ui/use-toast';
 import { customersApi, vendorsApi, productsApi, managementApi } from '../../api/endpoints';
-import { formatCurrency, formatDate } from '../../utils/format';
+import { formatCurrency } from '../../utils/format';
 import { cn } from '../../utils/cn';
 import type {
   Customer, Vendor, Product,
   TallyLedger, TallyStockGroup, TallyUnit, TallyGodown,
-  ManagementOverview, VoucherItem,
+  ManagementOverview,
 } from '../../types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -152,13 +152,12 @@ function TD({ children, className, right }: { children: React.ReactNode; classNa
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 
-const MAIN_TABS = ['Overview', 'Masters', 'Transactions'] as const;
+const MAIN_TABS = ['Overview', 'Masters'] as const;
 type MainTab = typeof MAIN_TABS[number];
 
 const MASTER_TABS = ['Customers', 'Vendors', 'Ledgers', 'Products', 'Stock Groups', 'Units', 'Godowns'] as const;
 type MasterTab = typeof MASTER_TABS[number];
 
-const VOUCHER_TYPES = ['ALL', 'SALES', 'PURCHASE', 'EXPENSE'] as const;
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
@@ -242,7 +241,6 @@ function OverviewTab({ onNavigate, onGoTally }: { onNavigate: (tab: MainTab, sub
           <StatCard label="Stock Groups" value={t?.stock_groups ?? 0} icon={FolderOpen} color="bg-indigo-100 text-indigo-600" onClick={() => onNavigate('Masters', 'Stock Groups')} />
           <StatCard label="Units" value={t?.units ?? 0} icon={Scale} color="bg-slate-100 text-slate-600" onClick={() => onNavigate('Masters', 'Units')} />
           <StatCard label="Godowns" value={t?.godowns ?? 0} icon={Warehouse} color="bg-amber-100 text-amber-600" onClick={() => onNavigate('Masters', 'Godowns')} />
-          <StatCard label="Total Vouchers" value={t?.vouchers ?? 0} icon={FileText} color="bg-rose-100 text-rose-600" onClick={() => onNavigate('Transactions')} />
         </div>
       </div>
 
@@ -1090,122 +1088,6 @@ function MastersTab({ initialSub }: { initialSub?: MasterTab }) {
   );
 }
 
-// ─── Transactions Tab ─────────────────────────────────────────────────────────
-
-const VOUCHER_TYPE_LABELS: Record<string, string> = {
-  ALL: 'All', SALES: 'Sales', PURCHASE: 'Purchase', EXPENSE: 'Expenses',
-};
-
-const VOUCHER_TYPE_BADGE: Record<string, string> = {
-  SALES: 'bg-indigo-100 text-indigo-700',
-  PURCHASE: 'bg-orange-100 text-orange-700',
-  EXPENSE: 'bg-purple-100 text-purple-700',
-  INVOICE: 'bg-indigo-100 text-indigo-700',
-};
-
-function TransactionsTab() {
-  const [vtype, setVtype] = useState<string>('ALL');
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(t);
-  }, [search]);
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['management-vouchers', vtype, page, debouncedSearch, dateFrom, dateTo],
-    queryFn: () => managementApi.vouchers({
-      page, page_size: 20,
-      voucher_type: vtype === 'ALL' ? undefined : vtype,
-      search: debouncedSearch || undefined,
-      date_from: dateFrom || undefined,
-      date_to: dateTo || undefined,
-    }),
-  });
-
-  return (
-    <div className="space-y-4">
-      {/* Filter bar */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex gap-1 p-1 bg-slate-100 rounded-lg shrink-0">
-          {VOUCHER_TYPES.map(t => (
-            <button
-              key={t}
-              onClick={() => { setVtype(t); setPage(1); }}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap",
-                vtype === t ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-900"
-              )}
-            >
-              {VOUCHER_TYPE_LABELS[t]}
-            </button>
-          ))}
-        </div>
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <Input placeholder="Search…" className="pl-9" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
-        </div>
-        <Input type="date" className="max-w-[160px]" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }} />
-        <Input type="date" className="max-w-[160px]" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} />
-      </div>
-
-      <div className="overflow-x-auto rounded-lg border border-slate-100">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-100">
-            <tr>
-              <TH>Voucher #</TH><TH>Date</TH><TH>Type</TH>
-              <TH>Description</TH><TH right>Amount</TH>
-              <TH>Status</TH><TH>Source</TH>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              Array.from({ length: 8 }).map((_, i) => (
-                <tr key={i}><td colSpan={7} className="py-2 px-4"><Skeleton className="h-8" /></td></tr>
-              ))
-            ) : data?.items?.length ? data.items.map((v: VoucherItem) => (
-              <tr key={`${v.entity_type}-${v.id}`} className="border-b border-slate-50 hover:bg-slate-50">
-                <TD><p className="font-mono text-xs font-medium text-slate-700">{v.voucher_number}</p></TD>
-                <TD className="text-slate-500">{v.date ? formatDate(v.date) : '—'}</TD>
-                <TD>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${VOUCHER_TYPE_BADGE[v.voucher_type] ?? 'bg-slate-100 text-slate-600'}`}>
-                    {v.voucher_type}
-                  </span>
-                </TD>
-                <TD className="text-slate-600">{v.title || v.party || '—'}</TD>
-                <TD right className="font-semibold text-slate-900">{formatCurrency(v.amount)}</TD>
-                <TD>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    v.status === 'APPROVED' || v.status === 'PAID' ? 'bg-emerald-100 text-emerald-700' :
-                    v.status === 'PENDING_APPROVAL' ? 'bg-amber-100 text-amber-700' :
-                    v.status === 'DRAFT' ? 'bg-slate-100 text-slate-600' :
-                    'bg-slate-100 text-slate-600'
-                  }`}>{v.status}</span>
-                </TD>
-                <TD><SyncBadge status={v.tally_sync_status} source={v.source} /></TD>
-              </tr>
-            )) : (
-              <tr>
-                <td colSpan={7}>
-                  <EmptyState
-                    icon={FileText}
-                    title={vtype === 'ALL' ? 'No vouchers yet' : `No ${VOUCHER_TYPE_LABELS[vtype]} vouchers`}
-                    desc="Vouchers created in FinPilot or synced from TallyPrime appear here."
-                  />
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
-    </div>
-  );
-}
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -1220,7 +1102,7 @@ export default function ManagementPage() {
   }, []);
 
   const MAIN_TAB_ICONS: Record<MainTab, React.ElementType> = {
-    Overview: BarChart3, Masters: Database, Transactions: FileText,
+    Overview: BarChart3, Masters: Database,
   };
 
   return (
@@ -1259,7 +1141,6 @@ export default function ManagementPage() {
       <div>
         {mainTab === 'Overview' && <OverviewTab onNavigate={navigateTo} onGoTally={() => navigate('/tally')} />}
         {mainTab === 'Masters' && <MastersTab initialSub={masterSub} />}
-        {mainTab === 'Transactions' && <TransactionsTab />}
       </div>
     </div>
   );

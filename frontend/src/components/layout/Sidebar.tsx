@@ -1,7 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, MessageSquare, FileText, Users, Building2,
-  Package, Upload, BarChart3, FileBarChart, CheckSquare,
+  LayoutDashboard, MessageSquare, Upload, BarChart3, FileBarChart, CheckSquare,
   ScrollText, Settings, Zap, X, ChevronRight, Wand2, Layers,
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
@@ -20,10 +19,6 @@ const navItems = [
   { label: 'AI Assistant', icon: MessageSquare, path: '/assistant' },
   { label: 'Create with AI', icon: Wand2, path: '/ai-create' },
   { label: 'Management', icon: Layers, path: '/management' },
-  { label: 'Transactions', icon: FileText, path: '/transactions' },
-  { label: 'Customers', icon: Users, path: '/customers' },
-  { label: 'Vendors', icon: Building2, path: '/vendors' },
-  { label: 'Inventory', icon: Package, path: '/inventory' },
   { label: 'Uploads', icon: Upload, path: '/uploads' },
   { label: 'Analytics', icon: BarChart3, path: '/analytics' },
   { label: 'Reports', icon: FileBarChart, path: '/reports' },

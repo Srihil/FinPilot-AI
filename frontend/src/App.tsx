@@ -13,10 +13,6 @@ import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 // App pages
 import DashboardPage from './pages/dashboard/DashboardPage';
 import AssistantPage from './pages/assistant/AssistantPage';
-import TransactionsPage from './pages/transactions/TransactionsPage';
-import CustomersPage from './pages/customers/CustomersPage';
-import VendorsPage from './pages/vendors/VendorsPage';
-import InventoryPage from './pages/inventory/InventoryPage';
 import AnalyticsPage from './pages/analytics/AnalyticsPage';
 import ApprovalsPage from './pages/approvals/ApprovalsPage';
 import UploadsPage from './pages/uploads/UploadsPage';
@@ -53,10 +49,7 @@ export default function App() {
             <Route element={<AppShell />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/assistant" element={<AssistantPage />} />
-              <Route path="/transactions" element={<TransactionsPage />} />
-              <Route path="/customers" element={<CustomersPage />} />
-              <Route path="/vendors" element={<VendorsPage />} />
-              <Route path="/inventory" element={<InventoryPage />} />
+              <Route path="/management" element={<ManagementPage />} />
               <Route path="/uploads" element={<UploadsPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/reports" element={<ReportsPage />} />
@@ -65,7 +58,6 @@ export default function App() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/tally" element={<TallyPage />} />
               <Route path="/ai-create" element={<AICreatePage />} />
-              <Route path="/management" element={<ManagementPage />} />
             </Route>
 
             {/* Fallback */}

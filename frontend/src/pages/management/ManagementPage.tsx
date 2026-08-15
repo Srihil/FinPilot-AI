@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Layers, Users, Building2, Package, BookOpen, FolderOpen, Scale, Warehouse,
-  FileText, RefreshCw, Plus, Search, ChevronRight, Loader2, AlertCircle,
-  CheckCircle, Clock, Zap, WifiOff, Wifi, Activity, BarChart3, X,
-  TrendingUp, AlertTriangle, Database, RotateCcw, ChevronLeft,
+  FileText, Plus, Search, ChevronRight, Loader2, AlertCircle,
+  CheckCircle, Clock, WifiOff, Wifi, Activity, BarChart3, Database, ChevronLeft,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -14,14 +14,13 @@ import { Badge } from '../../components/ui/badge';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { toast } from '../../components/ui/use-toast';
-import apiClient from '../../api/client';
 import { customersApi, vendorsApi, productsApi, managementApi } from '../../api/endpoints';
 import { formatCurrency, formatDate } from '../../utils/format';
 import { cn } from '../../utils/cn';
 import type {
   Customer, Vendor, Product,
   TallyLedger, TallyStockGroup, TallyUnit, TallyGodown,
-  ManagementOverview, VoucherItem, SyncHealth,
+  ManagementOverview, VoucherItem,
 } from '../../types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -153,7 +152,7 @@ function TD({ children, className, right }: { children: React.ReactNode; classNa
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 
-const MAIN_TABS = ['Overview', 'Masters', 'Transactions', 'Sync Center'] as const;
+const MAIN_TABS = ['Overview', 'Masters', 'Transactions'] as const;
 type MainTab = typeof MAIN_TABS[number];
 
 const MASTER_TABS = ['Customers', 'Vendors', 'Ledgers', 'Products', 'Stock Groups', 'Units', 'Godowns'] as const;
@@ -163,7 +162,7 @@ const VOUCHER_TYPES = ['ALL', 'SALES', 'PURCHASE', 'EXPENSE'] as const;
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ onNavigate }: { onNavigate: (tab: MainTab, sub?: MasterTab) => void }) {
+function OverviewTab({ onNavigate, onGoTally }: { onNavigate: (tab: MainTab, sub?: MasterTab) => void; onGoTally: () => void }) {
   const { data: ov, isLoading } = useQuery({
     queryKey: ['management-overview'],
     queryFn: managementApi.overview,
@@ -224,7 +223,7 @@ function OverviewTab({ onNavigate }: { onNavigate: (tab: MainTab, sub?: MasterTa
                 {s.failed_jobs} failed
               </span>
             )}
-            <Button size="sm" variant="outline" onClick={() => onNavigate('Sync Center')} className="gap-1.5">
+            <Button size="sm" variant="outline" onClick={onGoTally} className="gap-1.5">
               <Activity className="w-3.5 h-3.5" />
               Sync Center
             </Button>
@@ -1208,164 +1207,10 @@ function TransactionsTab() {
   );
 }
 
-// ─── Sync Center Tab ──────────────────────────────────────────────────────────
-
-function SyncCenterTab() {
-  const { data: health, isLoading, refetch } = useQuery<SyncHealth>({
-    queryKey: ['management-sync-health'],
-    queryFn: managementApi.syncHealth,
-    refetchInterval: 15_000,
-  });
-
-  const { data: status } = useQuery({
-    queryKey: ['tally-status-mgmt'],
-    queryFn: () => apiClient.get('/api/tally/status').then(r => r.data),
-    refetchInterval: 15_000,
-  });
-
-  const handleSync = async () => {
-    try {
-      await apiClient.post('/api/tally/sync');
-      toast({ title: 'Sync queued', description: 'Full sync with TallyPrime has been queued.' });
-      setTimeout(() => refetch(), 2000);
-    } catch {
-      toast({ title: 'Sync failed', description: 'Could not queue sync job.', variant: 'destructive' });
-    }
-  };
-
-  if (isLoading) {
-    return <div className="space-y-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />)}</div>;
-  }
-
-  const connector = status?.connector;
-  const tallyOnline = status?.tally_online ?? false;
-  const connected = status?.connected ?? false;
-
-  return (
-    <div className="space-y-6">
-      {/* Connection status */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            {tallyOnline ? <Wifi className="w-4 h-4 text-emerald-600" /> : <WifiOff className="w-4 h-4 text-slate-400" />}
-            TallyPrime Connection
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex-1 divide-y divide-slate-100">
-              {connector ? [
-                { label: 'Status', value: tallyOnline ? '🟢 TallyPrime Online' : '🔴 Offline / Timed out' },
-                { label: 'Company', value: connector.tally_company || 'Not detected' },
-                { label: 'Device', value: connector.device || '—' },
-                { label: 'Connector', value: connector.name || '—' },
-                { label: 'Last Heartbeat', value: relTime(connector.last_heartbeat) },
-                { label: 'Last Sync', value: relTime(connector.last_sync_at) },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex justify-between py-2.5 text-sm">
-                  <span className="text-slate-500">{label}</span>
-                  <span className="font-medium text-slate-900">{value}</span>
-                </div>
-              )) : (
-                <div className="py-6 text-center">
-                  <WifiOff className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-                  <p className="text-sm text-slate-500">No connector paired.</p>
-                  <p className="text-xs text-slate-400 mt-1">Go to the TallyPrime page to connect.</p>
-                </div>
-              )}
-            </div>
-            {connected && (
-              <div className="flex flex-col gap-2 shrink-0">
-                <Button onClick={handleSync} disabled={!tallyOnline} className="gap-1.5">
-                  <RefreshCw className="w-4 h-4" />
-                  Sync Now
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  Refresh
-                </Button>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Sync health */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        {[
-          { label: 'Total Jobs', value: health?.total_jobs ?? 0, color: 'text-slate-900' },
-          { label: 'Successful', value: health?.successful ?? 0, color: 'text-emerald-600' },
-          { label: 'Failed', value: health?.failed ?? 0, color: 'text-red-600' },
-          { label: 'Pending', value: health?.pending ?? 0, color: 'text-amber-600' },
-          { label: 'Retrying', value: health?.retrying ?? 0, color: 'text-orange-600' },
-        ].map(({ label, value, color }) => (
-          <Card key={label}>
-            <CardContent className="p-4">
-              <p className={`text-2xl font-bold ${color}`}>{value}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{label}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Activity log */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Activity className="w-4 h-4 text-indigo-600" />
-              Recent Activity
-            </CardTitle>
-            <span className="text-xs text-slate-400">Last 50 jobs</span>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {!health?.recent_jobs?.length ? (
-            <div className="py-8 text-center">
-              <Database className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-              <p className="text-sm text-slate-400">No activity yet.</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
-              {health.recent_jobs.map(job => (
-                <div key={job.id} className="flex items-start gap-3 py-3 text-sm">
-                  <JobStatusBadge status={job.status} />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-900">{fmtOp(job.operation)}</p>
-                    {job.error_message && (
-                      <p className="text-xs text-red-500 mt-0.5 break-words">{job.error_message}</p>
-                    )}
-                    {job.retry_count > 0 && (
-                      <p className="text-xs text-orange-500 mt-0.5">Retry {job.retry_count}</p>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-400 shrink-0">{relTime(job.completed_at || job.created_at)}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Tally safety notice */}
-      <Card className="border-amber-100 bg-amber-50">
-        <CardContent className="p-4">
-          <div className="flex gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div className="text-sm text-amber-800">
-              <p className="font-semibold mb-1">Tally Data Safety</p>
-              <p>Records cannot be deleted or modified through the connector. To modify or delete a record in TallyPrime, do so directly in TallyPrime and re-sync to update FinPilot. Financial data is never overwritten automatically.</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ManagementPage() {
+  const navigate = useNavigate();
   const [mainTab, setMainTab] = useState<MainTab>('Overview');
   const [masterSub, setMasterSub] = useState<MasterTab | undefined>(undefined);
 
@@ -1375,7 +1220,7 @@ export default function ManagementPage() {
   }, []);
 
   const MAIN_TAB_ICONS: Record<MainTab, React.ElementType> = {
-    Overview: BarChart3, Masters: Database, Transactions: FileText, 'Sync Center': Zap,
+    Overview: BarChart3, Masters: Database, Transactions: FileText,
   };
 
   return (
@@ -1383,7 +1228,7 @@ export default function ManagementPage() {
       {/* Page header */}
       <div>
         <h2 className="text-lg font-semibold text-slate-900">Management</h2>
-        <p className="text-sm text-slate-500">Unified view of masters, transactions, and TallyPrime synchronization.</p>
+        <p className="text-sm text-slate-500">Unified view of masters and transactions. For sync and connector details, visit TallyPrime.</p>
       </div>
 
       {/* Main tabs */}
@@ -1412,10 +1257,9 @@ export default function ManagementPage() {
 
       {/* Tab content */}
       <div>
-        {mainTab === 'Overview' && <OverviewTab onNavigate={navigateTo} />}
+        {mainTab === 'Overview' && <OverviewTab onNavigate={navigateTo} onGoTally={() => navigate('/tally')} />}
         {mainTab === 'Masters' && <MastersTab initialSub={masterSub} />}
         {mainTab === 'Transactions' && <TransactionsTab />}
-        {mainTab === 'Sync Center' && <SyncCenterTab />}
       </div>
     </div>
   );

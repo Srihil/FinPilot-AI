@@ -3,8 +3,11 @@ import {
   Zap, CheckCircle, XCircle, RefreshCw, Settings, Info,
   Copy, Clock, AlertTriangle, Activity, Wifi, WifiOff,
   Monitor, Database, Shield, ChevronRight, Loader2, Download,
-  ExternalLink, FolderOpen, CheckSquare,
+  ExternalLink, FolderOpen, CheckSquare, TrendingUp,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { managementApi } from '../../api/endpoints';
+import type { SyncHealth } from '../../types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
@@ -356,6 +359,12 @@ export default function TallyPage() {
   const latestVersion = useLatestVersion();
   const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const { data: syncHealth } = useQuery<SyncHealth>({
+    queryKey: ['tally-sync-health'],
+    queryFn: managementApi.syncHealth,
+    refetchInterval: 30_000,
+  });
+
   const fetchStatus = useCallback(async () => {
     try {
       const [s, a] = await Promise.all([
@@ -614,6 +623,38 @@ export default function TallyPage() {
         </Card>
       )}
 
+      {/* ── Sync Health ── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-indigo-600" />
+            Sync Health
+          </CardTitle>
+          <CardDescription>Cumulative statistics for all Tally integration jobs</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {[
+              { label: 'Total Jobs', value: syncHealth?.total_jobs ?? 0, color: 'text-slate-900' },
+              { label: 'Successful', value: syncHealth?.successful ?? 0, color: 'text-emerald-600' },
+              { label: 'Failed', value: syncHealth?.failed ?? 0, color: 'text-red-600' },
+              { label: 'Pending', value: syncHealth?.pending ?? 0, color: 'text-amber-600' },
+              { label: 'Retrying', value: syncHealth?.retrying ?? 0, color: 'text-orange-600' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                <p className={`text-xl font-bold ${color}`}>{value}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+          {syncHealth?.last_successful_sync && (
+            <p className="text-xs text-slate-400 mt-3">
+              Last successful sync: {new Date(syncHealth.last_successful_sync).toLocaleString()}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* ── Activity Log ── */}
       <Card>
         <CardHeader className="pb-2">
@@ -656,6 +697,15 @@ export default function TallyPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Safety Notice ── */}
+      <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+        <div>
+          <p className="font-semibold mb-0.5">Tally Data Safety</p>
+          <p>Records cannot be deleted or modified through the connector. To modify or delete data, do so directly in TallyPrime and re-sync to update FinPilot. Financial records are never silently overwritten.</p>
+        </div>
+      </div>
 
       {/* ── Download Connector ── */}
       <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50 to-white">

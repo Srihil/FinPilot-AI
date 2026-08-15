@@ -1036,7 +1036,7 @@ def list_vouchers(
     # ── Invoices (SALES / PURCHASE) ──────────────────────────────────────────
     vt = (voucher_type or "").upper()
     include_invoices = vt in ("", "ALL", "SALES", "PURCHASE")
-    include_expenses = vt in ("", "ALL", "EXPENSE", "PURCHASE")
+    include_expenses = vt in ("", "ALL", "PAYMENT")
 
     if include_invoices:
         inv_q = db.query(Invoice).options(
@@ -1100,7 +1100,7 @@ def list_vouchers(
                 "id": str(exp.id),
                 "voucher_number": getattr(exp, "ref_number", None) or f"EXP-{str(exp.id)[:8].upper()}",
                 "date": exp.expense_date.isoformat() if exp.expense_date else None,
-                "voucher_type": "EXPENSE",
+                "voucher_type": "PAYMENT",
                 "party": None,
                 "party_name": party_name,
                 "amount": float(exp.amount or 0),
@@ -1314,6 +1314,60 @@ def delete_voucher(
 
     else:
         raise HTTPException(status_code=400, detail="entity_type must be 'invoice' or 'expense'")
+
+
+# ─── Clear local-only vouchers ───────────────────────────────────────────────────
+
+@router.post("/clear-local-vouchers")
+def clear_local_vouchers(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Soft-delete all invoices and expenses that were created locally in FinPilot
+    and have never been synced to or imported from TallyPrime.
+    Safe to run before a full Tally sync to get a clean slate.
+    """
+    from app.models.invoice import Invoice
+    from app.models.expense import Expense
+    TALLY_TAG = "[tally-sync]"
+    cid = current_user.company_id
+
+    # Local invoices: no tally_voucher_ref AND not imported from Tally
+    local_invoices = db.query(Invoice).filter(
+        Invoice.company_id == cid,
+        Invoice.is_deleted.is_not(True),
+        Invoice.tally_voucher_ref.is_(None),
+        ~Invoice.notes.like(f"%{TALLY_TAG}%"),
+    ).all()
+    deleted_invoices = len(local_invoices)
+    for inv in local_invoices:
+        inv.is_deleted = True
+
+    # Local expenses: no tally_voucher_ref AND not imported from Tally
+    local_expenses = db.query(Expense).filter(
+        Expense.company_id == cid,
+        Expense.is_deleted.is_not(True),
+        Expense.tally_voucher_ref.is_(None),
+        ~Expense.notes.like(f"%{TALLY_TAG}%"),
+    ).all()
+    deleted_expenses = len(local_expenses)
+    for exp in local_expenses:
+        exp.is_deleted = True
+
+    db.commit()
+
+    audit_service.log(
+        db, cid, current_user.id, AuditAction.DELETE,
+        entity_type="voucher_cleanup",
+        description=f"Cleared {deleted_invoices} local invoices and {deleted_expenses} local expenses",
+    )
+
+    return {
+        "deleted_invoices": deleted_invoices,
+        "deleted_expenses": deleted_expenses,
+        "message": f"Removed {deleted_invoices} local invoice(s) and {deleted_expenses} local expense(s). Run a full sync to import data from TallyPrime.",
+    }
 
 
 # ─── Sync health ─────────────────────────────────────────────────────────────────

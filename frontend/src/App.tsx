@@ -24,6 +24,7 @@ import ManagementPage from './pages/management/ManagementPage';
 import LedgersPage from './pages/accounting/LedgersPage';
 import GroupsPage from './pages/accounting/GroupsPage';
 import VouchersPage from './pages/accounting/VouchersPage';
+import VoucherTypesPage from './pages/accounting/VoucherTypesPage';
 
 // Inventory
 import StockItemsPage from './pages/inventory/StockItemsPage';
@@ -84,6 +85,7 @@ export default function App() {
               <Route path="/accounting/groups" element={<GroupsPage />} />
               <Route path="/accounting/vouchers" element={<VouchersPage />} />
               <Route path="/accounting/vouchers/:type" element={<VouchersPage />} />
+              <Route path="/accounting/voucher-types" element={<VoucherTypesPage />} />
 
               {/* Inventory */}
               <Route path="/inventory/stock-items" element={<StockItemsPage />} />

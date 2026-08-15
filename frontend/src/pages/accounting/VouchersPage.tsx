@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, Search, Loader2, AlertCircle, Trash2, Filter } from 'lucide-react';
+import { FileText, Search, Loader2, AlertCircle, Trash2, Filter, Eraser } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -24,7 +24,6 @@ const VOUCHER_TYPES = [
   { label: 'Contra', value: 'CONTRA' },
   { label: 'Credit Note', value: 'CREDIT_NOTE' },
   { label: 'Debit Note', value: 'DEBIT_NOTE' },
-  { label: 'Expense', value: 'EXPENSE' },
 ];
 
 function statusColor(status: string) {
@@ -48,6 +47,7 @@ export default function VouchersPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [deleteItem, setDeleteItem] = useState<VoucherItem | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const voucherType = urlType?.toUpperCase() || '';
 
@@ -83,6 +83,18 @@ export default function VouchersPage() {
     },
   });
 
+  const clearMut = useMutation({
+    mutationFn: () => managementApi.clearLocalVouchers(),
+    onSuccess: (res) => {
+      toast({ title: 'Local data cleared', description: res.message });
+      qc.invalidateQueries({ queryKey: ['vouchers'] });
+      setShowClearConfirm(false);
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to clear local data', variant: 'destructive' });
+    },
+  });
+
   const totalPages = data?.total_pages ?? 1;
   const activeType = VOUCHER_TYPES.find(v => v.value === voucherType);
 
@@ -96,6 +108,14 @@ export default function VouchersPage() {
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">Transactions and vouchers</p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
+          onClick={() => setShowClearConfirm(true)}
+        >
+          <Eraser className="w-4 h-4" /> Clear Local Data
+        </Button>
       </div>
 
       {/* Voucher type tabs */}
@@ -206,6 +226,28 @@ export default function VouchersPage() {
           </div>
         </div>
       )}
+
+      {/* Clear Local Data Dialog */}
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="text-red-600 flex items-center gap-2"><Eraser className="w-4 h-4" /> Clear Local Data</DialogTitle></DialogHeader>
+          <div className="space-y-3 text-sm text-slate-700">
+            <p>This will permanently delete all <strong>locally-created</strong> invoices and expenses that were never synced to or imported from TallyPrime.</p>
+            <div className="bg-amber-50 border border-amber-200 p-3 rounded text-amber-700 text-xs space-y-1">
+              <p className="font-semibold">Safe to run before a full sync.</p>
+              <p>Records already synced to TallyPrime or imported from TallyPrime will NOT be deleted.</p>
+            </div>
+            <p className="text-xs text-slate-500">After clearing, go to <strong>TallyPrime → Sync Center</strong> and click Sync to pull real data.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowClearConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => clearMut.mutate()} disabled={clearMut.isPending}>
+              {clearMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Eraser className="w-4 h-4 mr-2" />}
+              Clear Local Data
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Dialog */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>

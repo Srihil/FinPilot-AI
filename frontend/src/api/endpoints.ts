@@ -404,6 +404,11 @@ export const managementApi = {
     return res.data;
   },
 
+  clearLocalVouchers: async (): Promise<{ deleted_invoices: number; deleted_expenses: number; message: string }> => {
+    const res = await apiClient.post('/api/management/clear-local-vouchers');
+    return res.data;
+  },
+
   updateLedger: async (id: string, data: { name?: string; parent_group?: string; opening_balance?: number }) => {
     const res = await apiClient.patch(`/api/management/ledgers/${id}`, data);
     return res.data;

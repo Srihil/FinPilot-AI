@@ -496,11 +496,11 @@ def create_entity(
             vendor_name = payload.get("vendor_name", "Cash")
             vnum_exp = f"FP-{uuid.uuid4().hex[:12].upper()}"
             tally_queued = queue_tally_write(
-                db, current_user.company_id, "CREATE_PURCHASE_VOUCHER",
+                db, current_user.company_id, "CREATE_PAYMENT_VOUCHER",
                 {
                     "date": exp_date.strftime("%Y%m%d"),
                     "party_ledger": vendor_name,
-                    "purchase_ledger": "Purchases",
+                    "account_ledger": payload.get("account_ledger", "Cash"),
                     "amount": str(int(amount)),
                     "narration": expense.title,
                     "voucher_number": vnum_exp,

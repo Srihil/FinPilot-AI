@@ -5,7 +5,7 @@ import {
   CheckSquare, ScrollText, Settings, Zap, Wand2, ChevronRight,
   ChevronDown, X, BookOpen, FolderOpen, FileText, Package, Scale,
   Warehouse, ShoppingCart, Users, Building2, Tag, ArrowLeftRight,
-  AlertTriangle,
+  AlertTriangle, Receipt,
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../auth/AuthContext';
@@ -35,7 +35,8 @@ const navStructure: NavItem[] = [
     icon: BookOpen,
     children: [
       { label: 'Ledgers', path: '/accounting/ledgers', icon: BookOpen },
-      { label: 'Groups', path: '/accounting/groups', icon: FolderOpen },
+      { label: 'Account Groups', path: '/accounting/groups', icon: FolderOpen },
+      { label: 'Voucher Types', path: '/accounting/voucher-types', icon: Receipt },
       { label: 'All Vouchers', path: '/accounting/vouchers', icon: FileText },
       { label: 'Sales', path: '/accounting/vouchers/sales', icon: FileText },
       { label: 'Purchase', path: '/accounting/vouchers/purchase', icon: FileText },

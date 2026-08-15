@@ -262,26 +262,6 @@ class FinanceAgent:
              provider_override: Optional[str] = None) -> dict:
         effective_provider = provider_override or settings.AI_PROVIDER
 
-        def _is_demo(p: str) -> bool:
-            if settings.DEMO_MODE or p == "demo":
-                return True
-            if p == "openrouter" and not settings.OPENROUTER_API_KEY:
-                return True
-            if p == "groq" and not settings.GROQ_API_KEY:
-                return True
-            return False
-
-        if _is_demo(effective_provider):
-            demo = DemoFinanceAgent()
-            response, tool_calls, tool_results = demo.respond(question, self.tools, company_id)
-            return {
-                "response": response,
-                "tool_calls": tool_calls,
-                "tool_results": tool_results,
-                "is_demo": True,
-                "provider": "demo",
-            }
-
         tool_defs = self.tools.get_tool_definitions()
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         if conversation_history:
@@ -333,9 +313,17 @@ class FinanceAgent:
             }
 
         except Exception as e:
-            # Extract the actual API error body from httpx HTTPStatusError
             error_detail = str(e)
-            if hasattr(e, 'response') and e.response is not None:
+
+            # Ollama connection refused = not running locally
+            if effective_provider == "ollama" and ("Connection refused" in error_detail or "ConnectError" in type(e).__name__):
+                error_detail = (
+                    "Ollama is not reachable. Ollama is a local-only service — it must run on "
+                    "the same machine as the FinPilot backend.\n\n"
+                    "• If you are using the cloud version, switch to Groq or OpenRouter in Settings → AI Config.\n"
+                    "• If running locally, start Ollama first: run `ollama serve` in your terminal."
+                )
+            elif hasattr(e, 'response') and e.response is not None:
                 try:
                     body = e.response.json()
                     error_detail = f"HTTP {e.response.status_code}: {body}"

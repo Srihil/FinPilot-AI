@@ -314,6 +314,7 @@ export interface AIProvider {
   name: string;
   description: string;
   configured: boolean;
+  local_only?: boolean;
 }
 
 export interface AISettings {

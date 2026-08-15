@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send, Plus, Bot, User, Trash2, MessageSquare, Sparkles, Cpu, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
+import { Send, Plus, Bot, User, Trash2, MessageSquare, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { assistantApi } from '../../api/endpoints';
 import { Button } from '../../components/ui/button';
 import { Skeleton } from '../../components/ui/skeleton';
-import { Badge } from '../../components/ui/badge';
 import { formatRelativeTime } from '../../utils/format';
 import type { Conversation, Message } from '../../types';
 import { cn } from '../../utils/cn';
@@ -51,7 +50,6 @@ export default function AssistantPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
-  const [isDemoMode] = useState(true);
 
   const { data: conversations, isLoading: convsLoading } = useQuery({
     queryKey: ['conversations'],
@@ -243,12 +241,6 @@ export default function AssistantPage() {
             </div>
             <span className="font-semibold text-slate-900">FinPilot Assistant</span>
           </div>
-          {isDemoMode && (
-            <Badge variant="secondary" className="text-xs">
-              <Sparkles className="w-3 h-3 mr-1" />
-              Demo Mode
-            </Badge>
-          )}
         </div>
 
         {/* Messages */}
@@ -320,11 +312,6 @@ export default function AssistantPage() {
                       </>
                     )}
                     <div className={cn("flex items-center gap-1.5 mt-2", msg.role === 'user' ? "justify-end" : "justify-start")}>
-                      {msg.is_demo && msg.role === 'assistant' && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 bg-slate-100 rounded px-1.5 py-0.5">
-                          <Cpu className="w-2.5 h-2.5" /> Demo
-                        </span>
-                      )}
                       <span className={cn("text-xs", msg.role === 'user' ? "text-indigo-200" : "text-slate-400")}>
                         {formatRelativeTime(msg.created_at)}
                       </span>

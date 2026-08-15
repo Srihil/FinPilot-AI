@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing import Optional, Literal
 import uuid
 
-VALID_PROVIDERS = {"demo", "groq", "openrouter", "ollama"}
+VALID_PROVIDERS = {"groq", "openrouter", "ollama"}
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -111,12 +111,6 @@ def get_ai_settings(
         "is_demo_mode": _is_demo(active_provider),
         "available_providers": [
             {
-                "id": "demo",
-                "name": "Demo Mode",
-                "description": "Built-in rule-based responses — no API key needed",
-                "configured": True,
-            },
-            {
                 "id": "groq",
                 "name": "Groq",
                 "description": "Fast inference — llama-3.3-70b-versatile",
@@ -131,8 +125,9 @@ def get_ai_settings(
             {
                 "id": "ollama",
                 "name": "Ollama (Local)",
-                "description": "Fully private — runs on your machine",
+                "description": "Runs on your machine — not available when using the cloud backend",
                 "configured": bool(settings.OLLAMA_BASE_URL),
+                "local_only": True,
             },
         ],
     }

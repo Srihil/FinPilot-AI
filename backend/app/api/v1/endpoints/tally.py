@@ -43,6 +43,28 @@ connector_security = HTTPBearer(auto_error=False)
 MAX_RETRY = 3
 
 
+def _translate_tally_error(error: str) -> str:
+    """Convert raw TallyPrime error messages into user-friendly explanations."""
+    e = error.lower()
+    if "cannot be deleted" in e:
+        return (
+            "TallyPrime refused: this record has vouchers or transactions linked to it. "
+            "Delete those transactions in TallyPrime first, then delete this record."
+        )
+    if "closed the connection unexpectedly" in e or "memory access" in e or "crash" in e:
+        return (
+            "TallyPrime crashed while processing the request. "
+            "Restart TallyPrime and try again."
+        )
+    if "already exists" in e:
+        return "TallyPrime refused: a record with this name already exists in Tally."
+    if "cannot proceed" in e:
+        return "TallyPrime refused the operation — the record may be in use or locked."
+    if "invalid name" in e:
+        return "TallyPrime rejected the name — check for special characters or length."
+    return error or "Unknown TallyPrime error."
+
+
 # ─── helpers ────────────────────────────────────────────────────────────────
 
 def _gen_pairing_code(length: int = 9) -> str:
@@ -612,24 +634,37 @@ def submit_job_result(
                     master.synced_at = now
 
     elif body.status == "FAILED":
-        job.retry_count = (job.retry_count or 0) + 1
-        job.error_message = body.error_message
-        if job.retry_count >= MAX_RETRY:
+        raw_error = body.error_message or ""
+        job.error_message = _translate_tally_error(raw_error)
+
+        # Permanent Tally constraint failures — retrying won't help
+        PERMANENT_PHRASES = [
+            "cannot be deleted", "cannot proceed", "already exists",
+            "refused delete", "closed the connection unexpectedly",
+            "invalid name", "not found",
+        ]
+        is_permanent = any(p in raw_error.lower() for p in PERMANENT_PHRASES)
+
+        if is_permanent:
+            # Skip all retries — this will never succeed without manual Tally action
+            job.retry_count = MAX_RETRY
             job.status = JobStatus.FAILED
-            # Mark the master record as failed so the UI shows it
-            if job.operation in _MASTER_MODELS:
-                model = _MASTER_MODELS[job.operation]
-                name = (job.payload or {}).get("name", "").strip()
-                if name:
-                    tally_key = f"{job.company_id}::{name.lower()}"
-                    master = db.query(model).filter(
-                        model.company_id == job.company_id,
-                        model.tally_key == tally_key,
-                    ).first()
-                    if master:
-                        master.tally_sync_status = "failed"
         else:
-            job.status = JobStatus.RETRYING
+            job.retry_count = (job.retry_count or 0) + 1
+            job.status = JobStatus.FAILED if job.retry_count >= MAX_RETRY else JobStatus.RETRYING
+
+        # Mark corresponding master record as failed in UI
+        if job.status == JobStatus.FAILED and job.operation in _MASTER_MODELS:
+            model = _MASTER_MODELS[job.operation]
+            name = (job.payload or {}).get("name", "").strip()
+            if name:
+                tally_key = f"{job.company_id}::{name.lower()}"
+                master = db.query(model).filter(
+                    model.company_id == job.company_id,
+                    model.tally_key == tally_key,
+                ).first()
+                if master:
+                    master.tally_sync_status = "failed"
     else:
         raise HTTPException(status_code=400, detail="status must be SUCCESS or FAILED")
 

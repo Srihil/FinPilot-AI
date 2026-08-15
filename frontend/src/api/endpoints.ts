@@ -10,6 +10,8 @@ import type {
   CompanySettings, AISettings,
   AnalyticsOverview, AnalyticsCharts,
   PaginatedResponse,
+  TallyLedger, TallyStockGroup, TallyUnit, TallyGodown,
+  ManagementOverview, VoucherItem, SyncHealth,
 } from '../types';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
@@ -323,6 +325,72 @@ export const tallyApi = {
   activity: async (limit = 30): Promise<{ items: TallyJobItem[] }> => {
     const response = await apiClient.get('/api/tally/activity', { params: { limit } });
     return response.data;
+  },
+};
+
+// ─── Management ──────────────────────────────────────────────────────────────
+
+export const managementApi = {
+  overview: async (): Promise<ManagementOverview> => {
+    const res = await apiClient.get('/api/management/overview');
+    return res.data;
+  },
+
+  ledgers: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<TallyLedger>> => {
+    const res = await apiClient.get('/api/management/ledgers', { params });
+    return res.data;
+  },
+
+  createLedger: async (data: { name: string; parent_group?: string; opening_balance?: number }): Promise<TallyLedger> => {
+    const res = await apiClient.post('/api/management/ledgers', data);
+    return res.data;
+  },
+
+  stockGroups: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<TallyStockGroup>> => {
+    const res = await apiClient.get('/api/management/stock-groups', { params });
+    return res.data;
+  },
+
+  createStockGroup: async (data: { name: string; parent?: string }): Promise<TallyStockGroup> => {
+    const res = await apiClient.post('/api/management/stock-groups', data);
+    return res.data;
+  },
+
+  units: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<TallyUnit>> => {
+    const res = await apiClient.get('/api/management/units', { params });
+    return res.data;
+  },
+
+  createUnit: async (data: { name: string; symbol?: string; decimal_places?: number }): Promise<TallyUnit> => {
+    const res = await apiClient.post('/api/management/units', data);
+    return res.data;
+  },
+
+  godowns: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<TallyGodown>> => {
+    const res = await apiClient.get('/api/management/godowns', { params });
+    return res.data;
+  },
+
+  createGodown: async (data: { name: string; parent?: string }): Promise<TallyGodown> => {
+    const res = await apiClient.post('/api/management/godowns', data);
+    return res.data;
+  },
+
+  vouchers: async (params: {
+    page?: number;
+    page_size?: number;
+    voucher_type?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+  }): Promise<PaginatedResponse<VoucherItem>> => {
+    const res = await apiClient.get('/api/management/vouchers', { params });
+    return res.data;
+  },
+
+  syncHealth: async (): Promise<SyncHealth> => {
+    const res = await apiClient.get('/api/management/sync-health');
+    return res.data;
   },
 };
 

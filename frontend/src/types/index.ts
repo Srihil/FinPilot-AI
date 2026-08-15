@@ -336,3 +336,111 @@ export interface ApiError {
   detail: string;
   status_code?: number;
 }
+
+// ─── Management / Tally Master Types ──────────────────────────────────────────
+
+export type TallySyncStatus = 'pending' | 'synced' | 'failed';
+export type TallySource = 'tally_sync' | 'finpilot';
+
+export interface TallyLedger {
+  id: string;
+  name: string;
+  parent_group?: string;
+  opening_balance: number;
+  closing_balance: number;
+  source: TallySource;
+  tally_sync_status: TallySyncStatus;
+  synced_at?: string;
+  created_at: string;
+}
+
+export interface TallyStockGroup {
+  id: string;
+  name: string;
+  parent?: string;
+  source: TallySource;
+  tally_sync_status: TallySyncStatus;
+  synced_at?: string;
+  created_at: string;
+}
+
+export interface TallyUnit {
+  id: string;
+  name: string;
+  symbol?: string;
+  decimal_places: number;
+  unit_type: string;
+  source: TallySource;
+  tally_sync_status: TallySyncStatus;
+  synced_at?: string;
+  created_at: string;
+}
+
+export interface TallyGodown {
+  id: string;
+  name: string;
+  parent?: string;
+  source: TallySource;
+  tally_sync_status: TallySyncStatus;
+  synced_at?: string;
+  created_at: string;
+}
+
+export interface ManagementOverview {
+  totals: {
+    customers: number;
+    vendors: number;
+    products: number;
+    ledgers: number;
+    stock_groups: number;
+    units: number;
+    godowns: number;
+    vouchers: number;
+  };
+  sync: {
+    pending_jobs: number;
+    failed_jobs: number;
+    last_sync: string | null;
+  };
+  tally: {
+    connected: boolean;
+    online: boolean;
+    company: string | null;
+    connector_name: string | null;
+    device: string | null;
+    last_heartbeat: string | null;
+  };
+}
+
+export interface VoucherItem {
+  id: string;
+  voucher_number: string;
+  date?: string;
+  voucher_type: string;
+  party?: string;
+  amount: number;
+  status: string;
+  source: TallySource;
+  tally_sync_status: TallySyncStatus;
+  created_at: string;
+  entity_type: 'invoice' | 'expense';
+  title?: string;
+}
+
+export interface SyncHealth {
+  total_jobs: number;
+  successful: number;
+  failed: number;
+  pending: number;
+  retrying: number;
+  last_successful_sync: string | null;
+  recent_jobs: Array<{
+    id: string;
+    operation: string;
+    status: string;
+    retry_count: number;
+    error_message: string | null;
+    created_at: string;
+    completed_at: string | null;
+  }>;
+}

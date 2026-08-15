@@ -11,6 +11,7 @@ TallyPrime XML API reference:
   - Body: TDL XML request
 """
 import logging
+import time
 import xml.etree.ElementTree as ET
 from typing import Optional
 
@@ -384,47 +385,45 @@ class TallyClient:
             })
         return items
 
+    @staticmethod
+    def _vch_id() -> str:
+        """Generate a unique voucher remote ID."""
+        return f"FP-{int(time.time() * 1000) % 100000000:08d}"
+
     # ── Write: Create sales voucher ───────────────────────────────────────────
 
     def create_sales_voucher(self, payload: dict) -> dict:
-        """
-        payload keys: date, party_ledger, sales_ledger, amount, narration, items (optional)
-        """
-        date = payload.get("date", "")
-        party = payload.get("party_ledger", "")
-        sales_ledger = payload.get("sales_ledger", "Sales Account")
-        amount = payload.get("amount", "0")
-        narration = payload.get("narration", "")
+        """payload: date (YYYYMMDD), party_ledger, sales_ledger, amount, narration"""
+        date          = payload.get("date", "")
+        party         = payload.get("party_ledger", "")
+        sales_ledger  = payload.get("sales_ledger", "Sales")
+        amount        = str(payload.get("amount", "0")).lstrip("-")
+        narration     = payload.get("narration", "")
+        vnum          = payload.get("voucher_number") or self._vch_id()
 
         xml = f"""<ENVELOPE>
-  <HEADER>
-    <VERSION>1</VERSION>
-    <TALLYREQUEST>Import</TALLYREQUEST>
-    <TYPE>Data</TYPE>
-    <ID>Vouchers</ID>
-  </HEADER>
-  <BODY>
-    <DESC/>
-    <DATA>
-      <TALLYMESSAGE xmlns:UDF="TallyUDF">
-        <VOUCHER REMOTEID="" VCHTYPE="Sales" ACTION="Create">
-          <DATE>{date}</DATE>
-          <NARRATION>{narration}</NARRATION>
-          <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
-          <ALLLEDGERENTRIES.LIST>
-            <LEDGERNAME>{party}</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-            <AMOUNT>-{amount}</AMOUNT>
-          </ALLLEDGERENTRIES.LIST>
-          <ALLLEDGERENTRIES.LIST>
-            <LEDGERNAME>{sales_ledger}</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-            <AMOUNT>{amount}</AMOUNT>
-          </ALLLEDGERENTRIES.LIST>
-        </VOUCHER>
-      </TALLYMESSAGE>
-    </DATA>
-  </BODY>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Sales" ACTION="Create">
+        <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{party}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+          <AMOUNT>-{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{sales_ledger}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+      </VOUCHER>
+    </TALLYMESSAGE>
+  </DATA></BODY>
 </ENVELOPE>"""
         raw = self._post_xml(xml)
         root = self._parse_response(raw)
@@ -438,41 +437,37 @@ class TallyClient:
     # ── Write: Create purchase voucher ────────────────────────────────────────
 
     def create_purchase_voucher(self, payload: dict) -> dict:
-        date = payload.get("date", "")
-        party = payload.get("party_ledger", "")
-        purchase_ledger = payload.get("purchase_ledger", "Purchase Account")
-        amount = payload.get("amount", "0")
-        narration = payload.get("narration", "")
+        """payload: date (YYYYMMDD), party_ledger, purchase_ledger, amount, narration"""
+        date             = payload.get("date", "")
+        party            = payload.get("party_ledger", "")
+        purchase_ledger  = payload.get("purchase_ledger", "Purchases")
+        amount           = str(payload.get("amount", "0")).lstrip("-")
+        narration        = payload.get("narration", "")
+        vnum             = payload.get("voucher_number") or self._vch_id()
 
         xml = f"""<ENVELOPE>
-  <HEADER>
-    <VERSION>1</VERSION>
-    <TALLYREQUEST>Import</TALLYREQUEST>
-    <TYPE>Data</TYPE>
-    <ID>Vouchers</ID>
-  </HEADER>
-  <BODY>
-    <DESC/>
-    <DATA>
-      <TALLYMESSAGE xmlns:UDF="TallyUDF">
-        <VOUCHER REMOTEID="" VCHTYPE="Purchase" ACTION="Create">
-          <DATE>{date}</DATE>
-          <NARRATION>{narration}</NARRATION>
-          <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>
-          <ALLLEDGERENTRIES.LIST>
-            <LEDGERNAME>{party}</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-            <AMOUNT>{amount}</AMOUNT>
-          </ALLLEDGERENTRIES.LIST>
-          <ALLLEDGERENTRIES.LIST>
-            <LEDGERNAME>{purchase_ledger}</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-            <AMOUNT>-{amount}</AMOUNT>
-          </ALLLEDGERENTRIES.LIST>
-        </VOUCHER>
-      </TALLYMESSAGE>
-    </DATA>
-  </BODY>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Purchase" ACTION="Create">
+        <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{party}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+        <ALLLEDGERENTRIES.LIST>
+          <LEDGERNAME>{purchase_ledger}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+          <AMOUNT>-{amount}</AMOUNT>
+        </ALLLEDGERENTRIES.LIST>
+      </VOUCHER>
+    </TALLYMESSAGE>
+  </DATA></BODY>
 </ENVELOPE>"""
         raw = self._post_xml(xml)
         root = self._parse_response(raw)
@@ -633,16 +628,19 @@ class TallyClient:
     def create_receipt_voucher(self, payload: dict) -> dict:
         """Money received FROM customer INTO bank/cash account."""
         date      = payload.get("date", "")
-        party     = payload.get("party_ledger", "")          # customer ledger
-        account   = payload.get("account_ledger", "Cash")    # bank/cash
+        party     = payload.get("party_ledger", "")
+        account   = payload.get("account_ledger", "Cash")
         amount    = str(payload.get("amount", "0")).lstrip("-")
-        narration = payload.get("narration", "")
+        narration = payload.get("narration", "Receipt")
+        vnum      = self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="Receipt" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Receipt" ACTION="Create">
         <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>Receipt</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
@@ -667,16 +665,19 @@ class TallyClient:
     def create_payment_voucher(self, payload: dict) -> dict:
         """Money paid TO vendor FROM bank/cash account."""
         date      = payload.get("date", "")
-        party     = payload.get("party_ledger", "")          # vendor ledger
-        account   = payload.get("account_ledger", "Cash")    # bank/cash
+        party     = payload.get("party_ledger", "")
+        account   = payload.get("account_ledger", "Cash")
         amount    = str(payload.get("amount", "0")).lstrip("-")
-        narration = payload.get("narration", "")
+        narration = payload.get("narration", "Payment")
+        vnum      = self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="Payment" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Payment" ACTION="Create">
         <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>Payment</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
@@ -704,13 +705,16 @@ class TallyClient:
         dr_ledger = payload.get("dr_ledger", "")
         cr_ledger = payload.get("cr_ledger", "")
         amount    = str(payload.get("amount", "0")).lstrip("-")
-        narration = payload.get("narration", "")
+        narration = payload.get("narration", "Journal Entry")
+        vnum      = self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="Journal" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Journal" ACTION="Create">
         <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>Journal</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
@@ -739,12 +743,15 @@ class TallyClient:
         sales_ledger  = payload.get("sales_ledger", "Sales")
         amount        = str(payload.get("amount", "0")).lstrip("-")
         narration     = payload.get("narration", "Sales Return")
+        vnum          = self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="Credit Note" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Credit Note" ACTION="Create">
         <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>Credit Note</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
@@ -773,12 +780,15 @@ class TallyClient:
         purchase_ledger  = payload.get("purchase_ledger", "Purchases")
         amount           = str(payload.get("amount", "0")).lstrip("-")
         narration        = payload.get("narration", "Purchase Return")
+        vnum             = self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="Debit Note" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Debit Note" ACTION="Create">
         <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>Debit Note</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
@@ -806,13 +816,16 @@ class TallyClient:
         from_acct  = payload.get("from_account", "Cash")
         to_acct    = payload.get("to_account", "Bank")
         amount     = str(payload.get("amount", "0")).lstrip("-")
-        narration  = payload.get("narration", "Fund transfer")
+        narration  = payload.get("narration", "Fund Transfer")
+        vnum       = self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="Contra" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Contra" ACTION="Create">
         <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>Contra</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>

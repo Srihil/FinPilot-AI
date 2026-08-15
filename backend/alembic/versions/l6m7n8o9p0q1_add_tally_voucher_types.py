@@ -17,12 +17,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # ALTER TYPE ... ADD VALUE cannot run inside a DDL transaction on older
-    # PostgreSQL builds. Use AUTOCOMMIT for this statement only, then restore.
-    connection = op.get_bind()
-    connection.execution_options(isolation_level="AUTOCOMMIT").execute(
-        sa.text("ALTER TYPE tallyjoboperation ADD VALUE IF NOT EXISTS 'CREATE_VOUCHER_TYPE'")
-    )
+    # Add enum value first — must come before any DDL that might reference the type.
+    # PostgreSQL 12+ supports ALTER TYPE ... ADD VALUE inside a transaction.
+    op.execute("ALTER TYPE tallyjoboperation ADD VALUE IF NOT EXISTS 'CREATE_VOUCHER_TYPE'")
 
     op.create_table(
         'tally_voucher_types',

@@ -28,12 +28,20 @@ from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, Ta
 from app.models.user import User
 from app.services.audit_service import audit_service
 
-# Map write operations to their master table model and tally_key lookup
+# Map CREATE operations to their master table model (for sync status updates)
 _MASTER_MODELS = {
     TallyJobOperation.CREATE_LEDGER:      TallyLedger,
     TallyJobOperation.CREATE_STOCK_GROUP: TallyStockGroup,
     TallyJobOperation.CREATE_UNIT:        TallyUnit,
     TallyJobOperation.CREATE_GODOWN:      TallyGodown,
+}
+
+# Map DELETE operations to their master table model
+_DELETE_MODELS = {
+    TallyJobOperation.DELETE_LEDGER:      TallyLedger,
+    TallyJobOperation.DELETE_STOCK_GROUP: TallyStockGroup,
+    TallyJobOperation.DELETE_UNIT:        TallyUnit,
+    TallyJobOperation.DELETE_GODOWN:      TallyGodown,
 }
 
 router = APIRouter(prefix="/tally", tags=["tally"])
@@ -619,7 +627,20 @@ def submit_job_result(
                     import logging
                     logging.getLogger(__name__).warning("Sync import error: %s", e)
 
-        # Update the corresponding master record's sync status
+        # DELETE confirmed by Tally → now actually remove from FinPilot
+        elif job.operation in _DELETE_MODELS:
+            model = _DELETE_MODELS[job.operation]
+            name = (job.payload or {}).get("name", "").strip()
+            if name:
+                tally_key = f"{job.company_id}::{name.lower()}"
+                master = db.query(model).filter(
+                    model.company_id == job.company_id,
+                    model.tally_key == tally_key,
+                ).first()
+                if master:
+                    master.is_active = False  # record confirmed deleted in Tally, now hide in FinPilot
+
+        # CREATE confirmed → mark synced
         elif job.operation in _MASTER_MODELS:
             model = _MASTER_MODELS[job.operation]
             name = (job.payload or {}).get("name", "").strip()
@@ -653,11 +674,22 @@ def submit_job_result(
             job.retry_count = (job.retry_count or 0) + 1
             job.status = JobStatus.FAILED if job.retry_count >= MAX_RETRY else JobStatus.RETRYING
 
-        # Mark corresponding master record as failed in UI
-        if job.status == JobStatus.FAILED and job.operation in _MASTER_MODELS:
-            model = _MASTER_MODELS[job.operation]
+        # Handle master table status on final failure
+        if job.status == JobStatus.FAILED:
             name = (job.payload or {}).get("name", "").strip()
-            if name:
+            if name and job.operation in _DELETE_MODELS:
+                # DELETE failed → restore record so it's still visible in FinPilot
+                model = _DELETE_MODELS[job.operation]
+                tally_key = f"{job.company_id}::{name.lower()}"
+                master = db.query(model).filter(
+                    model.company_id == job.company_id,
+                    model.tally_key == tally_key,
+                ).first()
+                if master:
+                    master.tally_sync_status = "delete_failed"
+            elif name and job.operation in _MASTER_MODELS:
+                # CREATE failed → mark as failed
+                model = _MASTER_MODELS[job.operation]
                 tally_key = f"{job.company_id}::{name.lower()}"
                 master = db.query(model).filter(
                     model.company_id == job.company_id,

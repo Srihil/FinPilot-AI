@@ -46,11 +46,13 @@ function fmtOp(op: string) {
 
 function SyncBadge({ status, source }: { status: string; source?: string }) {
   const cfg: Record<string, { cls: string; label: string }> = {
-    synced:    { cls: 'bg-emerald-100 text-emerald-700', label: 'Synced' },
-    pending:   { cls: 'bg-amber-100 text-amber-700', label: 'Pending' },
-    failed:    { cls: 'bg-red-100 text-red-700', label: 'Failed' },
-    finpilot:  { cls: 'bg-indigo-100 text-indigo-700', label: 'FinPilot' },
-    tally_sync:{ cls: 'bg-teal-100 text-teal-700', label: 'TallyPrime' },
+    synced:         { cls: 'bg-emerald-100 text-emerald-700', label: 'Synced' },
+    pending:        { cls: 'bg-amber-100 text-amber-700', label: 'Pending' },
+    failed:         { cls: 'bg-red-100 text-red-700', label: 'Failed' },
+    finpilot:       { cls: 'bg-indigo-100 text-indigo-700', label: 'FinPilot' },
+    tally_sync:     { cls: 'bg-teal-100 text-teal-700', label: 'TallyPrime' },
+    delete_pending: { cls: 'bg-orange-100 text-orange-700', label: 'Deleting…' },
+    delete_failed:  { cls: 'bg-red-100 text-red-700', label: 'Delete Failed' },
   };
   const key = source === 'tally_sync' ? 'tally_sync' : status;
   const c = cfg[key] ?? { cls: 'bg-slate-100 text-slate-600', label: status };
@@ -98,19 +100,29 @@ function DeleteDialog({ name, entityLabel, wasSynced, onConfirm, onClose, loadin
           <p className="text-sm text-slate-700">
             Delete <strong>"{name}"</strong>?
           </p>
-          <div className="flex items-start gap-2.5 p-3 bg-blue-50 border border-blue-100 rounded-lg">
-            <CheckCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-800">
-              <p className="font-semibold mb-0.5">Deletes from both FinPilot and TallyPrime</p>
-              <p>A delete job will be sent to your connected TallyPrime. If the record has transactions in Tally, Tally will reject the delete and you'll see an error in the Sync Center.</p>
+          {wasSynced ? (
+            <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-100 rounded-lg">
+              <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-sm text-amber-800">
+                <p className="font-semibold mb-0.5">Requires TallyPrime confirmation</p>
+                <p>This record exists in TallyPrime. A delete request will be sent — the record will stay visible in FinPilot until TallyPrime confirms the deletion. If Tally rejects it (e.g. linked transactions), the record will remain and you'll see a "Delete Failed" status.</p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-start gap-2.5 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+              <CheckCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <div className="text-sm text-blue-800">
+                <p className="font-semibold mb-0.5">Will be removed immediately</p>
+                <p>This record is only in FinPilot and has not been synced to TallyPrime.</p>
+              </div>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button variant="destructive" onClick={onConfirm} disabled={loading} className="gap-1.5">
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            Delete
+            {wasSynced ? 'Queue Delete' : 'Delete'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -120,14 +132,21 @@ function DeleteDialog({ name, entityLabel, wasSynced, onConfirm, onClose, loadin
 
 // ─── Action buttons ───────────────────────────────────────────────────────────
 
-function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+function RowActions({ onEdit, onDelete, deleteDisabled }: {
+  onEdit: () => void; onDelete: () => void; deleteDisabled?: boolean;
+}) {
   return (
     <div className="flex gap-1">
       <button onClick={onEdit} className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Edit">
         <Edit className="w-3.5 h-3.5" />
       </button>
-      <button onClick={onDelete} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete">
-        <Trash2 className="w-3.5 h-3.5" />
+      <button
+        onClick={deleteDisabled ? undefined : onDelete}
+        disabled={deleteDisabled}
+        className={`p-1.5 rounded transition-colors ${deleteDisabled ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'}`}
+        title={deleteDisabled ? 'Delete pending TallyPrime confirmation' : 'Delete'}
+      >
+        {deleteDisabled ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
       </button>
     </div>
   );
@@ -867,8 +886,11 @@ function LedgersSubTab() {
     setDeleteLoading(true);
     try {
       const res = await managementApi.deleteLedger(deleting.id);
-      toast({ title: 'Ledger deleted', description: res.message, variant: 'success' });
-      if (res.was_synced) toast({ title: 'Action required in TallyPrime', description: 'Remove this ledger from TallyPrime manually.', variant: 'default' });
+      if (res.status === 'pending') {
+        toast({ title: 'Delete queued', description: 'Waiting for TallyPrime to confirm. The ledger stays visible until then.', variant: 'default' });
+      } else {
+        toast({ title: 'Ledger deleted', variant: 'success' });
+      }
       qc.invalidateQueries({ queryKey: ['management-ledgers'] });
       qc.invalidateQueries({ queryKey: ['management-overview'] });
     } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
@@ -910,7 +932,7 @@ function LedgersSubTab() {
                 <TD><SyncBadge status={l.tally_sync_status} source={l.source} /></TD>
                 <TD><SyncBadge status={l.tally_sync_status} /></TD>
                 <TD className="text-slate-400 text-xs">{relTime(l.synced_at)}</TD>
-                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(l)} /></TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(l)} deleteDisabled={l.tally_sync_status === 'delete_pending'} /></TD>
               </tr>
             )) : (
               <tr>
@@ -929,7 +951,7 @@ function LedgersSubTab() {
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
       {deleting && (
-        <DeleteDialog name={deleting.name} entityLabel="Ledger" wasSynced={deleting.tally_sync_status === 'synced'}
+        <DeleteDialog name={deleting.name} entityLabel="Ledger" wasSynced={['synced', 'finpilot', 'delete_failed'].includes(deleting.tally_sync_status)}
           onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={deleteLoading} />
       )}
       <Dialog open={showForm} onOpenChange={setShowForm}>
@@ -968,7 +990,11 @@ function StockGroupsSubTab() {
     setDeleteLoading(true);
     try {
       const res = await managementApi.deleteStockGroup(deleting.id);
-      toast({ title: 'Stock group deleted', description: res.message, variant: 'success' });
+      if (res.status === 'pending') {
+        toast({ title: 'Delete queued', description: 'Waiting for TallyPrime to confirm. The stock group stays visible until then.', variant: 'default' });
+      } else {
+        toast({ title: 'Stock group deleted', variant: 'success' });
+      }
       qc.invalidateQueries({ queryKey: ['management-stock-groups'] });
       qc.invalidateQueries({ queryKey: ['management-overview'] });
     } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
@@ -1004,7 +1030,7 @@ function StockGroupsSubTab() {
                 <TD><SyncBadge status={sg.tally_sync_status} source={sg.source} /></TD>
                 <TD><SyncBadge status={sg.tally_sync_status} /></TD>
                 <TD className="text-slate-400 text-xs">{relTime(sg.synced_at)}</TD>
-                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(sg)} /></TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(sg)} deleteDisabled={sg.tally_sync_status === 'delete_pending'} /></TD>
               </tr>
             )) : (
               <tr>
@@ -1023,7 +1049,7 @@ function StockGroupsSubTab() {
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
       {deleting && (
-        <DeleteDialog name={deleting.name} entityLabel="Stock Group" wasSynced={deleting.tally_sync_status === 'synced'}
+        <DeleteDialog name={deleting.name} entityLabel="Stock Group" wasSynced={['synced', 'finpilot', 'delete_failed'].includes(deleting.tally_sync_status)}
           onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={deleteLoading} />
       )}
       <Dialog open={showForm} onOpenChange={setShowForm}>
@@ -1062,7 +1088,11 @@ function UnitsSubTab() {
     setDeleteLoading(true);
     try {
       const res = await managementApi.deleteUnit(deleting.id);
-      toast({ title: 'Unit deleted', description: res.message, variant: 'success' });
+      if (res.status === 'pending') {
+        toast({ title: 'Delete queued', description: 'Waiting for TallyPrime to confirm. The unit stays visible until then.', variant: 'default' });
+      } else {
+        toast({ title: 'Unit deleted', variant: 'success' });
+      }
       qc.invalidateQueries({ queryKey: ['management-units'] });
       qc.invalidateQueries({ queryKey: ['management-overview'] });
     } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
@@ -1099,7 +1129,7 @@ function UnitsSubTab() {
                 <TD className="text-slate-500 capitalize">{u.unit_type}</TD>
                 <TD><SyncBadge status={u.tally_sync_status} source={u.source} /></TD>
                 <TD><SyncBadge status={u.tally_sync_status} /></TD>
-                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(u)} /></TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(u)} deleteDisabled={u.tally_sync_status === 'delete_pending'} /></TD>
               </tr>
             )) : (
               <tr>
@@ -1118,7 +1148,7 @@ function UnitsSubTab() {
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
       {deleting && (
-        <DeleteDialog name={deleting.name} entityLabel="Unit" wasSynced={deleting.tally_sync_status === 'synced'}
+        <DeleteDialog name={deleting.name} entityLabel="Unit" wasSynced={['synced', 'finpilot', 'delete_failed'].includes(deleting.tally_sync_status)}
           onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={deleteLoading} />
       )}
       <Dialog open={showForm} onOpenChange={setShowForm}>
@@ -1157,7 +1187,11 @@ function GodownsSubTab() {
     setDeleteLoading(true);
     try {
       const res = await managementApi.deleteGodown(deleting.id);
-      toast({ title: 'Godown deleted', description: res.message, variant: 'success' });
+      if (res.status === 'pending') {
+        toast({ title: 'Delete queued', description: 'Waiting for TallyPrime to confirm. The godown stays visible until then.', variant: 'default' });
+      } else {
+        toast({ title: 'Godown deleted', variant: 'success' });
+      }
       qc.invalidateQueries({ queryKey: ['management-godowns'] });
       qc.invalidateQueries({ queryKey: ['management-overview'] });
     } catch { toast({ title: 'Delete failed', variant: 'destructive' }); }
@@ -1193,7 +1227,7 @@ function GodownsSubTab() {
                 <TD><SyncBadge status={g.tally_sync_status} source={g.source} /></TD>
                 <TD><SyncBadge status={g.tally_sync_status} /></TD>
                 <TD className="text-slate-400 text-xs">{relTime(g.synced_at)}</TD>
-                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(g)} /></TD>
+                <TD><RowActions onEdit={() => {}} onDelete={() => setDeleting(g)} deleteDisabled={g.tally_sync_status === 'delete_pending'} /></TD>
               </tr>
             )) : (
               <tr>
@@ -1212,7 +1246,7 @@ function GodownsSubTab() {
       </div>
       <Paginator page={page} totalPages={data?.total_pages ?? 1} onPage={setPage} />
       {deleting && (
-        <DeleteDialog name={deleting.name} entityLabel="Godown" wasSynced={deleting.tally_sync_status === 'synced'}
+        <DeleteDialog name={deleting.name} entityLabel="Godown" wasSynced={['synced', 'finpilot', 'delete_failed'].includes(deleting.tally_sync_status)}
           onConfirm={handleDelete} onClose={() => setDeleting(null)} loading={deleteLoading} />
       )}
       <Dialog open={showForm} onOpenChange={setShowForm}>

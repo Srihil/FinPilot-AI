@@ -688,9 +688,12 @@ def submit_job_result(
             name = (job.payload or {}).get("name", "").strip()
             if name:
                 tally_key = f"{job.company_id}::{name.lower()}"
+                # Filter by is_active=True so we deactivate the correct record when
+                # multiple records share the same tally_key (e.g. re-created items).
                 master = db.query(model).filter(
                     model.company_id == job.company_id,
                     model.tally_key == tally_key,
+                    model.is_active == True,
                 ).first()
                 if master:
                     master.is_active = False  # record confirmed deleted in Tally, now hide in FinPilot

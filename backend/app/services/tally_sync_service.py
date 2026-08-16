@@ -482,8 +482,10 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
         is_purchase    = "purchase" in vtype and "order" not in vtype
         is_payment     = vtype == "payment"
         is_debit_note  = "debit note" in vtype
+        is_contra      = vtype == "contra"
+        is_journal     = "journal" in vtype and "order" not in vtype
 
-        if is_sales or is_receipt or is_credit_note:
+        if is_sales:
             customer = _find_by_tally_id(db, Customer, company_id, party)
             inv_counter += 1
             db.add(Invoice(
@@ -505,12 +507,35 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
             ))
             created_invoices += 1
 
-        elif is_purchase or is_payment or is_debit_note:
+        elif is_purchase:
             vendor = _find_by_tally_id(db, Vendor, company_id, party)
+            exp_counter += 1
+            db.add(Expense(
+                company_id=company_id,
+                title=display_label,
+                category="Purchase",
+                expense_date=voucher_date,
+                amount=amount,
+                tax_amount=0,
+                total_amount=amount,
+                currency="INR",
+                status=ExpenseStatus.APPROVED,
+                notes=notes_tag,
+                vendor_id=vendor.id if vendor else None,
+                tally_sync_status="synced",
+            ))
+            created_expenses += 1
+
+        elif is_receipt or is_payment or is_credit_note or is_debit_note or is_contra or is_journal:
+            vendor = _find_by_tally_id(db, Vendor, company_id, party) if (is_payment or is_debit_note) else None
+            customer = _find_by_tally_id(db, Customer, company_id, party) if (is_receipt or is_credit_note) else None
             category = (
-                "Payment" if is_payment
-                else "Purchase Return" if is_debit_note
-                else "Purchase"
+                "Receipt"      if is_receipt      else
+                "Payment"      if is_payment      else
+                "Credit Note"  if is_credit_note  else
+                "Debit Note"   if is_debit_note   else
+                "Contra"       if is_contra       else
+                "Journal"
             )
             exp_counter += 1
             db.add(Expense(
@@ -529,7 +554,7 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
             ))
             created_expenses += 1
 
-        # Contra / Journal / Orders → skip
+        # Orders / Stock journals → skip
 
     db.commit()
     return {"invoices": created_invoices, "expenses": created_expenses}

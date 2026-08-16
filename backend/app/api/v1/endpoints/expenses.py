@@ -32,6 +32,14 @@ def _serialize(e) -> dict:
     }
 
 
+# These categories are accounting vouchers, not operational expenses.
+# They appear in the Vouchers page under their own tabs, not here.
+_VOUCHER_CATEGORIES = {
+    "Receipt", "Payment", "Journal", "Contra",
+    "Credit Note", "Debit Note", "Purchase", "Purchase Return",
+}
+
+
 @router.get("")
 def list_expenses(
     page: int = Query(1, ge=1),
@@ -43,7 +51,8 @@ def list_expenses(
     db: Session = Depends(get_db),
 ):
     query = db.query(Expense).options(joinedload(Expense.vendor)).filter(
-        Expense.company_id == current_user.company_id
+        Expense.company_id == current_user.company_id,
+        ~Expense.category.in_(_VOUCHER_CATEGORIES),
     )
     if status:
         query = query.filter(Expense.status == status)

@@ -32,6 +32,51 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
+
+def _parse_date(date_str: str) -> datetime:
+    """
+    Parse a date string in any common format into datetime.
+    Handles: ISO (2026-08-01), natural language (1 August 2026, August 1 2026),
+    YYYYMMDD (20260801), DD-MM-YYYY, DD/MM/YYYY, etc.
+    Falls back to today if nothing matches.
+    """
+    if not date_str:
+        return datetime.now(timezone.utc)
+
+    # Try ISO format
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            return datetime.strptime(date_str[:len(fmt)], fmt).replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            pass
+
+    # Try YYYYMMDD
+    if len(date_str) == 8 and date_str.isdigit():
+        try:
+            return datetime.strptime(date_str, "%Y%m%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    # Try natural language and other formats
+    for fmt in (
+        "%d %B %Y", "%d %b %Y", "%B %d, %Y", "%b %d, %Y",
+        "%d-%B-%Y", "%d-%b-%Y", "%d/%m/%Y", "%m/%d/%Y",
+        "%d-%m-%Y", "%d.%m.%Y", "%B %d %Y", "%b %d %Y",
+    ):
+        try:
+            return datetime.strptime(date_str.strip(), fmt).replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            pass
+
+    # Last resort: dateutil (handles almost anything)
+    try:
+        from dateutil import parser as du_parser
+        return du_parser.parse(date_str, dayfirst=True).replace(tzinfo=timezone.utc)
+    except Exception:
+        pass
+
+    return datetime.now(timezone.utc)
+
 # Lazy import to avoid ImportError if langgraph not installed yet
 def _run_graph_assistant(query, company_id, user_id, role, provider, history, db):
     try:
@@ -408,11 +453,7 @@ def create_entity(
                     vendor_id = str(vend.id)
 
             amount = float(payload.get("amount") or 0)
-            invoice_date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            try:
-                inv_date = datetime.fromisoformat(invoice_date_str)
-            except Exception:
-                inv_date = datetime.now(timezone.utc)
+            inv_date = _parse_date(payload.get("date", ""))
 
             create_data = InvoiceCreate(
                 customer_id=customer_id,
@@ -458,11 +499,7 @@ def create_entity(
                 db.commit()
 
         elif entity_type == "expense":
-            expense_date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            try:
-                exp_date = datetime.fromisoformat(expense_date_str)
-            except Exception:
-                exp_date = datetime.now(timezone.utc)
+            exp_date = _parse_date(payload.get("date", ""))
 
             vendor_id = payload.get("vendor_id")
             if not vendor_id and payload.get("vendor_name"):
@@ -755,9 +792,7 @@ def create_entity(
             db.commit()
 
         elif entity_type == "receipt":
-            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            try: d = datetime.fromisoformat(date_str)
-            except Exception: d = datetime.now(timezone.utc)
+            d = _parse_date(payload.get("date", ""))
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_RECEIPT_VOUCHER",
                 {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
                  "account_ledger": payload.get("account_ledger", "Cash"),
@@ -766,9 +801,7 @@ def create_entity(
             if tally_queued: db.commit()
 
         elif entity_type == "payment":
-            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            try: d = datetime.fromisoformat(date_str)
-            except Exception: d = datetime.now(timezone.utc)
+            d = _parse_date(payload.get("date", ""))
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_PAYMENT_VOUCHER",
                 {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
                  "account_ledger": payload.get("account_ledger", "Cash"),
@@ -777,9 +810,7 @@ def create_entity(
             if tally_queued: db.commit()
 
         elif entity_type == "journal":
-            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            try: d = datetime.fromisoformat(date_str)
-            except Exception: d = datetime.now(timezone.utc)
+            d = _parse_date(payload.get("date", ""))
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_JOURNAL_VOUCHER",
                 {"date": d.strftime("%Y%m%d"), "dr_ledger": payload.get("dr_ledger", ""),
                  "cr_ledger": payload.get("cr_ledger", ""),
@@ -788,9 +819,7 @@ def create_entity(
             if tally_queued: db.commit()
 
         elif entity_type == "credit_note":
-            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            try: d = datetime.fromisoformat(date_str)
-            except Exception: d = datetime.now(timezone.utc)
+            d = _parse_date(payload.get("date", ""))
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_CREDIT_NOTE",
                 {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
                  "sales_ledger": payload.get("sales_ledger", "Sales"),
@@ -799,9 +828,7 @@ def create_entity(
             if tally_queued: db.commit()
 
         elif entity_type == "debit_note":
-            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            try: d = datetime.fromisoformat(date_str)
-            except Exception: d = datetime.now(timezone.utc)
+            d = _parse_date(payload.get("date", ""))
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_DEBIT_NOTE",
                 {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
                  "purchase_ledger": payload.get("purchase_ledger", "Purchases"),
@@ -810,9 +837,7 @@ def create_entity(
             if tally_queued: db.commit()
 
         elif entity_type == "contra":
-            date_str = payload.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            try: d = datetime.fromisoformat(date_str)
-            except Exception: d = datetime.now(timezone.utc)
+            d = _parse_date(payload.get("date", ""))
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_CONTRA_VOUCHER",
                 {"date": d.strftime("%Y%m%d"), "from_account": payload.get("from_account", "Cash"),
                  "to_account": payload.get("to_account", "Bank"),

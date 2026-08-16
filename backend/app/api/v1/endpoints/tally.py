@@ -110,10 +110,21 @@ def _translate_tally_error(error: str) -> str:
         import re as _re
         m = _re.search(r"'([^']+)' does not exist", error, _re.IGNORECASE)
         missing = m.group(1) if m else "the specified record"
+        if "stock item" in e:
+            return (
+                f"TallyPrime could not find stock item '{missing}'. "
+                "The item name must match exactly (including capitalisation) what appears in "
+                "TallyPrime → Inventory → Stock Items. Update the name in the preview and retry."
+            )
+        if "stock category" in e or "stockcategory" in e:
+            return (
+                f"TallyPrime could not find '{missing}'. "
+                "For stock categories, the Parent must be an existing stock category (not a stock group). "
+                "Leave Parent empty to create a root-level category."
+            )
         return (
             f"TallyPrime could not find '{missing}'. "
-            "For stock categories, the Parent must be an existing stock category (not a stock group). "
-            "Leave Parent empty to create a root-level category."
+            "Check the name matches exactly (case-sensitive) what is in TallyPrime."
         )
     if "invalid name" in e:
         return "TallyPrime rejected the name — check for special characters or length."

@@ -126,6 +126,11 @@ function interpretError(error: string | null | undefined, operation: string): st
     }
     return `Parent stock group "${grp}" was not found in TallyPrime. Go to Inventory Masters → Stock Groups and create "${grp}" first, then retry.`;
   }
+  if (e.includes('stock item') && e.includes('does not exist')) {
+    const m = error.match(/'([^']+)'/);
+    const item = m?.[1] ?? 'the stock item';
+    return `TallyPrime could not find stock item "${item}". The name must match exactly (including capitalisation) what appears in TallyPrime → Inventory → Stock Items. Edit the item name in the preview and retry.`;
+  }
   if (e.includes('ledger') && e.includes('does not exist')) {
     const m = error.match(/'([^']+)'/);
     const led = m?.[1] ?? 'the ledger';

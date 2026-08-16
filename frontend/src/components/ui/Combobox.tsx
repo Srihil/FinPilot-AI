@@ -161,7 +161,8 @@ export function Combobox({
                 <li key={opt}>
                   <button
                     type="button"
-                    onMouseDown={() => select(opt)}
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => select(opt)}
                     className={cn(
                       'w-full text-left px-3 py-2 text-sm transition-colors',
                       opt === value

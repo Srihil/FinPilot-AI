@@ -501,7 +501,7 @@ export default function StockItemsPage() {
               <Combobox options={groupOpts} value={formGroup} onChange={setFormGroup} placeholder="Search groups…" clearLabel="— No group" className="mt-1" />
             </div>
             <div>
-              <Label>Category <span className="text-slate-400 text-xs">(FinPilot only)</span></Label>
+              <Label>Category</Label>
               <Combobox options={catOpts} value={formCategory} onChange={setFormCategory} placeholder="Search categories…" clearLabel="— No category" className="mt-1" />
             </div>
             <div>
@@ -537,7 +537,7 @@ export default function StockItemsPage() {
               <Combobox options={groupOpts} value={formGroup} onChange={setFormGroup} placeholder="Search groups…" clearLabel="— No group" className="mt-1" />
             </div>
             <div>
-              <Label>Category <span className="text-slate-400 text-xs">(FinPilot only)</span></Label>
+              <Label>Category</Label>
               <Combobox options={catOpts} value={formCategory} onChange={setFormCategory} placeholder="Search categories…" clearLabel="— No category" className="mt-1" />
             </div>
             <div className="grid grid-cols-2 gap-3">

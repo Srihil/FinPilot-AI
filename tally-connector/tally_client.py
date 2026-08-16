@@ -1013,17 +1013,16 @@ class TallyClient:
     def create_unit(self, payload: dict) -> dict:
         name     = payload.get("name", "Nos").strip()
         decimals = payload.get("decimal_places", "0")
-        # TallyPrime requires NAME == ORIGINALNAME for units (both hold the symbol).
-        # Sending a different value (e.g. the UQC code "NOS") causes "bad unit name".
+        # TYPE=Masters is required for UNIT import. TYPE=Data causes "BAD UNIT NAME".
+        # NAME and ORIGINALNAME must both be the unit symbol (e.g. "Nos").
         xml = f"""<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Masters</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <UNIT NAME="{name}" ACTION="Create">
         <NAME>{name}</NAME>
         <ORIGINALNAME>{name}</ORIGINALNAME>
         <DECIMALPLACES>{decimals}</DECIMALPLACES>
-        <UOMTYPE>Simple</UOMTYPE>
       </UNIT>
     </TALLYMESSAGE>
   </DATA></BODY>

@@ -735,6 +735,9 @@ class TallyClient:
     def delete_godown(self, payload: dict) -> dict:
         return self._delete_master("GODOWN", payload.get("name", ""))
 
+    def delete_voucher_type(self, payload: dict) -> dict:
+        return self._delete_master("VOUCHERTYPE", payload.get("name", ""))
+
     def delete_stock_item(self, payload: dict) -> dict:
         return self._delete_master("STOCKITEM", payload.get("name", ""))
 

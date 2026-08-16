@@ -42,10 +42,11 @@ _MASTER_MODELS = {
 
 # Map DELETE operations to their master table model
 _DELETE_MODELS = {
-    TallyJobOperation.DELETE_LEDGER:      TallyLedger,
-    TallyJobOperation.DELETE_STOCK_GROUP: TallyStockGroup,
-    TallyJobOperation.DELETE_UNIT:        TallyUnit,
-    TallyJobOperation.DELETE_GODOWN:      TallyGodown,
+    TallyJobOperation.DELETE_LEDGER:       TallyLedger,
+    TallyJobOperation.DELETE_STOCK_GROUP:  TallyStockGroup,
+    TallyJobOperation.DELETE_UNIT:         TallyUnit,
+    TallyJobOperation.DELETE_GODOWN:       TallyGodown,
+    TallyJobOperation.DELETE_VOUCHER_TYPE: TallyVoucherType,
 }
 
 # Voucher CREATE operations (track on Invoice/Expense)

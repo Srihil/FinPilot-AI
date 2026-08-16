@@ -206,8 +206,15 @@ export default function VoucherTypesPage() {
 
   const deleteMut = useMutation({
     mutationFn: () => managementApi.deleteVoucherType(deleteItem!.id),
-    onSuccess: () => {
-      toast({ title: 'Deleted' });
+    onSuccess: (res: { status: string; message: string }) => {
+      if (res.status === 'pending') {
+        toast({
+          title: 'Delete sent to TallyPrime',
+          description: res.message,
+        });
+      } else {
+        toast({ title: 'Deleted', description: res.message });
+      }
       qc.invalidateQueries({ queryKey: ['voucher-types'] });
       setDeleteItem(null);
     },
@@ -419,12 +426,18 @@ export default function VoucherTypesPage() {
                       </div>
                       <div className="flex items-center gap-1">
                         <SyncBadge status={vt.tally_sync_status} source={vt.source} />
-                        <button
-                          onClick={() => setDeleteItem({ id: vt.id, name: vt.name })}
-                          className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {vt.tally_sync_status === 'delete_pending' ? (
+                          <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded">
+                            Deleting…
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteItem({ id: vt.id, name: vt.name })}
+                            className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                     <p className="text-xs text-slate-500">

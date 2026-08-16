@@ -1536,13 +1536,37 @@ def delete_voucher_type(
         raise HTTPException(status_code=404, detail="Voucher type not found")
     if vt.source == "tally_sync" and vt.parent is None:
         raise HTTPException(status_code=400, detail="Built-in TallyPrime voucher types cannot be deleted from FinPilot.")
+
+    # Cancel any pending create job first
     _cancel_pending_job(db, vt.tally_job_id)
+
+    # If this type was synced to TallyPrime, delete from Tally first (confirmed-first pattern)
+    if vt.tally_sync_status == "synced":
+        queued = _queue_tally_delete(
+            db, current_user.company_id,
+            TallyJobOperation.DELETE_VOUCHER_TYPE,
+            vt.name,
+        )
+        if queued:
+            vt.tally_sync_status = "delete_pending"
+            db.commit()
+            audit_service.log(
+                db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                entity_type="tally_voucher_type", entity_id=vt.id,
+                description=f"Voucher type delete queued for TallyPrime: {vt.name}",
+            )
+            return {
+                "status": "pending",
+                "message": f"Delete sent to TallyPrime. '{vt.name}' will be removed once TallyPrime confirms.",
+            }
+
+    # No active connector or not yet synced — remove locally immediately
     vt.is_active = False
     db.commit()
     audit_service.log(
         db, current_user.company_id, current_user.id, AuditAction.DELETE,
         entity_type="tally_voucher_type", entity_id=vt.id,
-        description=f"Deleted voucher type: {vt.name}",
+        description=f"Deleted voucher type locally: {vt.name}",
     )
     return {"status": "deleted", "message": "Deleted successfully."}
 

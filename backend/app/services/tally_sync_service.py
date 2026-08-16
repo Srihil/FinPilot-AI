@@ -413,24 +413,40 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
 # ─── Vouchers → Invoices / Expenses ──────────────────────────────────────────
 
 def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> dict:
-    """Import Tally vouchers as Invoices (sales/receipt/credit note)
-    or Expenses (purchase/payment/debit note)."""
+    """
+    Replace-sync: wipe all previously Tally-synced vouchers then reimport
+    from the current Tally payload. This makes sync idempotent — running it
+    multiple times always produces exactly the same records as Tally has.
+    """
+    # ── Step 1: remove all previously synced invoices/expenses ───────────────
+    db.query(Invoice).filter(
+        Invoice.company_id == company_id,
+        Invoice.notes.like(f"%{TALLY_TAG}%"),
+        Invoice.is_deleted.is_not(True),
+    ).update({"is_deleted": True}, synchronize_session=False)
+
+    db.query(Expense).filter(
+        Expense.company_id == company_id,
+        Expense.notes.like(f"%{TALLY_TAG}%"),
+        Expense.is_deleted.is_not(True),
+    ).update({"is_deleted": True}, synchronize_session=False)
+
+    db.flush()
+
+    # ── Step 2: reimport fresh from Tally ────────────────────────────────────
     created_invoices = 0
     created_expenses = 0
-    inv_counter = db.query(Invoice).filter(Invoice.company_id == company_id).count()
-    exp_counter = db.query(Expense).filter(Expense.company_id == company_id).count()
-
-    # Track by Tally voucher number so each Tally entry maps to exactly one
-    # FinPilot record — prevents party-name dedup collapsing multiple vouchers.
+    inv_counter = 0
+    exp_counter = 0
     seen_keys: set[str] = set()
 
     for v in vouchers:
-        vtype    = v.get("voucher_type", "").lower().strip()
+        vtype     = v.get("voucher_type", "").lower().strip()
         narration = v.get("narration", "").strip()
-        party    = v.get("party", "").strip()
-        date_str = v.get("date", "")
+        party     = v.get("party", "").strip()
+        date_str  = v.get("date", "")
         amount_raw = v.get("amount", "0").replace(",", "").strip().lstrip("-")
-        vch_no   = v.get("voucher_number", "").strip()
+        vch_no    = v.get("voucher_number", "").strip()
 
         try:
             amount = abs(float(amount_raw)) if amount_raw else 0.0
@@ -440,45 +456,32 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
         if amount == 0:
             continue
 
-        # Primary dedup: TallyPrime voucher type + voucher number uniquely
-        # identifies each entry. Fallback for older connectors without vch_no.
-        if vch_no:
-            dedup_key = f"{vtype}::{vch_no}"
-        else:
-            dedup_key = f"{vtype}::{date_str}::{party}::{amount_raw}"
-
+        # Unique key per Tally voucher (type + voucher number)
+        dedup_key = f"{vtype}::{vch_no}" if vch_no else f"{vtype}::{date_str}::{party}::{amount_raw}"
         if dedup_key in seen_keys:
             continue
         seen_keys.add(dedup_key)
 
-        # The [tally-sync] notes tag still uses party/narration for display
+        notes_tag     = _tally_id(dedup_key)
         display_label = narration or party or f"Tally {vtype.title()}"
-        # Use a unique-per-voucher notes tag so DB dedup also uses vch identity
-        notes_tag = _tally_id(f"{vtype}::{vch_no}" if vch_no else display_label)
-        if db.query(Invoice).filter(
-            Invoice.company_id == company_id,
-            Invoice.notes == notes_tag,
-        ).first():
-            continue
-        if db.query(Expense).filter(
-            Expense.company_id == company_id,
-            Expense.notes == notes_tag,
-        ).first():
-            continue
 
         try:
             if len(date_str) == 8:
-                voucher_date = datetime(int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]),
-                                        tzinfo=timezone.utc)
+                voucher_date = datetime(
+                    int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]),
+                    tzinfo=timezone.utc,
+                )
             else:
                 voucher_date = datetime.now(timezone.utc)
         except Exception:
             voucher_date = datetime.now(timezone.utc)
 
-        # ── Sales / Receipt / Credit Note → Invoice ───────────────────────────
         is_sales       = "sales" in vtype and "order" not in vtype
         is_receipt     = vtype == "receipt"
         is_credit_note = "credit note" in vtype
+        is_purchase    = "purchase" in vtype and "order" not in vtype
+        is_payment     = vtype == "payment"
+        is_debit_note  = "debit note" in vtype
 
         if is_sales or is_receipt or is_credit_note:
             customer = _find_by_tally_id(db, Customer, company_id, party)
@@ -502,13 +505,11 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
             ))
             created_invoices += 1
 
-        # ── Purchase / Payment / Debit Note → Expense ─────────────────────────
-        elif ("purchase" in vtype and "order" not in vtype) or \
-             vtype == "payment" or "debit note" in vtype:
+        elif is_purchase or is_payment or is_debit_note:
             vendor = _find_by_tally_id(db, Vendor, company_id, party)
             category = (
-                "Payment" if vtype == "payment"
-                else "Purchase Return" if "debit note" in vtype
+                "Payment" if is_payment
+                else "Purchase Return" if is_debit_note
                 else "Purchase"
             )
             exp_counter += 1
@@ -528,7 +529,7 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
             ))
             created_expenses += 1
 
-        # ── Contra / Journal / Orders → skip (don't map to Invoice/Expense) ──
+        # Contra / Journal / Orders → skip
 
     db.commit()
     return {"invoices": created_invoices, "expenses": created_expenses}

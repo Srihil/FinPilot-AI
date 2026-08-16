@@ -245,7 +245,7 @@ export default function UnitsPage() {
                   </div>
                   <div className="w-28">
                     <Label className="text-xs">Decimal Places</Label>
-                    <Input type="number" min="0" max="4" value={uqcDecimals} onChange={e=>setUqcDecimals(e.target.value)} className="h-8 mt-1"/>
+                    <Input type="number" min="0" max="5" value={uqcDecimals} onChange={e=>setUqcDecimals(e.target.value)} className="h-8 mt-1"/>
                   </div>
                 </div>
               )}
@@ -254,7 +254,7 @@ export default function UnitsPage() {
             <div className="space-y-3">
               <div><Label>Name *</Label><Input value={formName} onChange={e=>setFormName(e.target.value)} placeholder="e.g. Kilogram"/></div>
               <div><Label>Symbol <span className="text-slate-400 text-xs">(max 8 chars, no spaces)</span></Label><Input value={formSymbol} onChange={e=>setFormSymbol(e.target.value)} placeholder="e.g. Kg"/></div>
-              <div><Label>Decimal Places</Label><Input type="number" min="0" max="4" value={formDecimals} onChange={e=>setFormDecimals(e.target.value)}/></div>
+              <div><Label>Decimal Places</Label><Input type="number" min="0" max="5" value={formDecimals} onChange={e=>setFormDecimals(e.target.value)}/></div>
             </div>
           )}
 
@@ -272,7 +272,7 @@ export default function UnitsPage() {
         <div className="space-y-3">
           <div><Label>Name</Label><Input value={formName} onChange={e=>setFormName(e.target.value)}/></div>
           <div><Label>Symbol</Label><Input value={formSymbol} onChange={e=>setFormSymbol(e.target.value)}/></div>
-          <div><Label>Decimal Places</Label><Input type="number" min="0" max="4" value={formDecimals} onChange={e=>setFormDecimals(e.target.value)}/></div>
+          <div><Label>Decimal Places</Label><Input type="number" min="0" max="5" value={formDecimals} onChange={e=>setFormDecimals(e.target.value)}/></div>
         </div>
         <DialogFooter><Button variant="outline" onClick={()=>setEditItem(null)}>Cancel</Button><Button onClick={()=>updateMut.mutate()} disabled={updateMut.isPending}>{updateMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Save</Button></DialogFooter>
       </DialogContent></Dialog>

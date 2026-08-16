@@ -779,7 +779,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <ISINVOICE>No</ISINVOICE>
@@ -827,7 +827,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <ISINVOICE>No</ISINVOICE>
@@ -1032,7 +1032,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>
@@ -1071,7 +1071,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>
@@ -1110,7 +1110,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
@@ -1148,7 +1148,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <ISINVOICE>No</ISINVOICE>
@@ -1189,7 +1189,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <ISINVOICE>No</ISINVOICE>
@@ -1230,7 +1230,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>

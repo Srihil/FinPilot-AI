@@ -330,6 +330,114 @@ def propose_transaction(
     return result
 
 
+_STANDARD_TALLY_TYPES = {
+    "sales", "purchase", "receipt", "payment", "contra", "journal",
+    "credit note", "debit note", "sales order", "purchase order",
+    "delivery note", "receipt note", "stock journal", "physical stock",
+    "reversing journal", "memorandum", "attendance", "payroll",
+    "material in", "material out", "rejections in", "rejections out",
+    "job work in order", "job work out order",
+}
+
+
+def _detect_custom_voucher_type(text: str, company_id, db) -> dict | None:
+    """
+    Check if the text mentions a known custom voucher type from the DB.
+    If yes, return the extraction result directly — bypasses the LLM.
+    This is more reliable than prompt engineering for custom type detection.
+    """
+    from app.models.tally_masters import TallyVoucherType
+    custom_types = db.query(TallyVoucherType).filter(
+        TallyVoucherType.company_id == company_id,
+        TallyVoucherType.is_active == True,
+    ).all()
+
+    text_lower = text.lower()
+    # Check longest names first to avoid partial matches (e.g. "GST Bill" before "Bill")
+    custom_types_sorted = sorted(
+        [vt for vt in custom_types if vt.name.lower() not in _STANDARD_TALLY_TYPES],
+        key=lambda v: len(v.name), reverse=True,
+    )
+
+    matched = None
+    for vt in custom_types_sorted:
+        if vt.name.lower() in text_lower:
+            matched = vt
+            break
+
+    if not matched:
+        return None
+
+    import re
+    # Extract amount
+    amount_m = re.search(r'[₹]?\s*([\d,]+(?:\.\d+)?)', text)
+    amount = amount_m.group(1).replace(',', '') if amount_m else "0"
+
+    # Extract date (YYYY-MM-DD or natural language)
+    date_m = re.search(r'(\d{4}-\d{2}-\d{2})', text)
+    date_val = date_m.group(1) if date_m else ""
+    if not date_val:
+        # Natural language: "15 August 2026" / "1 September 2026"
+        nat_m = re.search(r'(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})', text, re.IGNORECASE)
+        if nat_m:
+            months = {"january":"01","february":"02","march":"03","april":"04","may":"05","june":"06",
+                      "july":"07","august":"08","september":"09","october":"10","november":"11","december":"12"}
+            date_val = f"{nat_m.group(3)}-{months[nat_m.group(2).lower()]}-{nat_m.group(1).zfill(2)}"
+
+    # Extract party — text after "for" but before "for ₹" / amount
+    party = ""
+    party_m = re.search(
+        rf'for\s+([A-Za-z\s&\'.]+?)(?:\s+for\s+[₹\d]|\s+[₹]\s*[\d]|\s+dated|\s+on\s+\d|,|$)',
+        text, re.IGNORECASE
+    )
+    if party_m:
+        candidate = party_m.group(1).strip()
+        # Discard if it looks like an amount
+        if not re.match(r'^[\d₹,\.]+$', candidate):
+            party = candidate
+
+    # Extract narration
+    narr_m = re.search(r'narration[:\s]+([^,\n]+)', text, re.IGNORECASE)
+    narration = narr_m.group(1).strip() if narr_m else ""
+
+    # Build payload based on parent type
+    parent = (matched.parent or "Sales").strip()
+    data_payload: dict = {
+        "voucher_type_name": matched.name,
+        "amount": amount,
+        "narration": narration,
+    }
+    if date_val:
+        data_payload["date"] = date_val
+    if parent in ("Sales", "Credit Note"):
+        data_payload["party_ledger"] = party
+        data_payload["sales_ledger"] = "Sales"
+    elif parent in ("Purchase", "Debit Note"):
+        data_payload["party_ledger"] = party
+        data_payload["purchase_ledger"] = "Purchases"
+    elif parent in ("Receipt", "Payment"):
+        data_payload["party_ledger"] = party
+        data_payload["account_ledger"] = "Cash"
+    elif parent == "Journal":
+        data_payload["dr_ledger"] = ""
+        data_payload["cr_ledger"] = ""
+    else:
+        data_payload["party_ledger"] = party
+
+    missing = []
+    if not party and parent not in ("Journal", "Contra"):
+        missing.append("party_ledger")
+    if not date_val:
+        missing.append("date")
+
+    return {
+        "entity_type": "custom_voucher",
+        "data": data_payload,
+        "confidence": 0.95,
+        "missing_fields": missing,
+    }
+
+
 @router.post("/extract-entity")
 def extract_entity(
     data: EntityExtractRequest,
@@ -337,6 +445,13 @@ def extract_entity(
     db: Session = Depends(get_db),
 ):
     """Extract structured entity data from natural language using AI."""
+    # DB-first: if text mentions a known custom voucher type, skip the LLM
+    custom_result = _detect_custom_voucher_type(data.text, current_user.company_id, db)
+    if custom_result:
+        audit_service.log(db, current_user.company_id, current_user.id, AuditAction.AI_QUERY,
+                          description=f"AI entity extraction (custom type match): {data.text[:100]}")
+        return custom_result
+
     agent = EntityAgent()
     result = agent.extract(data.text)
 

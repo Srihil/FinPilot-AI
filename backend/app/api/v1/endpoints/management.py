@@ -1016,6 +1016,7 @@ def delete_godown(
 class StockItemCreate(BaseModel):
     name: str
     stock_group: Optional[str] = None
+    stock_category: Optional[str] = None
     unit: Optional[str] = None
     rate: Optional[float] = 0.0
     opening_qty: Optional[float] = 0.0
@@ -1024,6 +1025,7 @@ class StockItemCreate(BaseModel):
 class StockItemUpdate(BaseModel):
     name: Optional[str] = None
     stock_group: Optional[str] = None
+    stock_category: Optional[str] = None
     unit: Optional[str] = None
     rate: Optional[float] = None
 
@@ -1053,6 +1055,7 @@ def list_stock_items(
             "id": str(r.id),
             "name": r.name,
             "stock_group": r.stock_group,
+            "stock_category": getattr(r, "stock_category", None),
             "unit": r.unit,
             "rate": r.rate,
             "source": r.source,
@@ -1088,6 +1091,7 @@ def create_stock_item(
         company_id=current_user.company_id,
         name=name,
         stock_group=data.stock_group or None,
+        stock_category=data.stock_category or None,
         unit=data.unit or None,
         rate=data.rate or 0.0,
         opening_qty=data.opening_qty or 0.0,
@@ -1141,6 +1145,7 @@ def create_stock_item(
         "id": str(item.id),
         "name": item.name,
         "stock_group": item.stock_group,
+        "stock_category": item.stock_category,
         "unit": item.unit,
         "rate": item.rate,
         "tally_sync_status": item.tally_sync_status,
@@ -1167,6 +1172,8 @@ def update_stock_item(
         item.name = data.name.strip()
     if data.stock_group is not None:
         item.stock_group = data.stock_group.strip() or None
+    if data.stock_category is not None:
+        item.stock_category = data.stock_category.strip() or None
     if data.unit is not None:
         item.unit = data.unit.strip() or None
     if data.rate is not None:

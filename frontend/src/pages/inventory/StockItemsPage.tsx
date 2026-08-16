@@ -12,7 +12,7 @@ import { toast } from '../../components/ui/use-toast';
 import { managementApi } from '../../api/endpoints';
 import { formatCurrency } from '../../utils/format';
 import { Combobox } from '../../components/ui/Combobox';
-import type { TallyStockItem, TallyUnit, TallyStockGroup } from '../../types';
+import type { TallyStockItem, TallyUnit, TallyStockGroup, StockCategory } from '../../types';
 
 export default function StockItemsPage() {
   const qc = useQueryClient();
@@ -24,6 +24,7 @@ export default function StockItemsPage() {
 
   const [formName, setFormName] = useState('');
   const [formGroup, setFormGroup] = useState('');
+  const [formCategory, setFormCategory] = useState('');
   const [formUnit, setFormUnit] = useState('');
   const [formRate, setFormRate] = useState('');
   const [formQty, setFormQty] = useState('');
@@ -45,11 +46,18 @@ export default function StockItemsPage() {
     staleTime: 60_000,
   });
 
+  const { data: categoriesData } = useQuery({
+    queryKey: ['stock-categories-all'],
+    queryFn: () => managementApi.stockCategories({ page_size: 200 }),
+    staleTime: 60_000,
+  });
+
 
   const createMut = useMutation({
     mutationFn: () => managementApi.createStockItem({
       name: formName.trim(),
       stock_group: formGroup || undefined,
+      stock_category: formCategory || undefined,
       unit: formUnit || undefined,
       rate: formRate ? parseFloat(formRate) : 0,
       opening_qty: formQty ? parseFloat(formQty) : 0,
@@ -68,6 +76,7 @@ export default function StockItemsPage() {
     mutationFn: () => managementApi.updateStockItem(editItem!.id, {
       name: formName || undefined,
       stock_group: formGroup || undefined,
+      stock_category: formCategory || undefined,
       unit: formUnit || undefined,
       rate: formRate ? parseFloat(formRate) : undefined,
     }),
@@ -93,10 +102,11 @@ export default function StockItemsPage() {
     },
   });
 
-  function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); setFormQty(''); }
+  function resetForm() { setFormName(''); setFormGroup(''); setFormCategory(''); setFormUnit(''); setFormRate(''); setFormQty(''); }
   function openEdit(item: TallyStockItem) {
     setFormName(item.name);
     setFormGroup(item.stock_group || '');
+    setFormCategory(item.stock_category || '');
     setFormUnit(item.unit || '');
     setFormRate(item.rate ? String(item.rate) : '');
     setEditItem(item);
@@ -130,6 +140,7 @@ export default function StockItemsPage() {
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
               <th className="px-4 py-3 text-left">Name</th>
               <th className="px-4 py-3 text-left">Group</th>
+              <th className="px-4 py-3 text-left">Category</th>
               <th className="px-4 py-3 text-left">Unit</th>
               <th className="px-4 py-3 text-right">Rate</th>
               <th className="px-4 py-3 text-center">Sync</th>
@@ -137,11 +148,16 @@ export default function StockItemsPage() {
             </tr></thead>
             <tbody>
               {data?.items.length === 0
-                ? <tr><td colSpan={6} className="text-center py-10 text-slate-400">No stock items found. Create one or sync from TallyPrime.</td></tr>
+                ? <tr><td colSpan={7} className="text-center py-10 text-slate-400">No stock items found. Create one or sync from TallyPrime.</td></tr>
                 : data?.items.map(item => (
                   <tr key={item.id} className="border-b hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium">{item.name}</td>
                     <td className="px-4 py-3 text-slate-500">{item.stock_group || '—'}</td>
+                    <td className="px-4 py-3">
+                      {item.stock_category
+                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-700 border border-violet-100">{item.stock_category}</span>
+                        : <span className="text-slate-400">—</span>}
+                    </td>
                     <td className="px-4 py-3 text-slate-500">{item.unit || '—'}</td>
                     <td className="px-4 py-3 text-right">{item.rate ? formatCurrency(item.rate) : '—'}</td>
                     <td className="px-4 py-3 text-center"><SyncBadge status={item.tally_sync_status} source={item.source} /></td>
@@ -168,6 +184,17 @@ export default function StockItemsPage() {
               onChange={setFormGroup}
               placeholder="Search groups…"
               clearLabel="— No group"
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label>Category <span className="text-slate-400 text-xs">(FinPilot only)</span></Label>
+            <Combobox
+              options={(categoriesData?.items ?? []).map((c: StockCategory) => c.name)}
+              value={formCategory}
+              onChange={setFormCategory}
+              placeholder="Search categories…"
+              clearLabel="— No category"
               className="mt-1"
             />
           </div>
@@ -201,6 +228,17 @@ export default function StockItemsPage() {
               onChange={setFormGroup}
               placeholder="Search groups…"
               clearLabel="— No group"
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label>Category <span className="text-slate-400 text-xs">(FinPilot only)</span></Label>
+            <Combobox
+              options={(categoriesData?.items ?? []).map((c: StockCategory) => c.name)}
+              value={formCategory}
+              onChange={setFormCategory}
+              placeholder="Search categories…"
+              clearLabel="— No category"
               className="mt-1"
             />
           </div>

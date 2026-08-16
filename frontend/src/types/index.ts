@@ -484,6 +484,7 @@ export interface TallyStockItem {
   id: string;
   name: string;
   stock_group?: string;
+  stock_category?: string;
   unit?: string;
   rate: number;
   source: TallySource;

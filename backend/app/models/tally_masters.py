@@ -117,6 +117,7 @@ class TallyStockItem(Base):
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     name = Column(String(500), nullable=False)
     stock_group = Column(String(255), nullable=True)
+    stock_category = Column(String(255), nullable=True)
     unit = Column(String(50), nullable=True)
     rate = Column(Float, default=0.0)
     opening_qty = Column(Float, default=0.0)

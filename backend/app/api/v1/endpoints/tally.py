@@ -93,13 +93,8 @@ def _translate_tally_error(error: str) -> str:
             "Leave the parent field empty to create a top-level record."
         )
     if "date is missing" in e or "voucher date" in e:
-        return (
-            "TallyPrime rejected the voucher. Check two things: "
-            "(1) The party or account ledger must exist in TallyPrime — "
-            "verify via Gateway of Tally → Accounts Info → Ledgers. "
-            "(2) The voucher date must be within the active financial year — "
-            "press F2 in TallyPrime to confirm the current period."
-        )
+        # Return raw Tally error so user/dev can see the exact message
+        return error
     if "date is required" in e or "invalid date format" in e:
         return (
             "Voucher date is missing or in an unrecognised format. "

@@ -28,6 +28,12 @@ export default function StockCategoriesPage() {
     queryFn: () => managementApi.stockCategories({ page, page_size: 20, search: search || undefined }),
   });
 
+  const { data: allCats } = useQuery({
+    queryKey: ['stock-categories-all'],
+    queryFn: () => managementApi.stockCategories({ page_size: 200 }),
+    staleTime: 60_000,
+  });
+
   const createMut = useMutation({
     mutationFn: () => managementApi.createStockCategory({ name: formName.trim(), parent: formParent || undefined, description: formDesc || undefined }),
     onSuccess: () => { toast({ title: 'Category created', description: 'Queued for TallyPrime sync.' }); qc.invalidateQueries({ queryKey: ['stock-categories'] }); setShowCreate(false); resetForm(); },
@@ -92,10 +98,21 @@ export default function StockCategoriesPage() {
 
       {totalPages > 1 && <div className="flex justify-between text-sm text-slate-500"><span>Page {page} of {totalPages}</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Prev</Button><Button variant="outline" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>Next</Button></div></div>}
 
+      {/* Shared datalist for parent category suggestions */}
+      <datalist id="cat-parent-list">
+        {(allCats?.items ?? []).map((c: StockCategory) => (
+          <option key={c.id} value={c.name} />
+        ))}
+      </datalist>
+
       <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>New Stock Category</DialogTitle></DialogHeader>
         <div className="space-y-3">
-          <div><Label>Name *</Label><Input value={formName} onChange={e=>setFormName(e.target.value)} placeholder="e.g. Electronics"/></div>
-          <div><Label>Parent Category</Label><Input value={formParent} onChange={e=>setFormParent(e.target.value)} placeholder="Leave empty for root"/></div>
+          <div><Label>Name *</Label><Input value={formName} onChange={e=>setFormName(e.target.value)} placeholder="e.g. Apple"/></div>
+          <div>
+            <Label>Parent Category</Label>
+            <Input value={formParent} onChange={e=>setFormParent(e.target.value)}
+              list="cat-parent-list" placeholder="Type to search or leave empty for root" className="mt-1"/>
+          </div>
           <div><Label>Description</Label><Input value={formDesc} onChange={e=>setFormDesc(e.target.value)} placeholder="Optional description"/></div>
         </div>
         <DialogFooter><Button variant="outline" onClick={()=>setShowCreate(false)}>Cancel</Button><Button onClick={()=>createMut.mutate()} disabled={!formName.trim()||createMut.isPending}>{createMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Create</Button></DialogFooter>
@@ -104,7 +121,11 @@ export default function StockCategoriesPage() {
       <Dialog open={!!editItem} onOpenChange={()=>setEditItem(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>Edit Category</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div><Label>Name</Label><Input value={formName} onChange={e=>setFormName(e.target.value)}/></div>
-          <div><Label>Parent</Label><Input value={formParent} onChange={e=>setFormParent(e.target.value)}/></div>
+          <div>
+            <Label>Parent</Label>
+            <Input value={formParent} onChange={e=>setFormParent(e.target.value)}
+              list="cat-parent-list" className="mt-1"/>
+          </div>
           <div><Label>Description</Label><Input value={formDesc} onChange={e=>setFormDesc(e.target.value)}/></div>
         </div>
         <DialogFooter><Button variant="outline" onClick={()=>setEditItem(null)}>Cancel</Button><Button onClick={()=>updateMut.mutate()} disabled={updateMut.isPending}>{updateMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Save</Button></DialogFooter>

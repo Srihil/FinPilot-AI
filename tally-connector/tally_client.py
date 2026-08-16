@@ -907,11 +907,14 @@ class TallyClient:
     # ── Write: Create stock item ──────────────────────────────────────────────
 
     def create_stock_item(self, payload: dict) -> dict:
-        name  = payload.get("name", "")
-        unit  = (payload.get("unit") or "").strip()
-        group = (payload.get("stock_group") or "").strip()
-        rate  = float(payload.get("rate", 0) or 0)
-        qty   = float(payload.get("opening_qty", 0) or 0)
+        name             = payload.get("name", "")
+        unit             = (payload.get("unit") or "").strip()
+        group            = (payload.get("stock_group") or "").strip()
+        rate             = float(payload.get("rate", 0) or 0)
+        qty              = float(payload.get("opening_qty", 0) or 0)
+        hsn_code         = (payload.get("hsn_code") or "").strip()
+        gst_rate         = payload.get("gst_rate")
+        type_of_supply   = (payload.get("type_of_supply") or "Goods").strip()
 
         parent_xml = f"<PARENT>{group}</PARENT>" if group and group.lower() not in ("", "primary") else ""
         unit_xml   = f"<BASEUNITS>{unit}</BASEUNITS>" if unit else ""
@@ -924,6 +927,16 @@ class TallyClient:
                 f"<OPENINGBALANCE>{qty} {unit}</OPENINGBALANCE>"
                 f"<OPENINGRATE>{rate}/{unit}</OPENINGRATE>"
                 f"<OPENINGVALUE>{value}</OPENINGVALUE>"
+            )
+
+        # GST / statutory fields
+        hsn_xml = f"<HSNCODE>{hsn_code}</HSNCODE>" if hsn_code else ""
+        gst_xml = ""
+        if gst_rate is not None:
+            gst_xml = (
+                f"<GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>"
+                f"<GSTTYPEOFSUPPLY>{type_of_supply}</GSTTYPEOFSUPPLY>"
+                f"<GSTRATEOFGST>{gst_rate}</GSTRATEOFGST>"
             )
 
         xml = f"""<ENVELOPE>
@@ -942,6 +955,8 @@ class TallyClient:
           {parent_xml}
           {unit_xml}
           {opening_xml}
+          {hsn_xml}
+          {gst_xml}
         </STOCKITEM>
       </TALLYMESSAGE>
     </DATA>

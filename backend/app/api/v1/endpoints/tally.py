@@ -95,6 +95,15 @@ def _translate_tally_error(error: str) -> str:
             "TallyPrime rejected the unit name. "
             "Ensure the unit symbol is a short abbreviation like 'Nos', 'Kgs', 'Ltr' with no spaces."
         )
+    if "does not exist" in e:
+        import re as _re
+        m = _re.search(r"'([^']+)' does not exist", error, _re.IGNORECASE)
+        missing = m.group(1) if m else "the specified record"
+        return (
+            f"TallyPrime could not find '{missing}'. "
+            "For stock categories, the Parent must be an existing stock category (not a stock group). "
+            "Leave Parent empty to create a root-level category."
+        )
     if "invalid name" in e:
         return "TallyPrime rejected the name — check for special characters or length."
     if "not a known" in e or "not found" in e or ("group" in e and ("primary" in e or "unknown" in e)):
@@ -778,7 +787,8 @@ def submit_job_result(
         PERMANENT_PHRASES = [
             "cannot be deleted", "cannot proceed", "already exists",
             "refused delete", "closed the connection unexpectedly",
-            "bad unit name", "duplicate original name", "invalid name", "not found",
+            "bad unit name", "duplicate original name", "invalid name",
+            "not found", "does not exist",
             # Date errors: date won't change between retries — fail immediately
             "date is missing", "voucher date",
             # Our own validation errors: connector already checked, no point retrying

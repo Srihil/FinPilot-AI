@@ -468,7 +468,7 @@ export const managementApi = {
     const res = await apiClient.get('/api/management/stock-items', { params });
     return res.data;
   },
-  createStockItem: async (data: { name: string; stock_group?: string; unit?: string; rate?: number; opening_qty?: number }): Promise<TallyStockItem> => {
+  createStockItem: async (data: { name: string; stock_group?: string; unit?: string; rate?: number; opening_qty?: number; hsn_code?: string; gst_rate?: number; type_of_supply?: string }): Promise<TallyStockItem> => {
     const res = await apiClient.post('/api/management/stock-items', data);
     return res.data;
   },

@@ -11,7 +11,6 @@ import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
 import { managementApi } from '../../api/endpoints';
 import { formatCurrency } from '../../utils/format';
-import { cn } from '../../utils/cn';
 import type { TallyStockItem, TallyUnit, TallyStockGroup } from '../../types';
 
 export default function StockItemsPage() {
@@ -24,11 +23,12 @@ export default function StockItemsPage() {
 
   const [formName, setFormName] = useState('');
   const [formGroup, setFormGroup] = useState('');
-  const [formGroupInput, setFormGroupInput] = useState('');
-  const [showGroupSuggestions, setShowGroupSuggestions] = useState(false);
   const [formUnit, setFormUnit] = useState('');
   const [formRate, setFormRate] = useState('');
   const [formQty, setFormQty] = useState('');
+  const [formHsn, setFormHsn] = useState('');
+  const [formGst, setFormGst] = useState('');
+  const [formSupply, setFormSupply] = useState('Goods');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stock-items', page, search],
@@ -47,9 +47,6 @@ export default function StockItemsPage() {
     staleTime: 60_000,
   });
 
-  const filteredGroups = (groupsData?.items ?? []).filter((g: TallyStockGroup) =>
-    !formGroupInput || g.name.toLowerCase().includes(formGroupInput.toLowerCase())
-  );
 
   const createMut = useMutation({
     mutationFn: () => managementApi.createStockItem({
@@ -58,6 +55,9 @@ export default function StockItemsPage() {
       unit: formUnit || undefined,
       rate: formRate ? parseFloat(formRate) : 0,
       opening_qty: formQty ? parseFloat(formQty) : 0,
+      hsn_code: formHsn || undefined,
+      gst_rate: formGst ? parseFloat(formGst) : undefined,
+      type_of_supply: formSupply || 'Goods',
     }),
     onSuccess: () => {
       toast({ title: 'Stock item created', description: 'Queued for TallyPrime sync.' });
@@ -98,10 +98,12 @@ export default function StockItemsPage() {
     },
   });
 
-  function resetForm() { setFormName(''); setFormGroup(''); setFormGroupInput(''); setFormUnit(''); setFormRate(''); setFormQty(''); }
+  function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); setFormQty(''); setFormHsn(''); setFormGst(''); setFormSupply('Goods'); }
   function openEdit(item: TallyStockItem) {
-    setFormName(item.name); setFormGroup(item.stock_group || '');
-    setFormUnit(item.unit || 'Nos'); setFormRate(item.rate ? String(item.rate) : '');
+    setFormName(item.name);
+    setFormGroup(item.stock_group || '');
+    setFormUnit(item.unit || '');
+    setFormRate(item.rate ? String(item.rate) : '');
     setEditItem(item);
   }
 
@@ -160,31 +162,23 @@ export default function StockItemsPage() {
 
       {totalPages > 1 && <div className="flex justify-between text-sm text-slate-500"><span>Page {page} of {totalPages}</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Prev</Button><Button variant="outline" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>Next</Button></div></div>}
 
-      <Dialog open={showCreate} onOpenChange={v => { setShowCreate(v); if (!v) setShowGroupSuggestions(false); }}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>New Stock Item</DialogTitle></DialogHeader>
+      <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>New Stock Item</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div><Label>Name *</Label><Input value={formName} onChange={e=>setFormName(e.target.value)} placeholder="e.g. Laptop" /></div>
-          <div className="relative">
+          <div>
             <Label>Stock Group</Label>
             <Input
-              value={formGroupInput}
-              onChange={e => { setFormGroupInput(e.target.value); setFormGroup(e.target.value); setShowGroupSuggestions(true); }}
-              onFocus={() => setShowGroupSuggestions(true)}
-              onBlur={() => setTimeout(() => setShowGroupSuggestions(false), 150)}
-              placeholder="Type to search groups (e.g. Electronics)…"
+              value={formGroup}
+              onChange={e => setFormGroup(e.target.value)}
+              list="sg-list-create"
+              placeholder="Type to search (e.g. Electronics)…"
               className="mt-1"
             />
-            {showGroupSuggestions && filteredGroups.length > 0 && (
-              <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                {filteredGroups.map((g: TallyStockGroup) => (
-                  <button key={g.id} type="button"
-                    onMouseDown={() => { setFormGroup(g.name); setFormGroupInput(g.name); setShowGroupSuggestions(false); }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 hover:text-indigo-700"
-                  >
-                    {g.name} {g.parent ? <span className="text-slate-400 text-xs">({g.parent})</span> : null}
-                  </button>
-                ))}
-              </div>
-            )}
+            <datalist id="sg-list-create">
+              {(groupsData?.items ?? []).map((g: TallyStockGroup) => (
+                <option key={g.id} value={g.name} />
+              ))}
+            </datalist>
           </div>
           <div>
             <Label>Unit</Label>
@@ -200,7 +194,29 @@ export default function StockItemsPage() {
             <div><Label>Opening Qty</Label><Input type="number" min="0" value={formQty} onChange={e=>setFormQty(e.target.value)} placeholder="0" /></div>
             <div><Label>Rate (₹)</Label><Input type="number" min="0" value={formRate} onChange={e=>setFormRate(e.target.value)} placeholder="0" /></div>
           </div>
-          <p className="text-xs text-slate-400">Opening Qty × Rate = Opening Balance shown in TallyPrime</p>
+          <p className="text-xs text-slate-400">Opening Qty × Rate = Opening Balance in TallyPrime</p>
+          <div className="border-t pt-3 space-y-3">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">GST / Statutory (optional)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>HSN / SAC Code</Label><Input value={formHsn} onChange={e=>setFormHsn(e.target.value)} placeholder="e.g. 8471" /></div>
+              <div><Label>GST Rate (%)</Label>
+                <select value={formGst} onChange={e=>setFormGst(e.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">
+                  <option value="">— As per group —</option>
+                  <option value="0">0%</option>
+                  <option value="5">5%</option>
+                  <option value="12">12%</option>
+                  <option value="18">18%</option>
+                  <option value="28">28%</option>
+                </select>
+              </div>
+            </div>
+            <div><Label>Type of Supply</Label>
+              <select value={formSupply} onChange={e=>setFormSupply(e.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">
+                <option value="Goods">Goods</option>
+                <option value="Services">Services</option>
+              </select>
+            </div>
+          </div>
         </div>
         <DialogFooter><Button variant="outline" onClick={()=>setShowCreate(false)}>Cancel</Button><Button onClick={()=>createMut.mutate()} disabled={!formName.trim()||createMut.isPending}>{createMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Create</Button></DialogFooter>
       </DialogContent></Dialog>
@@ -208,7 +224,15 @@ export default function StockItemsPage() {
       <Dialog open={!!editItem} onOpenChange={()=>setEditItem(null)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>Edit Stock Item</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div><Label>Name</Label><Input value={formName} onChange={e=>setFormName(e.target.value)}/></div>
-          <div><Label>Stock Group</Label><Input value={formGroup} onChange={e=>setFormGroup(e.target.value)}/></div>
+          <div>
+            <Label>Stock Group</Label>
+            <Input value={formGroup} onChange={e=>setFormGroup(e.target.value)} list="sg-list-edit" className="mt-1"/>
+            <datalist id="sg-list-edit">
+              {(groupsData?.items ?? []).map((g: TallyStockGroup) => (
+                <option key={g.id} value={g.name} />
+              ))}
+            </datalist>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Unit</Label>

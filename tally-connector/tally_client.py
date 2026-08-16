@@ -1310,6 +1310,165 @@ class TallyClient:
         created = root.find(".//CREATED")
         return {"created": int(created.text) if created is not None and created.text else 0}
 
+    # ── Write: Stock transaction vouchers ────────────────────────────────────
+
+    def _build_inv_entry(
+        self,
+        item: str, qty: float, unit: str, rate: float,
+        godown: str, is_deemed_positive: bool,
+    ) -> str:
+        """Build a single ALLINVENTORYENTRIES.LIST XML block."""
+        amount = round(qty * rate, 2)
+        # TallyPrime convention: goods IN (positive=Yes) → AMOUNT negative; goods OUT → positive
+        amount_str = f"-{amount}" if is_deemed_positive else str(amount)
+        deemed = "Yes" if is_deemed_positive else "No"
+        return (
+            f"        <ALLINVENTORYENTRIES.LIST>\n"
+            f"          <STOCKITEMNAME>{item}</STOCKITEMNAME>\n"
+            f"          <ISDEEMEDPOSITIVE>{deemed}</ISDEEMEDPOSITIVE>\n"
+            f"          <GODOWNNAME>{godown}</GODOWNNAME>\n"
+            f"          <RATE>{rate}/{unit}</RATE>\n"
+            f"          <AMOUNT>{amount_str}</AMOUNT>\n"
+            f"          <ACTUALQTY>{qty} {unit}</ACTUALQTY>\n"
+            f"          <BILLEDQTY>{qty} {unit}</BILLEDQTY>\n"
+            f"        </ALLINVENTORYENTRIES.LIST>"
+        )
+
+    def _inv_voucher_result(self, raw: str) -> dict:
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        altered = root.find(".//ALTERED")
+        return {
+            "created": int(created.text) if created is not None and created.text else 0,
+            "altered": int(altered.text) if altered is not None and altered.text else 0,
+        }
+
+    def create_stock_journal(self, payload: dict) -> dict:
+        """Transfer stock between godowns (Stock Journal voucher)."""
+        date        = self._require_date(payload, "Stock Journal")
+        txn_number  = payload.get("transaction_number") or self._vch_id()
+        narration   = payload.get("narration", "")
+        from_godown = (payload.get("from_godown") or "").strip() or "Main Location"
+        to_godown   = (payload.get("to_godown") or "").strip() or "Main Location"
+        entries     = payload.get("entries") or []
+
+        entry_blocks = []
+        for e in entries:
+            item   = e.get("stock_item_name", "")
+            qty    = float(e.get("quantity") or 0)
+            unit   = (e.get("unit") or "Nos").strip()
+            rate   = float(e.get("rate") or 0)
+            gd     = (e.get("godown") or "").strip()
+            src_gd = gd or from_godown
+            # Source: goods OUT of from_godown
+            entry_blocks.append(self._build_inv_entry(item, qty, unit, rate, src_gd, False))
+            # Destination: goods IN to to_godown
+            entry_blocks.append(self._build_inv_entry(item, qty, unit, rate, to_godown, True))
+
+        entries_xml = "\n".join(entry_blocks)
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/>
+    <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="Stock Journal" ACTION="Create" OBJVIEW="Inventory Voucher View">
+        <DATE>{date}</DATE>
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>Stock Journal</VOUCHERTYPENAME>
+        <VOUCHERNUMBER>{txn_number}</VOUCHERNUMBER>
+{entries_xml}
+      </VOUCHER>
+    </TALLYMESSAGE></DATA>
+  </BODY>
+</ENVELOPE>"""
+        return self._inv_voucher_result(self._post_xml(xml))
+
+    def create_physical_stock(self, payload: dict) -> dict:
+        """Adjust stock to physical count (Physical Stock voucher)."""
+        date       = self._require_date(payload, "Physical Stock")
+        txn_number = payload.get("transaction_number") or self._vch_id()
+        narration  = payload.get("narration", "")
+        entries    = payload.get("entries") or []
+
+        entry_blocks = []
+        for e in entries:
+            item  = e.get("stock_item_name", "")
+            qty   = float(e.get("quantity") or 0)
+            unit  = (e.get("unit") or "Nos").strip()
+            rate  = float(e.get("rate") or 0)
+            godown = (e.get("godown") or (payload.get("from_godown") or "")).strip() or "Main Location"
+            entry_blocks.append(self._build_inv_entry(item, qty, unit, rate, godown, True))
+
+        entries_xml = "\n".join(entry_blocks)
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/>
+    <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="Physical Stock" ACTION="Create" OBJVIEW="Inventory Voucher View">
+        <DATE>{date}</DATE>
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>Physical Stock</VOUCHERTYPENAME>
+        <VOUCHERNUMBER>{txn_number}</VOUCHERNUMBER>
+{entries_xml}
+      </VOUCHER>
+    </TALLYMESSAGE></DATA>
+  </BODY>
+</ENVELOPE>"""
+        return self._inv_voucher_result(self._post_xml(xml))
+
+    def _party_inv_voucher(
+        self, vchtype: str, payload: dict, is_deemed_positive: bool
+    ) -> dict:
+        """Build a party-based inventory voucher (Delivery Note / Receipt Note / Rejection In/Out)."""
+        date       = self._require_date(payload, vchtype)
+        txn_number = payload.get("transaction_number") or self._vch_id()
+        narration  = payload.get("narration", "")
+        party      = payload.get("party_name", "")
+        entries    = payload.get("entries") or []
+        from_godown = (payload.get("from_godown") or "").strip()
+
+        entry_blocks = []
+        for e in entries:
+            item   = e.get("stock_item_name", "")
+            qty    = float(e.get("quantity") or 0)
+            unit   = (e.get("unit") or "Nos").strip()
+            rate   = float(e.get("rate") or 0)
+            godown = (e.get("godown") or from_godown or "").strip() or "Main Location"
+            entry_blocks.append(self._build_inv_entry(item, qty, unit, rate, godown, is_deemed_positive))
+
+        entries_xml = "\n".join(entry_blocks)
+        party_xml = f"\n        <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>" if party else ""
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
+  <BODY><DESC/>
+    <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="{vchtype}" ACTION="Create" OBJVIEW="Inventory Voucher View">
+        <DATE>{date}</DATE>{party_xml}
+        <NARRATION>{narration}</NARRATION>
+        <VOUCHERTYPENAME>{vchtype}</VOUCHERTYPENAME>
+        <VOUCHERNUMBER>{txn_number}</VOUCHERNUMBER>
+{entries_xml}
+      </VOUCHER>
+    </TALLYMESSAGE></DATA>
+  </BODY>
+</ENVELOPE>"""
+        return self._inv_voucher_result(self._post_xml(xml))
+
+    def create_delivery_note(self, payload: dict) -> dict:
+        """Goods out to customer (Delivery Note, ISDEEMEDPOSITIVE=No → decreases stock)."""
+        return self._party_inv_voucher("Delivery Note", payload, is_deemed_positive=False)
+
+    def create_receipt_note(self, payload: dict) -> dict:
+        """Goods in from supplier (Receipt Note, ISDEEMEDPOSITIVE=Yes → increases stock)."""
+        return self._party_inv_voucher("Receipt Note", payload, is_deemed_positive=True)
+
+    def create_rejection_in(self, payload: dict) -> dict:
+        """Customer returns goods to you (Rejections In, ISDEEMEDPOSITIVE=Yes → increases stock)."""
+        return self._party_inv_voucher("Rejections In", payload, is_deemed_positive=True)
+
+    def create_rejection_out(self, payload: dict) -> dict:
+        """You return goods to supplier (Rejections Out, ISDEEMEDPOSITIVE=No → decreases stock)."""
+        return self._party_inv_voucher("Rejections Out", payload, is_deemed_positive=False)
+
     def create_contra_voucher(self, payload: dict) -> dict:
         """Cash/bank transfer between two cash or bank accounts."""
         vtype      = payload.get("voucher_type_name", "Contra")

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, Plus, Search, Loader2, AlertCircle, Trash2, Info } from 'lucide-react';
+import { ArrowLeftRight, Plus, Search, Loader2, AlertCircle, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -11,6 +11,7 @@ import { toast } from '../../components/ui/use-toast';
 import { cn } from '../../utils/cn';
 import { formatDate } from '../../utils/format';
 import apiClient from '../../api/client';
+import { SyncBadge } from '../../components/ui/SyncBadge';
 
 interface StockTxn {
   id: string;
@@ -109,11 +110,6 @@ export default function StockTransactionsPage() {
         <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2"><Plus className="w-4 h-4" /> New Transaction</Button>
       </div>
 
-      <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
-        <Info className="w-4 h-4 shrink-0 mt-0.5" />
-        <span>Stock transactions are <strong>local to FinPilot</strong>. TallyPrime sync (Stock Journal, Delivery Note vouchers) requires TDL configuration in the connector.</span>
-      </div>
-
       {/* Type filter tabs */}
       <div className="flex flex-wrap gap-2">
         <button onClick={() => { setTypeFilter(''); setPage(1); }} className={cn('px-3 py-1.5 rounded-full text-xs font-medium', !typeFilter ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>All</button>
@@ -130,10 +126,10 @@ export default function StockTransactionsPage() {
         : <table className="w-full text-sm">
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
               <th className="px-4 py-3 text-left">Number</th><th className="px-4 py-3 text-left">Type</th><th className="px-4 py-3 text-left">Date</th>
-              <th className="px-4 py-3 text-left">Party / Narration</th><th className="px-4 py-3 text-center">Items</th><th className="px-4 py-3 text-right">Actions</th>
+              <th className="px-4 py-3 text-left">Party / Narration</th><th className="px-4 py-3 text-center">Items</th><th className="px-4 py-3 text-left">Sync</th><th className="px-4 py-3 text-right">Actions</th>
             </tr></thead>
             <tbody>
-              {data?.items?.length === 0 ? <tr><td colSpan={6} className="text-center py-10 text-slate-400">No stock transactions yet.</td></tr>
+              {data?.items?.length === 0 ? <tr><td colSpan={7} className="text-center py-10 text-slate-400">No stock transactions yet.</td></tr>
               : data?.items?.map((t: StockTxn) => (
                 <tr key={t.id} className="border-b hover:bg-slate-50">
                   <td className="px-4 py-3 font-mono text-xs text-slate-700">{t.transaction_number}</td>
@@ -141,6 +137,7 @@ export default function StockTransactionsPage() {
                   <td className="px-4 py-3 text-slate-500 text-xs">{t.transaction_date ? formatDate(t.transaction_date) : '—'}</td>
                   <td className="px-4 py-3 text-slate-700 truncate max-w-xs">{t.party_name || t.narration || '—'}</td>
                   <td className="px-4 py-3 text-center text-slate-500">{t.entries?.length ?? 0}</td>
+                  <td className="px-4 py-3"><SyncBadge status={t.tally_sync_status} /></td>
                   <td className="px-4 py-3 text-right">
                     <button onClick={() => setDeleteItem(t)} className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
                   </td>
@@ -175,7 +172,7 @@ export default function StockTransactionsPage() {
             <div className="mt-2"><Input value={formUnit} onChange={e=>setFormUnit(e.target.value)} placeholder="Unit (e.g. Nos, Kg)"/></div>
           </div>
           <div><Label>Narration</Label><Input value={formNarration} onChange={e=>setFormNarration(e.target.value)} placeholder="Description"/></div>
-          <p className="text-xs text-slate-400">This transaction is stored locally in FinPilot. Tally sync requires TDL configuration.</p>
+          <p className="text-xs text-slate-400">Transaction will be synced to TallyPrime automatically if a connector is online.</p>
         </div>
         <DialogFooter><Button variant="outline" onClick={()=>setShowCreate(false)}>Cancel</Button>
           <Button onClick={()=>createMut.mutate()} disabled={createMut.isPending}>{createMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Create</Button>

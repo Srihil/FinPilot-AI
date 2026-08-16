@@ -44,6 +44,7 @@ class StockTransaction(Base):
     entries = Column(JSONB, nullable=True)
     # List of: [{stock_item_name, quantity, unit, rate, godown}]
 
+    tally_job_id = Column(UUID(as_uuid=True), nullable=True)
     tally_sync_status = Column(String(50), default="local_only")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

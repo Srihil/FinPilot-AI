@@ -331,11 +331,21 @@ def list_stock_transactions(
         "items": [_serialize_txn(t) for t in items],
         "total": total, "page": page, "page_size": page_size,
         "total_pages": max(1, (total + page_size - 1) // page_size),
-        "tally_note": "Stock transactions are local-only. TallyPrime sync requires TDL voucher configuration.",
+        "tally_note": "Stock transactions sync to TallyPrime when a connector is active.",
         "transaction_types": [
             {"value": k, "label": v} for k, v in TRANSACTION_TYPE_LABELS.items()
         ],
     }
+
+
+_TYPE_TO_OP = {
+    "STOCK_JOURNAL":  TallyJobOperation.CREATE_STOCK_JOURNAL,
+    "PHYSICAL_STOCK": TallyJobOperation.CREATE_PHYSICAL_STOCK,
+    "DELIVERY_NOTE":  TallyJobOperation.CREATE_DELIVERY_NOTE,
+    "RECEIPT_NOTE":   TallyJobOperation.CREATE_RECEIPT_NOTE,
+    "REJECTION_IN":   TallyJobOperation.CREATE_REJECTION_IN,
+    "REJECTION_OUT":  TallyJobOperation.CREATE_REJECTION_OUT,
+}
 
 
 @router.post("/stock-transactions")
@@ -373,6 +383,37 @@ def create_stock_transaction(
         tally_sync_status="local_only",
     )
     db.add(txn)
+    db.flush()
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+
+    if connector:
+        date_str = txn.transaction_date.strftime("%Y%m%d") if txn.transaction_date else ""
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            created_by=current_user.id,
+            operation=_TYPE_TO_OP[txn_type],
+            payload={
+                "transaction_number": txn.transaction_number,
+                "transaction_type":   txn.transaction_type,
+                "date":               date_str,
+                "narration":          txn.narration or "",
+                "party_name":         txn.party_name or "",
+                "from_godown":        txn.from_godown or "",
+                "to_godown":          txn.to_godown or "",
+                "entries":            txn.entries or [],
+            },
+            idempotency_key=f"create_stock_txn::{txn.id}",
+        )
+        db.add(job)
+        db.flush()
+        txn.tally_job_id = job.id
+        txn.tally_sync_status = "pending"
+
     db.commit()
     db.refresh(txn)
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.CREATE,

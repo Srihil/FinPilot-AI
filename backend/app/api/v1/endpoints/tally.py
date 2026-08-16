@@ -26,6 +26,7 @@ from app.models.tally_connector import TallyConnector, TallyPairingCode, Connect
 from app.models.tally_job import TallyIntegrationJob, JobStatus, TallyJobOperation, WRITE_OPERATIONS
 from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyStockItem, TallyUnit, TallyGodown, TallyGroup, TallyVoucherType
 from app.models.stock_category import StockCategory
+from app.models.stock_transaction import StockTransaction
 from app.models.invoice import Invoice
 from app.models.expense import Expense
 from app.models.user import User
@@ -64,6 +65,16 @@ _VOUCHER_CREATE_OPS = {
     TallyJobOperation.CREATE_CREDIT_NOTE,
     TallyJobOperation.CREATE_DEBIT_NOTE,
     TallyJobOperation.CREATE_CONTRA_VOUCHER,
+}
+
+# Stock transaction CREATE operations (track on StockTransaction)
+_STOCK_TXN_OPS = {
+    TallyJobOperation.CREATE_STOCK_JOURNAL,
+    TallyJobOperation.CREATE_PHYSICAL_STOCK,
+    TallyJobOperation.CREATE_DELIVERY_NOTE,
+    TallyJobOperation.CREATE_RECEIPT_NOTE,
+    TallyJobOperation.CREATE_REJECTION_IN,
+    TallyJobOperation.CREATE_REJECTION_OUT,
 }
 
 router = APIRouter(prefix="/tally", tags=["tally"])
@@ -742,6 +753,15 @@ def submit_job_result(
                         rec.tally_sync_status = "synced"
                         break
 
+        # Stock transaction CREATE confirmed → mark as synced
+        elif job.operation in _STOCK_TXN_OPS:
+            txn = db.query(StockTransaction).filter(
+                StockTransaction.tally_job_id == job.id,
+                StockTransaction.company_id == job.company_id,
+            ).first()
+            if txn:
+                txn.tally_sync_status = "synced"
+
         # CREATE confirmed → mark synced
         elif job.operation in _MASTER_MODELS:
             model = _MASTER_MODELS[job.operation]
@@ -855,6 +875,15 @@ def submit_job_result(
                         if rec:
                             db.delete(rec)
                             break
+
+            # Stock transaction CREATE permanently failed → mark as failed
+            elif job.operation in _STOCK_TXN_OPS:
+                txn = db.query(StockTransaction).filter(
+                    StockTransaction.tally_job_id == job.id,
+                    StockTransaction.company_id == job.company_id,
+                ).first()
+                if txn:
+                    txn.tally_sync_status = "failed"
     else:
         raise HTTPException(status_code=400, detail="status must be SUCCESS or FAILED")
 

@@ -129,6 +129,10 @@ ALLOWED_OPERATIONS = {
     "CREATE_RECEIPT_VOUCHER", "CREATE_PAYMENT_VOUCHER",
     "CREATE_JOURNAL_VOUCHER", "CREATE_CREDIT_NOTE", "CREATE_DEBIT_NOTE",
     "CREATE_CONTRA_VOUCHER",
+    # Stock transaction vouchers
+    "CREATE_STOCK_JOURNAL", "CREATE_PHYSICAL_STOCK",
+    "CREATE_DELIVERY_NOTE", "CREATE_RECEIPT_NOTE",
+    "CREATE_REJECTION_IN", "CREATE_REJECTION_OUT",
     # Voucher cancel (Tally-confirmed-first delete)
     "CANCEL_VOUCHER",
     # Sync
@@ -205,6 +209,18 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
             return tally.create_debit_note(payload), None
         if op == "CREATE_CONTRA_VOUCHER":
             return tally.create_contra_voucher(payload), None
+        if op == "CREATE_STOCK_JOURNAL":
+            return tally.create_stock_journal(payload), None
+        if op == "CREATE_PHYSICAL_STOCK":
+            return tally.create_physical_stock(payload), None
+        if op == "CREATE_DELIVERY_NOTE":
+            return tally.create_delivery_note(payload), None
+        if op == "CREATE_RECEIPT_NOTE":
+            return tally.create_receipt_note(payload), None
+        if op == "CREATE_REJECTION_IN":
+            return tally.create_rejection_in(payload), None
+        if op == "CREATE_REJECTION_OUT":
+            return tally.create_rejection_out(payload), None
         if op == "DELETE_LEDGER":
             return tally.delete_ledger(payload), None
         if op == "DELETE_STOCK_GROUP":

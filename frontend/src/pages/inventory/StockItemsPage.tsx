@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Package, Plus, Search, Loader2, AlertCircle, Pencil, Trash2,
-  FolderOpen, FolderClosed, Folder, Tag, Layers,
+  FolderOpen, FolderClosed, Folder, Layers,
   ChevronRight, ChevronDown,
 } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
@@ -17,29 +17,26 @@ import { Combobox } from '../../components/ui/Combobox';
 import { managementApi } from '../../api/endpoints';
 import { formatCurrency } from '../../utils/format';
 import { cn } from '../../utils/cn';
-import type { TallyStockItem, TallyUnit, TallyStockGroup, StockCategory } from '../../types';
+import type { TallyStockItem, TallyUnit, TallyStockGroup } from '../../types';
 
 // ─── Tree types ───────────────────────────────────────────────────────────────
 
 interface GroupNode extends TallyStockGroup {
   children: GroupNode[];
   depth: number;
-  catBuckets: { name: string; items: TallyStockItem[] }[];
-  directItems: TallyStockItem[];
+  items: TallyStockItem[];
 }
 
 type Row =
-  | { kind: 'group';    node: GroupNode }
-  | { kind: 'cat';      colId: string; catName: string; items: TallyStockItem[]; depth: number }
-  | { kind: 'item';     item: TallyStockItem; depth: number }
-  | { kind: 'ug-hdr';   colId: string; count: number }
-  | { kind: 'ug-cat';   colId: string; catName: string; items: TallyStockItem[] }
-  | { kind: 'ug-item';  item: TallyStockItem; depth: number };
+  | { kind: 'group';   node: GroupNode }
+  | { kind: 'item';    item: TallyStockItem; depth: number }
+  | { kind: 'ug-hdr'; colId: string; count: number }
+  | { kind: 'ug-item'; item: TallyStockItem; depth: number };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function countItems(node: GroupNode): number {
-  let n = node.directItems.length + node.catBuckets.reduce((s, b) => s + b.items.length, 0);
+  let n = node.items.length;
   for (const c of node.children) n += countItems(c);
   return n;
 }
@@ -47,7 +44,7 @@ function countItems(node: GroupNode): number {
 function buildHierarchy(groups: TallyStockGroup[], items: TallyStockItem[]) {
   const byName = new Map<string, GroupNode>();
   for (const g of groups) {
-    byName.set(g.name.toLowerCase(), { ...g, children: [], depth: 0, catBuckets: [], directItems: [] });
+    byName.set(g.name.toLowerCase(), { ...g, children: [], depth: 0, items: [] });
   }
   const roots: GroupNode[] = [];
   for (const g of groups) {
@@ -58,50 +55,24 @@ function buildHierarchy(groups: TallyStockGroup[], items: TallyStockItem[]) {
     else roots.push(node);
   }
 
-  const ugCatMap = new Map<string, TallyStockItem[]>();
-  const ugDirect: TallyStockItem[] = [];
-
+  const ugItems: TallyStockItem[] = [];
   for (const item of items) {
     const gNode = item.stock_group ? byName.get(item.stock_group.toLowerCase()) : null;
-    if (!gNode) {
-      if (item.stock_category) {
-        const arr = ugCatMap.get(item.stock_category) ?? [];
-        arr.push(item); ugCatMap.set(item.stock_category, arr);
-      } else ugDirect.push(item);
-    } else {
-      if (item.stock_category) {
-        let b = gNode.catBuckets.find(b => b.name === item.stock_category);
-        if (!b) { b = { name: item.stock_category, items: [] }; gNode.catBuckets.push(b); }
-        b.items.push(item);
-      } else gNode.directItems.push(item);
-    }
+    if (gNode) gNode.items.push(item);
+    else ugItems.push(item);
   }
 
   const sort = (ns: GroupNode[]) => {
     ns.sort((a, b) => a.name.localeCompare(b.name));
-    ns.forEach(n => {
-      sort(n.children);
-      n.catBuckets.sort((a, b) => a.name.localeCompare(b.name));
-      n.catBuckets.forEach(b => b.items.sort((a, b) => a.name.localeCompare(b.name)));
-      n.directItems.sort((a, b) => a.name.localeCompare(b.name));
-    });
+    ns.forEach(n => { sort(n.children); n.items.sort((a, b) => a.name.localeCompare(b.name)); });
   };
   sort(roots);
+  ugItems.sort((a, b) => a.name.localeCompare(b.name));
 
-  const ugCatBuckets = Array.from(ugCatMap.entries())
-    .map(([name, its]) => ({ name, items: its.sort((a, b) => a.name.localeCompare(b.name)) }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  ugDirect.sort((a, b) => a.name.localeCompare(b.name));
-
-  return { roots, ugCatBuckets, ugDirect };
+  return { roots, ugItems };
 }
 
-function flattenToRows(
-  roots: GroupNode[],
-  ugCatBuckets: { name: string; items: TallyStockItem[] }[],
-  ugDirect: TallyStockItem[],
-  collapsed: Set<string>,
-): Row[] {
+function flattenToRows(roots: GroupNode[], ugItems: TallyStockItem[], collapsed: Set<string>): Row[] {
   const rows: Row[] = [];
 
   const walkGroup = (node: GroupNode) => {
@@ -109,32 +80,18 @@ function flattenToRows(
     rows.push({ kind: 'group', node });
     if (collapsed.has(cId)) return;
     for (const child of node.children) walkGroup(child);
-    for (const b of node.catBuckets) {
-      const bId = `g:${node.id}:c:${b.name}`;
-      rows.push({ kind: 'cat', colId: bId, catName: b.name, items: b.items, depth: node.depth + 1 });
-      if (!collapsed.has(bId))
-        for (const item of b.items) rows.push({ kind: 'item', item, depth: node.depth + 2 });
-    }
-    for (const item of node.directItems) rows.push({ kind: 'item', item, depth: node.depth + 1 });
+    for (const item of node.items) rows.push({ kind: 'item', item, depth: node.depth + 1 });
   };
 
   for (const root of roots) walkGroup(root);
 
-  const hasUg = ugCatBuckets.length > 0 || ugDirect.length > 0;
-  if (hasUg) {
+  if (ugItems.length > 0) {
     const ugId = '__ug__';
-    const ugCount = ugCatBuckets.reduce((s, b) => s + b.items.length, 0) + ugDirect.length;
-    rows.push({ kind: 'ug-hdr', colId: ugId, count: ugCount });
-    if (!collapsed.has(ugId)) {
-      for (const b of ugCatBuckets) {
-        const bId = `__ug__:c:${b.name}`;
-        rows.push({ kind: 'ug-cat', colId: bId, catName: b.name, items: b.items });
-        if (!collapsed.has(bId))
-          for (const item of b.items) rows.push({ kind: 'ug-item', item, depth: 2 });
-      }
-      for (const item of ugDirect) rows.push({ kind: 'ug-item', item, depth: 1 });
-    }
+    rows.push({ kind: 'ug-hdr', colId: ugId, count: ugItems.length });
+    if (!collapsed.has(ugId))
+      for (const item of ugItems) rows.push({ kind: 'ug-item', item, depth: 1 });
   }
+
   return rows;
 }
 
@@ -150,7 +107,6 @@ export default function StockItemsPage() {
 
   const [formName, setFormName] = useState('');
   const [formGroup, setFormGroup] = useState('');
-  const [formCategory, setFormCategory] = useState('');
   const [formUnit, setFormUnit] = useState('');
   const [formRate, setFormRate] = useState('');
   const [formQty, setFormQty] = useState('');
@@ -172,12 +128,6 @@ export default function StockItemsPage() {
     staleTime: 60_000,
   });
 
-  const { data: categoriesData } = useQuery({
-    queryKey: ['stock-categories-all'],
-    queryFn: () => managementApi.stockCategories({ page_size: 500 }),
-    staleTime: 60_000,
-  });
-
   const allItems: TallyStockItem[] = itemsData?.items ?? [];
   const allGroups: TallyStockGroup[] = groupsData?.items ?? [];
 
@@ -186,19 +136,18 @@ export default function StockItemsPage() {
     const q = search.toLowerCase();
     return allItems.filter(i =>
       i.name.toLowerCase().includes(q) ||
-      (i.stock_group || '').toLowerCase().includes(q) ||
-      (i.stock_category || '').toLowerCase().includes(q)
+      (i.stock_group || '').toLowerCase().includes(q)
     );
   }, [allItems, search]);
 
-  const { roots, ugCatBuckets, ugDirect } = useMemo(
+  const { roots, ugItems } = useMemo(
     () => buildHierarchy(allGroups, filteredItems),
     [allGroups, filteredItems]
   );
 
   const rows = useMemo(
-    () => flattenToRows(roots, ugCatBuckets, ugDirect, search ? new Set() : collapsed),
-    [roots, ugCatBuckets, ugDirect, collapsed, search]
+    () => flattenToRows(roots, ugItems, search ? new Set() : collapsed),
+    [roots, ugItems, collapsed, search]
   );
 
   const toggle = (id: string) => setCollapsed(prev => {
@@ -207,19 +156,17 @@ export default function StockItemsPage() {
 
   const collapseAll = () => {
     const ids = new Set<string>();
-    const walk = (ns: GroupNode[]) => {
-      for (const n of ns) { ids.add(`g:${n.id}`); n.catBuckets.forEach(b => ids.add(`g:${n.id}:c:${b.name}`)); walk(n.children); }
-    };
+    const walk = (ns: GroupNode[]) => { for (const n of ns) { ids.add(`g:${n.id}`); walk(n.children); } };
     walk(roots);
-    ugCatBuckets.forEach(b => ids.add(`__ug__:c:${b.name}`));
-    if (ugCatBuckets.length > 0 || ugDirect.length > 0) ids.add('__ug__');
+    if (ugItems.length > 0) ids.add('__ug__');
     setCollapsed(ids);
   };
 
   const createMut = useMutation({
     mutationFn: () => managementApi.createStockItem({
-      name: formName.trim(), stock_group: formGroup || undefined, stock_category: formCategory || undefined,
-      unit: formUnit || undefined, rate: formRate ? parseFloat(formRate) : 0, opening_qty: formQty ? parseFloat(formQty) : 0,
+      name: formName.trim(), stock_group: formGroup || undefined,
+      unit: formUnit || undefined, rate: formRate ? parseFloat(formRate) : 0,
+      opening_qty: formQty ? parseFloat(formQty) : 0,
     }),
     onSuccess: () => {
       toast({ title: 'Stock item created', description: 'Queued for TallyPrime sync.' });
@@ -232,7 +179,7 @@ export default function StockItemsPage() {
 
   const updateMut = useMutation({
     mutationFn: () => managementApi.updateStockItem(editItem!.id, {
-      name: formName || undefined, stock_group: formGroup || undefined, stock_category: formCategory || undefined,
+      name: formName || undefined, stock_group: formGroup || undefined,
       unit: formUnit || undefined, rate: formRate ? parseFloat(formRate) : undefined,
     }),
     onSuccess: () => {
@@ -255,16 +202,14 @@ export default function StockItemsPage() {
       toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' }),
   });
 
-  function resetForm() {
-    setFormName(''); setFormGroup(''); setFormCategory(''); setFormUnit(''); setFormRate(''); setFormQty('');
-  }
+  function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); setFormQty(''); }
   function openEdit(item: TallyStockItem) {
-    setFormName(item.name); setFormGroup(item.stock_group || ''); setFormCategory(item.stock_category || '');
-    setFormUnit(item.unit || ''); setFormRate(item.rate ? String(item.rate) : ''); setEditItem(item);
+    setFormName(item.name); setFormGroup(item.stock_group || '');
+    setFormUnit(item.unit || ''); setFormRate(item.rate ? String(item.rate) : '');
+    setEditItem(item);
   }
 
   const groupOpts = allGroups.map(g => g.name);
-  const catOpts = (categoriesData?.items ?? []).map((c: StockCategory) => c.name);
   const unitItems = unitsData?.items ?? [];
 
   return (
@@ -276,7 +221,7 @@ export default function StockItemsPage() {
             <Package className="w-6 h-6 text-indigo-600" /> Stock Items
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {allItems.length} item{allItems.length !== 1 ? 's' : ''} · Group → Category → Item hierarchy
+            {allItems.length} item{allItems.length !== 1 ? 's' : ''} · Group → Item hierarchy
           </p>
         </div>
         <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2">
@@ -289,7 +234,7 @@ export default function StockItemsPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
           <Input
-            placeholder="Search items, groups, categories…"
+            placeholder="Search items or groups…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="pl-9"
@@ -303,19 +248,12 @@ export default function StockItemsPage() {
         )}
       </div>
 
-      {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-slate-400">
-        <span className="flex items-center gap-1"><FolderOpen className="w-3.5 h-3.5 text-amber-400" /> Stock Group</span>
-        <span className="flex items-center gap-1"><Tag className="w-3.5 h-3.5 text-violet-400" /> Category</span>
-        <span className="flex items-center gap-1"><Package className="w-3.5 h-3.5 text-indigo-400" /> Item</span>
-      </div>
-
       {/* Tree */}
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-6 space-y-3">
-              {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-9 w-full" style={{ marginLeft: (i % 4) * 20 }} />)}
+              {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-9 w-full" style={{ marginLeft: (i % 3) * 20 }} />)}
             </div>
           ) : isError ? (
             <div className="flex items-center gap-2 p-6 text-red-600"><AlertCircle className="w-5 h-5" /> Failed to load stock items.</div>
@@ -340,7 +278,7 @@ export default function StockItemsPage() {
                     const n = row.node;
                     const cId = `g:${n.id}`;
                     const isCol = collapsed.has(cId);
-                    const hasChildren = n.children.length + n.catBuckets.length + n.directItems.length > 0;
+                    const hasChildren = n.children.length + n.items.length > 0;
                     const ic = countItems(n);
                     return (
                       <tr key={cId} className="border-b bg-amber-50/50 hover:bg-amber-50">
@@ -367,28 +305,7 @@ export default function StockItemsPage() {
                     );
                   }
 
-                  // ── Category bucket under group
-                  if (row.kind === 'cat') {
-                    const isCol = collapsed.has(row.colId);
-                    return (
-                      <tr key={`cat-${i}`} className="border-b hover:bg-violet-50/40">
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-1.5" style={{ paddingLeft: row.depth * 20 }}>
-                            <span className="text-slate-300 select-none text-sm">└</span>
-                            <button onClick={() => toggle(row.colId)} className="p-0.5 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-100">
-                              {isCol ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                            </button>
-                            <Tag className="w-3.5 h-3.5 text-violet-400 shrink-0" />
-                            <span className="font-medium text-violet-800 text-xs">{row.catName}</span>
-                            <span className="ml-1 text-xs bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full">{row.items.length}</span>
-                          </div>
-                        </td>
-                        <td /><td /><td />
-                      </tr>
-                    );
-                  }
-
-                  // ── Stock item
+                  // ── Stock item under a group
                   if (row.kind === 'item') {
                     const item = row.item;
                     return (
@@ -428,27 +345,6 @@ export default function StockItemsPage() {
                             <Layers className="w-4 h-4 text-slate-400 shrink-0" />
                             <span className="font-medium text-slate-500 italic">Ungrouped</span>
                             <span className="ml-1 text-xs bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded-full">{row.count}</span>
-                          </div>
-                        </td>
-                        <td /><td /><td />
-                      </tr>
-                    );
-                  }
-
-                  // ── Ungrouped category bucket
-                  if (row.kind === 'ug-cat') {
-                    const isCol = collapsed.has(row.colId);
-                    return (
-                      <tr key={`ugcat-${i}`} className="border-b hover:bg-violet-50/40">
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-1.5 pl-5">
-                            <span className="text-slate-300 select-none text-sm">└</span>
-                            <button onClick={() => toggle(row.colId)} className="p-0.5 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-100">
-                              {isCol ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                            </button>
-                            <Tag className="w-3.5 h-3.5 text-violet-400 shrink-0" />
-                            <span className="font-medium text-violet-800 text-xs">{row.catName}</span>
-                            <span className="ml-1 text-xs bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full">{row.items.length}</span>
                           </div>
                         </td>
                         <td /><td /><td />
@@ -501,10 +397,6 @@ export default function StockItemsPage() {
               <Combobox options={groupOpts} value={formGroup} onChange={setFormGroup} placeholder="Search groups…" clearLabel="— No group" className="mt-1" />
             </div>
             <div>
-              <Label>Category</Label>
-              <Combobox options={catOpts} value={formCategory} onChange={setFormCategory} placeholder="Search categories…" clearLabel="— No category" className="mt-1" />
-            </div>
-            <div>
               <Label>Unit</Label>
               <select value={formUnit} onChange={e => setFormUnit(e.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">
                 <option value="">— No unit —</option>
@@ -535,10 +427,6 @@ export default function StockItemsPage() {
             <div>
               <Label>Stock Group</Label>
               <Combobox options={groupOpts} value={formGroup} onChange={setFormGroup} placeholder="Search groups…" clearLabel="— No group" className="mt-1" />
-            </div>
-            <div>
-              <Label>Category</Label>
-              <Combobox options={catOpts} value={formCategory} onChange={setFormCategory} placeholder="Search categories…" clearLabel="— No category" className="mt-1" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

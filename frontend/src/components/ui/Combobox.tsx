@@ -24,74 +24,94 @@ export function Combobox({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const portalRef = useRef<HTMLDivElement>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
 
-  // Keep input display in sync when value changes from outside
+  // Ref flag set by capture-phase mousedown on the portal, checked in onBlur
+  // This is the reliable way to prevent blur from closing the dropdown when
+  // the user clicks an option — relatedTarget is unreliable for portal elements
+  const clickingOptionRef = useRef(false);
+
+  // Sync display when value changes externally (e.g. clear from parent)
   useEffect(() => {
     if (!open) setQuery(value);
   }, [value, open]);
+
+  // Capture-phase native listener: fires before blur, marks that a portal click
+  // is in progress so the blur handler knows not to close the dropdown
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (portalRef.current?.contains(e.target as Node)) {
+        clickingOptionRef.current = true;
+      }
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, [open]);
 
   const filtered = options.filter(o =>
     !query || o.toLowerCase().includes(query.toLowerCase())
   );
 
   const openDropdown = () => {
-    if (inputRef.current) {
-      setRect(inputRef.current.closest('[data-combobox-wrap]')!.getBoundingClientRect());
-    }
+    const wrap = inputRef.current?.closest('[data-combobox-wrap]');
+    if (wrap) setRect(wrap.getBoundingClientRect());
     setOpen(true);
   };
 
   const select = (opt: string) => {
+    clickingOptionRef.current = false;
     onChange(opt);
     setQuery(opt);
     setOpen(false);
   };
 
-  const clear = () => {
+  const clear = (e: React.MouseEvent) => {
+    e.preventDefault();
     onChange('');
     setQuery('');
     setOpen(false);
     inputRef.current?.focus();
   };
 
-  const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setQuery(e.target.value);
-    if (!open) openDropdown();
-    // If user clears the input, clear the selection too
-    if (!e.target.value) onChange('');
-  };
-
-  const handleFocus = () => {
-    // Select all text so user can start typing immediately
-    inputRef.current?.select();
-    openDropdown();
-  };
-
-  const handleBlur = (e: React.FocusEvent) => {
-    // Don't close if focus moves to portal dropdown
-    if (portalRef.current?.contains(e.relatedTarget as Node)) return;
-    // Restore display to selected value if query doesn't match exactly
+  const handleBlur = () => {
+    if (clickingOptionRef.current) {
+      // User is clicking an option — keep dropdown open, let click fire
+      clickingOptionRef.current = false;
+      inputRef.current?.focus();
+      return;
+    }
+    // Clicked outside — restore display and close
     setTimeout(() => {
       setQuery(value);
       setOpen(false);
     }, 100);
   };
 
+  const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setQuery(e.target.value);
+    if (!open) openDropdown();
+    if (!e.target.value) onChange('');
+  };
+
+  const handleFocus = () => {
+    inputRef.current?.select();
+    openDropdown();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { setQuery(value); setOpen(false); }
-    if (e.key === 'Enter' && filtered.length === 1) { select(filtered[0]); }
+    if (e.key === 'Enter' && filtered.length >= 1) select(filtered[0]);
     if (e.key === 'ArrowDown' && !open) openDropdown();
   };
 
-  // Reposition on scroll/resize
+  // Reposition on scroll / resize
   useEffect(() => {
     if (!open) return;
     const update = () => {
-      const el = inputRef.current?.closest('[data-combobox-wrap]');
-      if (el) setRect(el.getBoundingClientRect());
+      const wrap = inputRef.current?.closest('[data-combobox-wrap]');
+      if (wrap) setRect(wrap.getBoundingClientRect());
     };
     window.addEventListener('scroll', update, true);
     window.addEventListener('resize', update);
@@ -102,7 +122,7 @@ export function Combobox({
   }, [open]);
 
   return (
-    <div ref={wrapperRef} data-combobox-wrap className={cn('relative', className)}>
+    <div data-combobox-wrap className={cn('relative', className)}>
       <div className="relative flex items-center">
         <input
           ref={inputRef}
@@ -115,7 +135,8 @@ export function Combobox({
           placeholder={placeholder}
           className={cn(
             'flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm',
-            'focus:outline-none focus:ring-1 focus:ring-ring transition-colors pr-16',
+            'focus:outline-none focus:ring-1 focus:ring-ring transition-colors',
+            value ? 'pr-16' : 'pr-9',
             open && 'ring-1 ring-ring border-ring',
           )}
         />
@@ -123,7 +144,7 @@ export function Combobox({
           {value && (
             <button
               type="button"
-              onMouseDown={e => { e.preventDefault(); clear(); }}
+              onMouseDown={clear}
               className="p-1 rounded text-slate-400 hover:text-slate-700"
               tabIndex={-1}
             >

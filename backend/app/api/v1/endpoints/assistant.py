@@ -33,45 +33,52 @@ import uuid
 logger = logging.getLogger(__name__)
 
 
-def _parse_date(date_str: str) -> datetime:
+def _parse_date(date_str) -> datetime:
     """
     Parse a date string in any common format into datetime.
-    Handles: ISO (2026-08-01), natural language (1 August 2026, August 1 2026),
-    YYYYMMDD (20260801), DD-MM-YYYY, DD/MM/YYYY, etc.
+    Handles: ISO (2026-08-01), YYYYMMDD (20260801), natural language
+    (1 August 2026, August 1, 2026), DD/MM/YYYY, DD-MM-YYYY, etc.
     Falls back to today if nothing matches.
     """
     if not date_str:
         return datetime.now(timezone.utc)
 
-    # Try ISO format
-    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
-        try:
-            return datetime.strptime(date_str[:len(fmt)], fmt).replace(tzinfo=timezone.utc)
-        except (ValueError, TypeError):
-            pass
+    s = str(date_str).strip()
 
-    # Try YYYYMMDD
-    if len(date_str) == 8 and date_str.isdigit():
+    # YYYYMMDD — 8 digits, no separators
+    if len(s) == 8 and s.isdigit():
         try:
-            return datetime.strptime(date_str, "%Y%m%d").replace(tzinfo=timezone.utc)
+            return datetime.strptime(s, "%Y%m%d").replace(tzinfo=timezone.utc)
         except ValueError:
             pass
 
-    # Try natural language and other formats
+    # ISO date — 2026-09-01 or 2026-09-01T...
+    try:
+        return datetime.fromisoformat(s[:10]).replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        pass
+
+    # Natural language and regional formats
     for fmt in (
-        "%d %B %Y", "%d %b %Y", "%B %d, %Y", "%b %d, %Y",
-        "%d-%B-%Y", "%d-%b-%Y", "%d/%m/%Y", "%m/%d/%Y",
-        "%d-%m-%Y", "%d.%m.%Y", "%B %d %Y", "%b %d %Y",
+        "%d %B %Y",   # 1 September 2026
+        "%d %b %Y",   # 1 Sep 2026
+        "%B %d, %Y",  # September 1, 2026
+        "%b %d, %Y",  # Sep 1, 2026
+        "%B %d %Y",   # September 1 2026
+        "%d-%m-%Y",   # 01-09-2026
+        "%d/%m/%Y",   # 01/09/2026
+        "%m/%d/%Y",   # 09/01/2026
+        "%d.%m.%Y",   # 01.09.2026
     ):
         try:
-            return datetime.strptime(date_str.strip(), fmt).replace(tzinfo=timezone.utc)
+            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
         except (ValueError, TypeError):
             pass
 
-    # Last resort: dateutil (handles almost anything)
+    # Last resort: dateutil
     try:
         from dateutil import parser as du_parser
-        return du_parser.parse(date_str, dayfirst=True).replace(tzinfo=timezone.utc)
+        return du_parser.parse(s, dayfirst=True).replace(tzinfo=timezone.utc)
     except Exception:
         pass
 

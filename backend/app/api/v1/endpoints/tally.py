@@ -86,6 +86,17 @@ def _translate_tally_error(error: str) -> str:
             "'Primary' and 'Main Location' are implicit roots and cannot be referenced by name. "
             "Leave the parent field empty to create a top-level record."
         )
+    if "date is missing" in e or "voucher date" in e:
+        return (
+            "TallyPrime rejected the voucher: the date is outside your active financial year. "
+            "In TallyPrime, press F2 (or go to Gateway of Tally → Change Period) and open "
+            "the financial year that includes this date, then retry."
+        )
+    if "date is required" in e or "invalid date format" in e:
+        return (
+            "Voucher date is missing or in an unrecognised format. "
+            "Please specify a date like '1 September 2026' or '2026-09-01' and try again."
+        )
     return error or "Unknown TallyPrime error."
 
 
@@ -728,6 +739,10 @@ def submit_job_result(
             "cannot be deleted", "cannot proceed", "already exists",
             "refused delete", "closed the connection unexpectedly",
             "invalid name", "not found",
+            # Date errors: date won't change between retries — fail immediately
+            "date is missing", "voucher date",
+            # Our own validation errors: connector already checked, no point retrying
+            "date is required", "invalid date format",
         ]
         is_permanent = any(p in raw_error.lower() for p in PERMANENT_PHRASES)
 

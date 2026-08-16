@@ -403,6 +403,15 @@ class TallyClient:
         return f"FP-{int(time.time() * 1000) % 100000000:08d}"
 
     @staticmethod
+    def _fy_dates(date_yyyymmdd: str) -> tuple:
+        """Return (fy_start, fy_end) in YYYYMMDD for the Indian FY containing the given date."""
+        year = int(date_yyyymmdd[:4])
+        month = int(date_yyyymmdd[4:6])
+        if month >= 4:
+            return f"{year}0401", f"{year + 1}0331"
+        return f"{year - 1}0401", f"{year}0331"
+
+    @staticmethod
     def _require_date(payload: dict, voucher_type: str) -> str:
         """
         Extract and validate the date from payload.
@@ -774,10 +783,18 @@ class TallyClient:
         amount        = str(payload.get("amount", "0")).lstrip("-")
         narration     = payload.get("narration", "")
         vnum          = payload.get("voucher_number") or self._vch_id()
+        fy_start, fy_end = self._fy_dates(date)
 
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/><DATA>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
@@ -822,10 +839,18 @@ class TallyClient:
         amount           = str(payload.get("amount", "0")).lstrip("-")
         narration        = payload.get("narration", "")
         vnum             = payload.get("voucher_number") or self._vch_id()
+        fy_start, fy_end = self._fy_dates(date)
 
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/><DATA>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
@@ -1028,9 +1053,17 @@ class TallyClient:
         amount    = str(payload.get("amount", "0")).lstrip("-")
         narration = payload.get("narration", "Receipt")
         vnum      = payload.get("voucher_number") or self._vch_id()
+        fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/><DATA>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
@@ -1067,9 +1100,17 @@ class TallyClient:
         amount    = str(payload.get("amount", "0")).lstrip("-")
         narration = payload.get("narration", "Payment")
         vnum      = payload.get("voucher_number") or self._vch_id()
+        fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/><DATA>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
@@ -1106,9 +1147,17 @@ class TallyClient:
         amount    = str(payload.get("amount", "0")).lstrip("-")
         narration = payload.get("narration", "Journal Entry")
         vnum      = payload.get("voucher_number") or self._vch_id()
+        fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/><DATA>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
@@ -1144,9 +1193,17 @@ class TallyClient:
         amount        = str(payload.get("amount", "0")).lstrip("-")
         narration     = payload.get("narration", "Sales Return")
         vnum          = payload.get("voucher_number") or self._vch_id()
+        fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/><DATA>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
@@ -1185,9 +1242,17 @@ class TallyClient:
         amount           = str(payload.get("amount", "0")).lstrip("-")
         narration        = payload.get("narration", "Purchase Return")
         vnum             = payload.get("voucher_number") or self._vch_id()
+        fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/><DATA>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
@@ -1226,9 +1291,17 @@ class TallyClient:
         amount     = str(payload.get("amount", "0")).lstrip("-")
         narration  = payload.get("narration", "Fund Transfer")
         vnum       = payload.get("voucher_number") or self._vch_id()
+        fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/><DATA>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>

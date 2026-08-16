@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Check, Search } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
 interface ComboboxProps {
@@ -17,62 +17,81 @@ export function Combobox({
   options,
   value,
   onChange,
-  placeholder = 'Type to search…',
+  placeholder = 'Search…',
   emptyLabel = 'No matches',
-  clearLabel = '— Clear selection',
   className,
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const portalRef = useRef<HTMLDivElement>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
+
+  // Keep input display in sync when value changes from outside
+  useEffect(() => {
+    if (!open) setQuery(value);
+  }, [value, open]);
 
   const filtered = options.filter(o =>
     !query || o.toLowerCase().includes(query.toLowerCase())
   );
 
-  const openDropdown = useCallback(() => {
+  const openDropdown = () => {
     if (inputRef.current) {
-      setRect(inputRef.current.getBoundingClientRect());
-      setQuery('');
+      setRect(inputRef.current.closest('[data-combobox-wrap]')!.getBoundingClientRect());
     }
     setOpen(true);
-  }, []);
+  };
 
   const select = (opt: string) => {
     onChange(opt);
+    setQuery(opt);
     setOpen(false);
-    setQuery('');
   };
 
   const clear = () => {
     onChange('');
-    setOpen(false);
     setQuery('');
+    setOpen(false);
+    inputRef.current?.focus();
   };
 
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (
-        portalRef.current && !portalRef.current.contains(e.target as Node) &&
-        inputRef.current && !inputRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-        setQuery('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+  const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setQuery(e.target.value);
+    if (!open) openDropdown();
+    // If user clears the input, clear the selection too
+    if (!e.target.value) onChange('');
+  };
+
+  const handleFocus = () => {
+    // Select all text so user can start typing immediately
+    inputRef.current?.select();
+    openDropdown();
+  };
+
+  const handleBlur = (e: React.FocusEvent) => {
+    // Don't close if focus moves to portal dropdown
+    if (portalRef.current?.contains(e.relatedTarget as Node)) return;
+    // Restore display to selected value if query doesn't match exactly
+    setTimeout(() => {
+      setQuery(value);
+      setOpen(false);
+    }, 100);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { setQuery(value); setOpen(false); }
+    if (e.key === 'Enter' && filtered.length === 1) { select(filtered[0]); }
+    if (e.key === 'ArrowDown' && !open) openDropdown();
+  };
 
   // Reposition on scroll/resize
   useEffect(() => {
     if (!open) return;
     const update = () => {
-      if (inputRef.current) setRect(inputRef.current.getBoundingClientRect());
+      const el = inputRef.current?.closest('[data-combobox-wrap]');
+      if (el) setRect(el.getBoundingClientRect());
     };
     window.addEventListener('scroll', update, true);
     window.addEventListener('resize', update);
@@ -82,37 +101,46 @@ export function Combobox({
     };
   }, [open]);
 
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setOpen(false); setQuery(''); }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open]);
-
   return (
-    <div className={cn('relative', className)}>
-      {/* Trigger button — shows selected value */}
-      <button
-        type="button"
-        ref={inputRef as unknown as React.RefObject<HTMLButtonElement>}
-        onClick={() => (open ? setOpen(false) : openDropdown())}
-        className={cn(
-          'flex items-center justify-between w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm',
-          'focus:outline-none focus:ring-1 focus:ring-ring transition-colors',
-          'hover:border-slate-400',
-          open && 'ring-1 ring-ring border-ring',
-        )}
-      >
-        <span className={value ? 'text-slate-900' : 'text-slate-400'}>
-          {value || placeholder}
-        </span>
-        <ChevronDown className={cn('w-4 h-4 text-slate-400 transition-transform shrink-0', open && 'rotate-180')} />
-      </button>
+    <div ref={wrapperRef} data-combobox-wrap className={cn('relative', className)}>
+      <div className="relative flex items-center">
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={handleInput}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          className={cn(
+            'flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm',
+            'focus:outline-none focus:ring-1 focus:ring-ring transition-colors pr-16',
+            open && 'ring-1 ring-ring border-ring',
+          )}
+        />
+        <div className="absolute right-2 flex items-center gap-0.5">
+          {value && (
+            <button
+              type="button"
+              onMouseDown={e => { e.preventDefault(); clear(); }}
+              className="p-1 rounded text-slate-400 hover:text-slate-700"
+              tabIndex={-1}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onMouseDown={e => { e.preventDefault(); open ? setOpen(false) : openDropdown(); inputRef.current?.focus(); }}
+            className="p-1 rounded text-slate-400 hover:text-slate-600"
+            tabIndex={-1}
+          >
+            <ChevronDown className={cn('w-4 h-4 transition-transform', open && 'rotate-180')} />
+          </button>
+        </div>
+      </div>
 
-      {/* Portal dropdown */}
       {open && rect && createPortal(
         <div
           ref={portalRef}
@@ -125,33 +153,7 @@ export function Combobox({
           }}
           className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
         >
-          {/* Search input */}
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
-            <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <input
-              autoFocus
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search…"
-              className="flex-1 text-sm outline-none bg-transparent text-slate-700 placeholder:text-slate-400"
-            />
-          </div>
-
-          {/* Options list */}
           <ul className="max-h-52 overflow-y-auto py-1">
-            {/* Clear option */}
-            {value && (
-              <li>
-                <button
-                  type="button"
-                  onMouseDown={() => clear()}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-400 hover:bg-slate-50 hover:text-slate-600 italic"
-                >
-                  {clearLabel}
-                </button>
-              </li>
-            )}
-
             {filtered.length === 0 ? (
               <li className="px-3 py-3 text-sm text-slate-400 text-center">{emptyLabel}</li>
             ) : (
@@ -161,13 +163,12 @@ export function Combobox({
                     type="button"
                     onMouseDown={() => select(opt)}
                     className={cn(
-                      'w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors',
+                      'w-full text-left px-3 py-2 text-sm transition-colors',
                       opt === value
                         ? 'bg-indigo-50 text-indigo-700 font-medium'
                         : 'text-slate-700 hover:bg-slate-50',
                     )}
                   >
-                    <Check className={cn('w-3.5 h-3.5 shrink-0', opt === value ? 'text-indigo-600' : 'invisible')} />
                     {opt}
                   </button>
                 </li>

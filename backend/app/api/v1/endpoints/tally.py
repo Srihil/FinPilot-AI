@@ -52,6 +52,12 @@ _DELETE_MODELS = {
 _VOUCHER_CREATE_OPS = {
     TallyJobOperation.CREATE_SALES_VOUCHER,
     TallyJobOperation.CREATE_PURCHASE_VOUCHER,
+    TallyJobOperation.CREATE_RECEIPT_VOUCHER,
+    TallyJobOperation.CREATE_PAYMENT_VOUCHER,
+    TallyJobOperation.CREATE_JOURNAL_VOUCHER,
+    TallyJobOperation.CREATE_CREDIT_NOTE,
+    TallyJobOperation.CREATE_DEBIT_NOTE,
+    TallyJobOperation.CREATE_CONTRA_VOUCHER,
 }
 
 router = APIRouter(prefix="/tally", tags=["tally"])

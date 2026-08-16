@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Wand2, Zap, Loader2, CheckCircle, AlertCircle, RefreshCw,
   Activity, X, Clock, CheckCircle2, XCircle, RotateCcw, ChevronRight,
@@ -286,6 +286,7 @@ function fieldLabel(key: string): string {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AICreatePage() {
+  const qc = useQueryClient();
   const [text, setText] = useState('');
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
   const [editableData, setEditableData] = useState<Record<string, unknown>>({});
@@ -330,6 +331,14 @@ export default function AICreatePage() {
     mutationFn: () => aiCreateApi.createEntity(extraction!.entity_type, editableData),
     onSuccess: result => {
       setCreated(result);
+      // Invalidate all caches so navigating to any management page shows the new entry immediately
+      qc.invalidateQueries({ queryKey: ['vouchers'] });
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      qc.invalidateQueries({ queryKey: ['expenses'] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['vendors'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
+      qc.invalidateQueries({ queryKey: ['ledgers'] });
       toast({
         title: `${fieldLabel(result.entity_type)} created`,
         description: result.tally_queued

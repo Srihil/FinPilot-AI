@@ -781,6 +781,7 @@ class TallyClient:
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <ISINVOICE>No</ISINVOICE>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>
@@ -828,6 +829,7 @@ class TallyClient:
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <ISINVOICE>No</ISINVOICE>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>
@@ -1148,6 +1150,7 @@ class TallyClient:
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <ISINVOICE>No</ISINVOICE>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>
@@ -1188,6 +1191,7 @@ class TallyClient:
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
+        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <ISINVOICE>No</ISINVOICE>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>

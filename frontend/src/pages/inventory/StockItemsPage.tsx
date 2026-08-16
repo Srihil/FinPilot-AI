@@ -11,6 +11,7 @@ import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
 import { managementApi } from '../../api/endpoints';
 import { formatCurrency } from '../../utils/format';
+import { Combobox } from '../../components/ui/Combobox';
 import type { TallyStockItem, TallyUnit, TallyStockGroup } from '../../types';
 
 export default function StockItemsPage() {
@@ -161,18 +162,14 @@ export default function StockItemsPage() {
           <div><Label>Name *</Label><Input value={formName} onChange={e=>setFormName(e.target.value)} placeholder="e.g. Laptop" /></div>
           <div>
             <Label>Stock Group</Label>
-            <Input
+            <Combobox
+              options={(groupsData?.items ?? []).map((g: TallyStockGroup) => g.name)}
               value={formGroup}
-              onChange={e => setFormGroup(e.target.value)}
-              list="sg-list-create"
-              placeholder="Type to search (e.g. Electronics)…"
+              onChange={setFormGroup}
+              placeholder="Search groups…"
+              clearLabel="— No group"
               className="mt-1"
             />
-            <datalist id="sg-list-create">
-              {(groupsData?.items ?? []).map((g: TallyStockGroup) => (
-                <option key={g.id} value={g.name} />
-              ))}
-            </datalist>
           </div>
           <div>
             <Label>Unit</Label>
@@ -198,12 +195,14 @@ export default function StockItemsPage() {
           <div><Label>Name</Label><Input value={formName} onChange={e=>setFormName(e.target.value)}/></div>
           <div>
             <Label>Stock Group</Label>
-            <Input value={formGroup} onChange={e=>setFormGroup(e.target.value)} list="sg-list-edit" className="mt-1"/>
-            <datalist id="sg-list-edit">
-              {(groupsData?.items ?? []).map((g: TallyStockGroup) => (
-                <option key={g.id} value={g.name} />
-              ))}
-            </datalist>
+            <Combobox
+              options={(groupsData?.items ?? []).map((g: TallyStockGroup) => g.name)}
+              value={formGroup}
+              onChange={setFormGroup}
+              placeholder="Search groups…"
+              clearLabel="— No group"
+              className="mt-1"
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

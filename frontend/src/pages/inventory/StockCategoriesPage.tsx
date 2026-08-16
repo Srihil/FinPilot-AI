@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
 import { managementApi } from '../../api/endpoints';
+import { Combobox } from '../../components/ui/Combobox';
 import type { StockCategory } from '../../types';
 
 export default function StockCategoriesPage() {
@@ -98,20 +99,19 @@ export default function StockCategoriesPage() {
 
       {totalPages > 1 && <div className="flex justify-between text-sm text-slate-500"><span>Page {page} of {totalPages}</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Prev</Button><Button variant="outline" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>Next</Button></div></div>}
 
-      {/* Shared datalist for parent category suggestions */}
-      <datalist id="cat-parent-list">
-        {(allCats?.items ?? []).map((c: StockCategory) => (
-          <option key={c.id} value={c.name} />
-        ))}
-      </datalist>
-
       <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>New Stock Category</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div><Label>Name *</Label><Input value={formName} onChange={e=>setFormName(e.target.value)} placeholder="e.g. Apple"/></div>
           <div>
             <Label>Parent Category</Label>
-            <Input value={formParent} onChange={e=>setFormParent(e.target.value)}
-              list="cat-parent-list" placeholder="Type to search or leave empty for root" className="mt-1"/>
+            <Combobox
+              options={(allCats?.items ?? []).map((c: StockCategory) => c.name)}
+              value={formParent}
+              onChange={setFormParent}
+              placeholder="Search or leave empty for root…"
+              clearLabel="— Leave empty (root level)"
+              className="mt-1"
+            />
           </div>
           <div><Label>Description</Label><Input value={formDesc} onChange={e=>setFormDesc(e.target.value)} placeholder="Optional description"/></div>
         </div>
@@ -123,8 +123,14 @@ export default function StockCategoriesPage() {
           <div><Label>Name</Label><Input value={formName} onChange={e=>setFormName(e.target.value)}/></div>
           <div>
             <Label>Parent</Label>
-            <Input value={formParent} onChange={e=>setFormParent(e.target.value)}
-              list="cat-parent-list" className="mt-1"/>
+            <Combobox
+              options={(allCats?.items ?? []).map((c: StockCategory) => c.name)}
+              value={formParent}
+              onChange={setFormParent}
+              placeholder="Search or leave empty for root…"
+              clearLabel="— Leave empty (root level)"
+              className="mt-1"
+            />
           </div>
           <div><Label>Description</Label><Input value={formDesc} onChange={e=>setFormDesc(e.target.value)}/></div>
         </div>

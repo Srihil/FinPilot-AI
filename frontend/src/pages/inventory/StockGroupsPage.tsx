@@ -14,6 +14,7 @@ import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
 import { managementApi } from '../../api/endpoints';
 import { cn } from '../../utils/cn';
+import { Combobox } from '../../components/ui/Combobox';
 import type { TallyStockGroup } from '../../types';
 
 // ─── Tree helpers ─────────────────────────────────────────────────────────────
@@ -311,11 +312,6 @@ export default function StockGroupsPage() {
         </CardContent>
       </Card>
 
-      {/* Datalist for parent suggestions */}
-      <datalist id="sg-parent-list">
-        {allGroups.map(g => <option key={g.id} value={g.name} />)}
-      </datalist>
-
       {/* Create dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-md">
@@ -327,11 +323,12 @@ export default function StockGroupsPage() {
             </div>
             <div>
               <Label>Parent Group <span className="text-slate-400 text-xs">(leave empty for root)</span></Label>
-              <Input
+              <Combobox
+                options={allGroups.map(g => g.name)}
                 value={formParent}
-                onChange={e => setFormParent(e.target.value)}
-                list="sg-parent-list"
-                placeholder="Type to search existing groups…"
+                onChange={setFormParent}
+                placeholder="Search existing groups…"
+                clearLabel="— Leave empty (root level)"
                 className="mt-1"
               />
               {formParent && (
@@ -362,11 +359,12 @@ export default function StockGroupsPage() {
             </div>
             <div>
               <Label>Parent Group</Label>
-              <Input
+              <Combobox
+                options={allGroups.map(g => g.name)}
                 value={formParent}
-                onChange={e => setFormParent(e.target.value)}
-                list="sg-parent-list"
-                placeholder="Leave empty for root"
+                onChange={setFormParent}
+                placeholder="Search or leave empty for root…"
+                clearLabel="— Leave empty (root level)"
                 className="mt-1"
               />
             </div>

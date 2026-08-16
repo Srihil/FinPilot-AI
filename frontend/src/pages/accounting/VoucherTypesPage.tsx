@@ -511,9 +511,10 @@ export default function VoucherTypesPage() {
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle className="text-red-600">Delete Custom Type</DialogTitle></DialogHeader>
-          <p className="text-sm text-slate-700">Delete <strong>{deleteItem?.name}</strong> from FinPilot?</p>
-          <p className="text-xs text-slate-500 bg-slate-50 p-2 rounded mt-2">
-            This only removes it from FinPilot. Delete it in TallyPrime manually if needed.
+          <p className="text-sm text-slate-700">Delete <strong>{deleteItem?.name}</strong>?</p>
+          <p className="text-xs text-slate-600 bg-amber-50 border border-amber-200 p-2 rounded mt-2">
+            This will first delete it from <strong>TallyPrime</strong>, then remove it from FinPilot once confirmed.
+            You do not need to do anything manually in TallyPrime.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>

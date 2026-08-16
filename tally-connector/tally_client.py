@@ -1336,23 +1336,36 @@ class TallyClient:
 
     def _inv_voucher_result(self, raw: str) -> dict:
         root = self._parse_response(raw)
-        created = root.find(".//CREATED")
-        altered = root.find(".//ALTERED")
-        return {
-            "created": int(created.text) if created is not None and created.text else 0,
-            "altered": int(altered.text) if altered is not None and altered.text else 0,
-        }
+        created    = root.find(".//CREATED")
+        altered    = root.find(".//ALTERED")
+        exceptions = root.find(".//EXCEPTIONS")
+        cr = int(created.text)    if created    is not None and created.text    else 0
+        al = int(altered.text)    if altered    is not None and altered.text    else 0
+        ex = int(exceptions.text) if exceptions is not None and exceptions.text else 0
+        if cr == 0 and al == 0 and ex > 0:
+            raise TallyError(
+                "TallyPrime: inventory voucher not created (exception). "
+                "Verify the voucher type is active and godown tracking is enabled."
+            )
+        return {"created": cr, "altered": al}
 
     def create_stock_journal(self, payload: dict) -> dict:
-        """Transfer stock between godowns (Stock Journal voucher)."""
+        """Transfer stock between godowns (Stock Journal voucher).
+
+        TallyPrime Stock Journal uses INVENTORYENTRIESOUT.LIST for the source
+        godown and INVENTORYENTRIESIN.LIST for the destination godown — NOT the
+        ALLINVENTORYENTRIES.LIST tag used by other inventory voucher types.
+        """
         date        = self._require_date(payload, "Stock Journal")
         txn_number  = payload.get("transaction_number") or self._vch_id()
         narration   = payload.get("narration", "")
         from_godown = (payload.get("from_godown") or "").strip() or "Main Location"
         to_godown   = (payload.get("to_godown") or "").strip() or "Main Location"
         entries     = payload.get("entries") or []
+        fy_start, fy_end = self._fy_dates(date)
 
-        entry_blocks = []
+        out_blocks = []  # source — goods leaving
+        in_blocks  = []  # destination — goods arriving
         for e in entries:
             item   = e.get("stock_item_name", "")
             qty    = float(e.get("quantity") or 0)
@@ -1360,17 +1373,41 @@ class TallyClient:
             rate   = float(e.get("rate") or 0)
             gd     = (e.get("godown") or "").strip()
             src_gd = gd or from_godown
-            # Source: goods OUT of from_godown
-            entry_blocks.append(self._build_inv_entry(item, qty, unit, rate, src_gd, False))
-            # Destination: goods IN to to_godown
-            entry_blocks.append(self._build_inv_entry(item, qty, unit, rate, to_godown, True))
+            amount = round(qty * rate, 2)
 
-        entries_xml = "\n".join(entry_blocks)
+            out_blocks.append(
+                f"        <INVENTORYENTRIESOUT.LIST>\n"
+                f"          <STOCKITEMNAME>{item}</STOCKITEMNAME>\n"
+                f"          <GODOWNNAME>{src_gd}</GODOWNNAME>\n"
+                f"          <RATE>{rate}/{unit}</RATE>\n"
+                f"          <AMOUNT>{amount}</AMOUNT>\n"
+                f"          <ACTUALQTY>{qty} {unit}</ACTUALQTY>\n"
+                f"          <BILLEDQTY>{qty} {unit}</BILLEDQTY>\n"
+                f"        </INVENTORYENTRIESOUT.LIST>"
+            )
+            in_blocks.append(
+                f"        <INVENTORYENTRIESIN.LIST>\n"
+                f"          <STOCKITEMNAME>{item}</STOCKITEMNAME>\n"
+                f"          <GODOWNNAME>{to_godown}</GODOWNNAME>\n"
+                f"          <RATE>{rate}/{unit}</RATE>\n"
+                f"          <AMOUNT>-{amount}</AMOUNT>\n"
+                f"          <ACTUALQTY>{qty} {unit}</ACTUALQTY>\n"
+                f"          <BILLEDQTY>{qty} {unit}</BILLEDQTY>\n"
+                f"        </INVENTORYENTRIESIN.LIST>"
+            )
+
+        entries_xml = "\n".join(out_blocks + in_blocks)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
     <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="Stock Journal" ACTION="Create" OBJVIEW="Inventory Voucher View">
+      <VOUCHER REMOTEID="{txn_number}" VCHTYPE="Stock Journal" ACTION="Create" OBJVIEW="Inventory Voucher View">
         <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>Stock Journal</VOUCHERTYPENAME>
@@ -1388,6 +1425,7 @@ class TallyClient:
         txn_number = payload.get("transaction_number") or self._vch_id()
         narration  = payload.get("narration", "")
         entries    = payload.get("entries") or []
+        fy_start, fy_end = self._fy_dates(date)
 
         entry_blocks = []
         for e in entries:
@@ -1401,9 +1439,15 @@ class TallyClient:
         entries_xml = "\n".join(entry_blocks)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
     <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="Physical Stock" ACTION="Create" OBJVIEW="Inventory Voucher View">
+      <VOUCHER REMOTEID="{txn_number}" VCHTYPE="Physical Stock" ACTION="Create" OBJVIEW="Inventory Voucher View">
         <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>Physical Stock</VOUCHERTYPENAME>
@@ -1419,12 +1463,13 @@ class TallyClient:
         self, vchtype: str, payload: dict, is_deemed_positive: bool
     ) -> dict:
         """Build a party-based inventory voucher (Delivery Note / Receipt Note / Rejection In/Out)."""
-        date       = self._require_date(payload, vchtype)
-        txn_number = payload.get("transaction_number") or self._vch_id()
-        narration  = payload.get("narration", "")
-        party      = payload.get("party_name", "")
-        entries    = payload.get("entries") or []
+        date        = self._require_date(payload, vchtype)
+        txn_number  = payload.get("transaction_number") or self._vch_id()
+        narration   = payload.get("narration", "")
+        party       = payload.get("party_name", "")
+        entries     = payload.get("entries") or []
         from_godown = (payload.get("from_godown") or "").strip()
+        fy_start, fy_end = self._fy_dates(date)
 
         entry_blocks = []
         for e in entries:
@@ -1439,9 +1484,15 @@ class TallyClient:
         party_xml = f"\n        <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>" if party else ""
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
     <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="{vchtype}" ACTION="Create" OBJVIEW="Inventory Voucher View">
+      <VOUCHER REMOTEID="{txn_number}" VCHTYPE="{vchtype}" ACTION="Create" OBJVIEW="Inventory Voucher View">
         <DATE>{date}</DATE>{party_xml}
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vchtype}</VOUCHERTYPENAME>

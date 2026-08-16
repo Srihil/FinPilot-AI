@@ -32,6 +32,17 @@ const QUICK_GROUPS = [
       'Create GST Bill entry', 'Custom voucher type entry',
     ],
   },
+  {
+    label: 'Stock Transactions',
+    chips: [
+      'Transfer stock between godowns',
+      'Record physical stock count',
+      'Create Delivery Note for customer',
+      'Create Receipt Note from supplier',
+      'Rejection In — customer returns goods',
+      'Rejection Out — return goods to supplier',
+    ],
+  },
 ];
 
 const ENTITY_COLORS: Record<string, string> = {
@@ -54,7 +65,13 @@ const ENTITY_COLORS: Record<string, string> = {
   credit_note: 'bg-yellow-100 text-yellow-800',
   debit_note: 'bg-pink-100 text-pink-800',
   contra: 'bg-cyan-100 text-cyan-800',
-  custom_voucher: 'bg-orange-100 text-orange-800',
+  custom_voucher:  'bg-orange-100 text-orange-800',
+  stock_journal:   'bg-indigo-100 text-indigo-800',
+  physical_stock:  'bg-blue-100 text-blue-800',
+  delivery_note:   'bg-green-100 text-green-800',
+  receipt_note:    'bg-teal-100 text-teal-800',
+  rejection_in:    'bg-orange-100 text-orange-800',
+  rejection_out:   'bg-red-100 text-red-800',
 };
 
 // ─── Tally activity helpers ───────────────────────────────────────────────────
@@ -76,6 +93,12 @@ const OP_LABELS: Record<string, string> = {
   CREATE_CONTRA_VOUCHER: 'Bank / Cash Transfer',
   SYNC_FULL: 'Full Sync',
   SYNC_PARTIAL: 'Partial Sync',
+  CREATE_STOCK_JOURNAL:  'Create Stock Journal',
+  CREATE_PHYSICAL_STOCK: 'Create Physical Stock',
+  CREATE_DELIVERY_NOTE:  'Create Delivery Note',
+  CREATE_RECEIPT_NOTE:   'Create Receipt Note',
+  CREATE_REJECTION_IN:   'Create Rejection In',
+  CREATE_REJECTION_OUT:  'Create Rejection Out',
 };
 
 function timeAgo(iso: string): string {
@@ -341,6 +364,7 @@ export default function AICreatePage() {
       qc.invalidateQueries({ queryKey: ['vendors'] });
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['ledgers'] });
+      qc.invalidateQueries({ queryKey: ['stock-transactions'] });
       toast({
         title: `${fieldLabel(result.entity_type)} created`,
         description: result.tally_queued
@@ -476,19 +500,36 @@ export default function AICreatePage() {
 
           <CardContent className="space-y-4">
             <div className="grid gap-3">
-              {Object.entries(editableData).map(([key, val]) => (
-                <div key={key} className="space-y-1">
-                  <Label htmlFor={`field-${key}`} className="text-xs font-medium text-slate-600">
-                    {fieldLabel(key)}
-                  </Label>
-                  <Input
-                    id={`field-${key}`}
-                    value={val != null ? String(val) : ''}
-                    onChange={e => setEditableData(prev => ({ ...prev, [key]: e.target.value }))}
-                    className="text-sm"
-                  />
-                </div>
-              ))}
+              {Object.entries(editableData).map(([key, val]) => {
+                const isComplex = Array.isArray(val) || (typeof val === 'object' && val !== null);
+                const displayVal = isComplex ? JSON.stringify(val) : (val != null ? String(val) : '');
+                return (
+                  <div key={key} className="space-y-1">
+                    <Label htmlFor={`field-${key}`} className="text-xs font-medium text-slate-600">
+                      {fieldLabel(key)}
+                    </Label>
+                    {isComplex ? (
+                      <textarea
+                        id={`field-${key}`}
+                        rows={3}
+                        value={displayVal}
+                        onChange={e => {
+                          try { setEditableData(prev => ({ ...prev, [key]: JSON.parse(e.target.value) })); }
+                          catch { setEditableData(prev => ({ ...prev, [key]: e.target.value })); }
+                        }}
+                        className="w-full px-3 py-2 rounded-md border border-slate-200 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+                      />
+                    ) : (
+                      <Input
+                        id={`field-${key}`}
+                        value={displayVal}
+                        onChange={e => setEditableData(prev => ({ ...prev, [key]: e.target.value }))}
+                        className="text-sm"
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {extraction.missing_fields?.length > 0 && (

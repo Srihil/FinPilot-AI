@@ -32,9 +32,10 @@ The 8 STANDARD transaction types (these exact strings only):
 RULE: If the user names a transaction type that is NOT exactly one of
 those 8 strings above → entity_type MUST be "custom_voucher".
 
-This rule is ABSOLUTE. It overrides everything else. It does not matter
-if the custom name contains common words like "cash", "payment",
-"invoice", "receipt", "bill", "salary", "GST", "tax", "petty" etc.
+IMPORTANT EXCEPTIONS — these are NEVER custom_voucher, always standard:
+  "Stock Journal" | "Physical Stock" | "Delivery Note" |
+  "Receipt Note"  | "Rejection In"   | "Rejection Out"  |
+  "Rejections In" | "Rejections Out"
 
 HOW TO DETECT the custom type name:
   Look for the pattern: "Create/Make/Record/Enter a <TYPE> ..."
@@ -44,12 +45,10 @@ HOW TO DETECT the custom type name:
 STRICT EXAMPLES — memorise these:
   "Create a Petty Cash payment..."   → custom_voucher, name="Petty Cash"
   "Create a Petty Cash entry..."     → custom_voucher, name="Petty Cash"
-  "Create a Petty Cash..."           → custom_voucher, name="Petty Cash"
   "Create a GST Bill for..."         → custom_voucher, name="GST Bill"
   "Create a Tax Invoice for..."      → custom_voucher, name="Tax Invoice"
   "Create a Cash Memo for..."        → custom_voucher, name="Cash Memo"
   "Create a Salary payment..."       → custom_voucher, name="Salary"
-  "Create a Salary entry..."         → custom_voucher, name="Salary"
   "Create an Export Invoice..."      → custom_voucher, name="Export Invoice"
   "Record a Bank Transfer..."        → custom_voucher, name="Bank Transfer"
   "Create an Advance Receipt..."     → custom_voucher, name="Advance Receipt"
@@ -57,6 +56,10 @@ STRICT EXAMPLES — memorise these:
   "Create a Purchase payment..."     → payment (standard — no custom name)
   "Create a sales receipt..."        → receipt (standard — no custom name)
   "Record a payment to vendor..."    → payment (standard — no custom name)
+  "Create a Stock Journal..."        → stock_journal (standard, NOT custom)
+  "Transfer stock from A to B..."    → stock_journal (standard, NOT custom)
+  "Create a Delivery Note..."        → delivery_note (standard, NOT custom)
+  "Create a Receipt Note..."         → receipt_note (standard, NOT custom)
 
 ══════════════════════════════════════════════════════════════
 STEP 2 — STANDARD TYPES (only if Step 1 found no custom name)
@@ -75,6 +78,34 @@ INVENTORY MASTERS:
 CUSTOMERS & VENDORS:
 - customer: name (required), email, phone, address, city, state, gstin, notes
 - vendor: name (required), email, phone, address, city, state, gstin, notes
+
+STOCK TRANSACTIONS (inventory movement — NEVER treat as custom_voucher):
+- stock_journal: from_godown (required), to_godown (required), date (YYYY-MM-DD), narration,
+    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    USE WHEN: transferring stock between godowns/warehouses
+- physical_stock: date (YYYY-MM-DD), narration,
+    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    USE WHEN: recording physical stock count or verification
+- delivery_note: party_name (required, customer name), from_godown, date (YYYY-MM-DD), narration,
+    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    USE WHEN: delivering goods OUT to customer
+- receipt_note: party_name (required, vendor/supplier name), from_godown, date (YYYY-MM-DD), narration,
+    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    USE WHEN: receiving goods IN from supplier
+- rejection_in: party_name (required, customer name), from_godown, date (YYYY-MM-DD), narration,
+    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    USE WHEN: customer returns goods back to you
+- rejection_out: party_name (required, vendor name), from_godown, date (YYYY-MM-DD), narration,
+    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    USE WHEN: you return goods back to supplier
+
+Stock transaction keyword routing:
+  "stock journal", "transfer stock", "move stock between godown" → stock_journal
+  "physical stock", "stock count", "stock taking", "stock verification" → physical_stock
+  "delivery note", "deliver goods to", "goods dispatched" → delivery_note
+  "receipt note", "goods received from", "receive goods from supplier" → receipt_note
+  "rejection in", "customer return", "goods returned by customer" → rejection_in
+  "rejection out", "return to supplier", "return goods to vendor" → rejection_out
 
 STANDARD VOUCHERS:
 - sales_invoice: customer_name (required), amount (required), date (YYYY-MM-DD), narration, sales_ledger (default "Sales")
@@ -105,6 +136,7 @@ Standard routing (ONLY when no custom name found):
 
 Date: always YYYY-MM-DD. If no year, assume 2026.
 Amounts: numeric only, strip ₹ and commas.
+entries list: always return as a JSON array of objects.
 Return ONLY JSON — no markdown, no explanation."""
 
 
@@ -116,6 +148,10 @@ class DemoEntityAgent:
         "sales invoice", "purchase bill", "receipt", "payment",
         "journal", "credit note", "debit note", "contra",
         "expense", "sales return", "purchase return",
+        # stock transaction types — never custom_voucher
+        "stock journal", "physical stock", "delivery note",
+        "receipt note", "rejection in", "rejection out",
+        "rejections in", "rejections out",
     }
 
     @classmethod
@@ -159,8 +195,22 @@ class DemoEntityAgent:
                 "missing_fields": ["date", "Please verify all extracted fields"],
             }
 
-        # ── Step 2: Standard types ────────────────────────────────────────
-        if any(w in text_lower for w in ["received from", "money received"]):
+        # ── Step 2: Stock transaction types (check before generic keywords) ─
+        if any(w in text_lower for w in ["stock journal", "transfer stock", "move stock", "godown transfer"]):
+            entity_type = "stock_journal"
+        elif any(w in text_lower for w in ["physical stock", "stock count", "stock taking", "stock verification"]):
+            entity_type = "physical_stock"
+        elif any(w in text_lower for w in ["delivery note", "deliver goods", "goods dispatched", "goods out to"]):
+            entity_type = "delivery_note"
+        elif any(w in text_lower for w in ["receipt note", "goods received from", "receive goods from"]):
+            entity_type = "receipt_note"
+        elif any(w in text_lower for w in ["rejection in", "rejections in", "customer return", "returned by customer"]):
+            entity_type = "rejection_in"
+        elif any(w in text_lower for w in ["rejection out", "rejections out", "return to supplier", "return goods to vendor"]):
+            entity_type = "rejection_out"
+
+        # ── Step 3: Standard accounting types ────────────────────────────
+        elif any(w in text_lower for w in ["received from", "money received"]):
             entity_type = "receipt"
         elif "receipt" in text_lower and "advance" not in text_lower:
             entity_type = "receipt"
@@ -200,6 +250,35 @@ class DemoEntityAgent:
             entity_type = "expense"
         else:
             entity_type = "expense"
+
+        _STOCK_TXN_TYPES = {"stock_journal", "physical_stock", "delivery_note", "receipt_note", "rejection_in", "rejection_out"}
+        if entity_type in _STOCK_TXN_TYPES:
+            import re as _re
+            qty_m = _re.search(r'(\d+(?:\.\d+)?)\s*(?:nos|kg|pcs|units?|ltr|mtrs?)?', text_lower)
+            qty = float(qty_m.group(1)) if qty_m else 1.0
+            item_m = _re.search(r'(?:of|item|stock|goods?)\s+([A-Za-z][A-Za-z0-9\s\-]{1,40}?)(?:\s+from|\s+to|\s+at|\s+qty|$)', text, _re.IGNORECASE)
+            item = item_m.group(1).strip() if item_m else ""
+            party_m = _re.search(r'(?:to|from|for)\s+([A-Z][A-Za-z0-9\s&.]{1,40}?)(?:\s+from|\s+to|\s+qty|\s+\d|$)', text, _re.IGNORECASE)
+            party = party_m.group(1).strip() if party_m else ""
+            from_m = _re.search(r'from\s+([A-Za-z][A-Za-z0-9\s]{1,30}?)(?:\s+to\b|$)', text, _re.IGNORECASE)
+            to_m   = _re.search(r'to\s+([A-Za-z][A-Za-z0-9\s]{1,30}?)(?:\s+from\b|\s+qty|$)', text, _re.IGNORECASE)
+            base = {
+                "date": "",
+                "narration": text[:80],
+                "entries": [{"stock_item_name": item, "quantity": qty, "unit": "Nos", "rate": 0, "godown": ""}],
+            }
+            if entity_type == "stock_journal":
+                base["from_godown"] = from_m.group(1).strip() if from_m else ""
+                base["to_godown"]   = to_m.group(1).strip()   if to_m   else ""
+            elif entity_type in ("delivery_note", "receipt_note", "rejection_in", "rejection_out"):
+                base["party_name"]  = party
+                base["from_godown"] = from_m.group(1).strip() if from_m else ""
+            return {
+                "entity_type": entity_type,
+                "data": base,
+                "confidence": 0.45,
+                "missing_fields": ["date", "stock_item_name", "quantity"],
+            }
 
         return {
             "entity_type": entity_type,

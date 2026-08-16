@@ -1142,6 +1142,119 @@ def create_entity(
             })
             if tally_queued: db.commit()
 
+        elif entity_type in ("stock_journal", "physical_stock", "delivery_note", "receipt_note", "rejection_in", "rejection_out"):
+            from app.models.stock_transaction import StockTransaction
+            from app.models.tally_connector import TallyConnector, ConnectorStatus
+            from app.models.tally_job import TallyIntegrationJob, TallyJobOperation
+            import json as _json
+
+            _ENTITY_TO_TXN = {
+                "stock_journal":  "STOCK_JOURNAL",
+                "physical_stock": "PHYSICAL_STOCK",
+                "delivery_note":  "DELIVERY_NOTE",
+                "receipt_note":   "RECEIPT_NOTE",
+                "rejection_in":   "REJECTION_IN",
+                "rejection_out":  "REJECTION_OUT",
+            }
+            _TYPE_TO_OP = {
+                "STOCK_JOURNAL":  TallyJobOperation.CREATE_STOCK_JOURNAL,
+                "PHYSICAL_STOCK": TallyJobOperation.CREATE_PHYSICAL_STOCK,
+                "DELIVERY_NOTE":  TallyJobOperation.CREATE_DELIVERY_NOTE,
+                "RECEIPT_NOTE":   TallyJobOperation.CREATE_RECEIPT_NOTE,
+                "REJECTION_IN":   TallyJobOperation.CREATE_REJECTION_IN,
+                "REJECTION_OUT":  TallyJobOperation.CREATE_REJECTION_OUT,
+            }
+            _PREFIXES = {
+                "STOCK_JOURNAL": "SJ", "PHYSICAL_STOCK": "PS",
+                "DELIVERY_NOTE": "DN", "RECEIPT_NOTE": "RN",
+                "REJECTION_IN": "RI", "REJECTION_OUT": "RO",
+            }
+
+            txn_type = _ENTITY_TO_TXN[entity_type]
+
+            # Parse entries — AI may return list, JSON string, or flat fields
+            raw_entries = payload.get("entries") or []
+            if isinstance(raw_entries, str):
+                try:
+                    raw_entries = _json.loads(raw_entries)
+                except Exception:
+                    raw_entries = []
+            if not isinstance(raw_entries, list):
+                raw_entries = []
+
+            # Fallback: build a single entry from flat fields if entries is empty
+            if not raw_entries and payload.get("stock_item_name"):
+                raw_entries = [{
+                    "stock_item_name": payload.get("stock_item_name", ""),
+                    "quantity":        float(payload.get("quantity") or 1),
+                    "unit":            payload.get("unit") or "Nos",
+                    "rate":            float(payload.get("rate") or 0),
+                    "godown":          payload.get("godown") or "",
+                }]
+
+            entries = [
+                {
+                    "stock_item_name": str(e.get("stock_item_name") or ""),
+                    "quantity":        float(e.get("quantity") or 1),
+                    "unit":            str(e.get("unit") or "Nos"),
+                    "rate":            float(e.get("rate") or 0),
+                    "godown":          str(e.get("godown") or ""),
+                }
+                for e in raw_entries if isinstance(e, dict)
+            ]
+
+            d = _parse_date(payload.get("date", ""))
+            txn_number = f"{_PREFIXES[txn_type]}-{uuid.uuid4().hex[:8].upper()}"
+
+            txn = StockTransaction(
+                company_id=current_user.company_id,
+                created_by=current_user.id,
+                transaction_number=txn_number,
+                transaction_type=txn_type,
+                transaction_date=d,
+                narration=payload.get("narration") or None,
+                party_name=payload.get("party_name") or None,
+                from_godown=payload.get("from_godown") or None,
+                to_godown=payload.get("to_godown") or None,
+                entries=entries,
+                tally_sync_status="local_only",
+            )
+            db.add(txn)
+            db.flush()
+
+            connector = db.query(TallyConnector).filter(
+                TallyConnector.company_id == current_user.company_id,
+                TallyConnector.status == ConnectorStatus.ACTIVE,
+            ).first()
+
+            if connector:
+                date_str = txn.transaction_date.strftime("%Y%m%d") if txn.transaction_date else ""
+                job = TallyIntegrationJob(
+                    company_id=current_user.company_id,
+                    connector_id=connector.id,
+                    created_by=current_user.id,
+                    operation=_TYPE_TO_OP[txn_type],
+                    payload={
+                        "transaction_number": txn.transaction_number,
+                        "transaction_type":   txn.transaction_type,
+                        "date":               date_str,
+                        "narration":          txn.narration or "",
+                        "party_name":         txn.party_name or "",
+                        "from_godown":        txn.from_godown or "",
+                        "to_godown":          txn.to_godown or "",
+                        "entries":            txn.entries or [],
+                    },
+                    idempotency_key=f"create_stock_txn::{txn.id}",
+                )
+                db.add(job)
+                db.flush()
+                txn.tally_job_id = job.id
+                txn.tally_sync_status = "pending"
+                tally_queued = True
+
+            entity_id = str(txn.id)
+            db.commit()
+
         else:
             raise HTTPException(status_code=400, detail=f"Unknown entity_type: {entity_type}")
 

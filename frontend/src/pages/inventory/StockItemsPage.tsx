@@ -266,7 +266,9 @@ export default function StockItemsPage() {
               <thead>
                 <tr className="border-b bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
                   <th className="px-4 py-3 text-left">Hierarchy</th>
-                  <th className="px-4 py-3 text-left w-40">Unit / Rate</th>
+                  <th className="px-4 py-3 text-left w-28">Unit</th>
+                  <th className="px-4 py-3 text-right w-28">Rate</th>
+                  <th className="px-4 py-3 text-right w-28">Qty</th>
                   <th className="px-4 py-3 text-center w-24">Sync</th>
                   <th className="px-4 py-3 text-right w-20">Actions</th>
                 </tr>
@@ -298,7 +300,7 @@ export default function StockItemsPage() {
                             {ic > 0 && <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{ic}</span>}
                           </div>
                         </td>
-                        <td />
+                        <td /><td /><td />
                         <td className="px-4 py-2.5 text-center"><SyncBadge status={n.tally_sync_status} source={n.source} /></td>
                         <td />
                       </tr>
@@ -317,9 +319,16 @@ export default function StockItemsPage() {
                             <span className="font-medium text-slate-800">{item.name}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-slate-500">
-                          {item.unit && <span className="mr-2 bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">{item.unit}</span>}
+                        <td className="px-4 py-2.5 text-xs">
+                          {item.unit
+                            ? <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">{item.unit}</span>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-right text-slate-600">
                           {item.rate ? formatCurrency(item.rate) : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-right font-medium text-indigo-700">
+                          {item.opening_qty ? `${item.opening_qty} ${item.unit || ''}`.trim() : <span className="text-slate-300">—</span>}
                         </td>
                         <td className="px-4 py-2.5 text-center"><SyncBadge status={item.tally_sync_status} source={item.source} /></td>
                         <td className="px-4 py-2.5 text-right">
@@ -347,7 +356,7 @@ export default function StockItemsPage() {
                             <span className="ml-1 text-xs bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded-full">{row.count}</span>
                           </div>
                         </td>
-                        <td /><td /><td />
+                        <td /><td /><td /><td />
                       </tr>
                     );
                   }
@@ -364,9 +373,16 @@ export default function StockItemsPage() {
                             <span className="font-medium text-slate-800">{item.name}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-slate-500">
-                          {item.unit && <span className="mr-2 bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">{item.unit}</span>}
+                        <td className="px-4 py-2.5 text-xs">
+                          {item.unit
+                            ? <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">{item.unit}</span>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-right text-slate-600">
                           {item.rate ? formatCurrency(item.rate) : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-right font-medium text-indigo-700">
+                          {item.opening_qty ? `${item.opening_qty} ${item.unit || ''}`.trim() : <span className="text-slate-300">—</span>}
                         </td>
                         <td className="px-4 py-2.5 text-center"><SyncBadge status={item.tally_sync_status} source={item.source} /></td>
                         <td className="px-4 py-2.5 text-right">
@@ -437,6 +453,15 @@ export default function StockItemsPage() {
                 </select>
               </div>
               <div><Label>Rate (₹)</Label><Input type="number" value={formRate} onChange={e => setFormRate(e.target.value)} className="mt-1" /></div>
+            </div>
+            <div>
+              <Label>Current Quantity</Label>
+              <div className="mt-1 flex items-center gap-2 px-3 py-2 rounded-md border border-slate-200 bg-slate-50">
+                <span className="text-sm font-semibold text-indigo-700">
+                  {editItem?.opening_qty ? `${editItem.opening_qty} ${editItem.unit || ''}`.trim() : '—'}
+                </span>
+                <span className="text-xs text-slate-400 ml-auto">Use Physical Stock voucher to adjust</span>
+              </div>
             </div>
           </div>
           <DialogFooter>

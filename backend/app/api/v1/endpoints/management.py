@@ -1058,6 +1058,7 @@ def list_stock_items(
             "stock_category": getattr(r, "stock_category", None),
             "unit": r.unit,
             "rate": r.rate,
+            "opening_qty": r.opening_qty if r.opening_qty else 0,
             "source": r.source,
             "tally_sync_status": r.tally_sync_status,
             "synced_at": r.synced_at.isoformat() if r.synced_at else None,

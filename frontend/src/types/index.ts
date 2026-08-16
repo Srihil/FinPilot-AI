@@ -487,6 +487,7 @@ export interface TallyStockItem {
   stock_category?: string;
   unit?: string;
   rate: number;
+  opening_qty: number;
   source: TallySource;
   tally_sync_status: TallySyncStatus;
   synced_at?: string;

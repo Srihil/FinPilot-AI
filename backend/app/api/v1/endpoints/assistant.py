@@ -690,24 +690,51 @@ def create_entity(
                 db.commit()
 
         elif entity_type == "stock_item":
-            product = Product(
+            from app.models.tally_masters import TallyStockItem
+            from app.models.tally_connector import TallyConnector, ConnectorStatus
+            from app.models.tally_job import TallyIntegrationJob, TallyJobOperation
+            si_name = (payload.get("name") or "").strip()
+            if not si_name:
+                raise HTTPException(status_code=422, detail="Stock item name is required")
+            si_key = f"{current_user.company_id}::{si_name.strip().lower()}"
+            existing_si = db.query(TallyStockItem).filter(
+                TallyStockItem.company_id == current_user.company_id,
+                TallyStockItem.tally_key == si_key,
+                TallyStockItem.is_active == True,
+            ).first()
+            if existing_si:
+                raise HTTPException(status_code=409, detail=f"Stock item '{si_name}' already exists")
+            si_rate = float(payload.get("rate") or payload.get("selling_price") or 0)
+            si_qty = float(payload.get("opening_qty") or payload.get("quantity") or 0)
+            si_group = (payload.get("stock_group") or "").strip() or None
+            si_unit = (payload.get("unit") or "Nos").strip()
+            record = TallyStockItem(
                 company_id=current_user.company_id,
-                name=payload.get("name", ""),
-                sku=payload.get("sku"),
-                selling_price=float(payload.get("selling_price") or 0),
-                purchase_price=float(payload.get("cost_price") or 0),
-                unit=payload.get("unit", "Nos"),
-                stock_quantity=float(payload.get("quantity") or 0),
+                name=si_name, stock_group=si_group, unit=si_unit,
+                rate=si_rate, opening_qty=si_qty,
+                tally_key=si_key, source="finpilot", tally_sync_status="pending",
             )
-            db.add(product)
+            db.add(record)
+            db.flush()
+            connector = db.query(TallyConnector).filter(
+                TallyConnector.company_id == current_user.company_id,
+                TallyConnector.status == ConnectorStatus.ACTIVE,
+            ).first()
+            if connector:
+                job_payload = {"name": si_name, "unit": si_unit, "rate": str(si_rate), "opening_qty": str(si_qty)}
+                if si_group:
+                    job_payload["stock_group"] = si_group
+                job = TallyIntegrationJob(
+                    company_id=current_user.company_id, connector_id=connector.id,
+                    created_by=current_user.id, operation=TallyJobOperation.CREATE_STOCK_ITEM,
+                    payload=job_payload, idempotency_key=f"create_stock_item::{record.id}",
+                )
+                db.add(job)
+                db.flush()
+                record.tally_job_id = job.id
+                tally_queued = True
+            entity_id = str(record.id)
             db.commit()
-            db.refresh(product)
-            entity_id = str(product.id)
-            tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_STOCK_ITEM",
-                {"name": product.name, "unit": product.unit,
-                 "selling_price": str(int(float(product.selling_price or 0))),
-                 "stock_group": payload.get("stock_group", "Primary")})
-            if tally_queued: db.commit()
 
         elif entity_type == "sales_invoice":
             payload["invoice_type"] = "SALES"

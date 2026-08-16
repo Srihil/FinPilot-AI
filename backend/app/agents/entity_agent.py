@@ -67,7 +67,7 @@ ACCOUNTING MASTERS:
 - group: name (required), parent (required, e.g. "Current Assets"/"Current Liabilities"/"Capital Account")
 
 INVENTORY MASTERS:
-- stock_item: name (required), unit (e.g. "Nos"/"Kg"/"Ltr"), selling_price, cost_price, stock_group
+- stock_item: name (required), stock_group, unit (e.g. "Nos"/"Kg"/"Ltr"), rate (selling price), opening_qty (opening stock quantity, default 0)
 - stock_group: name (required), parent (default "Primary")
 - unit: name (required, e.g. "Nos"/"Kg"/"Ltr"/"Pcs"), symbol, decimal_places
 - godown: name (required), parent (default "Main Location")

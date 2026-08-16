@@ -782,6 +782,7 @@ class TallyClient:
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <ISINVOICE>No</ISINVOICE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>
@@ -830,6 +831,7 @@ class TallyClient:
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <ISINVOICE>No</ISINVOICE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>
@@ -1157,6 +1159,7 @@ class TallyClient:
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <ISINVOICE>No</ISINVOICE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>
@@ -1198,6 +1201,7 @@ class TallyClient:
       <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
+        <ISINVOICE>No</ISINVOICE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>

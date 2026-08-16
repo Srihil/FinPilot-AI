@@ -90,6 +90,11 @@ def _translate_tally_error(error: str) -> str:
         return "TallyPrime refused: a record with this name already exists in Tally."
     if "cannot proceed" in e:
         return "TallyPrime refused the operation — the record may be in use or locked."
+    if "bad unit name" in e:
+        return (
+            "TallyPrime rejected the unit name. "
+            "Ensure the unit symbol is a short abbreviation like 'Nos', 'Kgs', 'Ltr' with no spaces."
+        )
     if "invalid name" in e:
         return "TallyPrime rejected the name — check for special characters or length."
     if "not a known" in e or "not found" in e or ("group" in e and ("primary" in e or "unknown" in e)):
@@ -747,7 +752,7 @@ def submit_job_result(
         PERMANENT_PHRASES = [
             "cannot be deleted", "cannot proceed", "already exists",
             "refused delete", "closed the connection unexpectedly",
-            "invalid name", "not found",
+            "bad unit name", "invalid name", "not found",
             # Date errors: date won't change between retries — fail immediately
             "date is missing", "voucher date",
             # Our own validation errors: connector already checked, no point retrying

@@ -1012,18 +1012,16 @@ class TallyClient:
 
     def create_unit(self, payload: dict) -> dict:
         name     = payload.get("name", "Nos").strip()
-        # Tally requires the symbol (ORIGINALNAME) to be a short abbreviation with no
-        # spaces — e.g. "Nos", "Kgs", "Pcs". Strip spaces and cap at 8 chars.
-        raw_sym  = payload.get("symbol", name).strip()
-        symbol   = raw_sym.replace(" ", "")[:8] or name.replace(" ", "")[:8] or "Nos"
         decimals = payload.get("decimal_places", "0")
+        # TallyPrime requires NAME == ORIGINALNAME for units (both hold the symbol).
+        # Sending a different value (e.g. the UQC code "NOS") causes "bad unit name".
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <UNIT NAME="{name}" ACTION="Create">
         <NAME>{name}</NAME>
-        <ORIGINALNAME>{symbol}</ORIGINALNAME>
+        <ORIGINALNAME>{name}</ORIGINALNAME>
         <DECIMALPLACES>{decimals}</DECIMALPLACES>
         <UOMTYPE>Simple</UOMTYPE>
       </UNIT>

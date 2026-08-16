@@ -81,22 +81,22 @@ CUSTOMERS & VENDORS:
 
 STOCK TRANSACTIONS (inventory movement — NEVER treat as custom_voucher):
 - stock_journal: from_godown (required), to_godown (required), date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
     USE WHEN: transferring stock between godowns/warehouses
 - physical_stock: date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
     USE WHEN: recording physical stock count or verification
 - delivery_note: party_name (required, customer name), from_godown, date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
     USE WHEN: delivering goods OUT to customer
 - receipt_note: party_name (required, vendor/supplier name), from_godown, date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
     USE WHEN: receiving goods IN from supplier
 - rejection_in: party_name (required, customer name), from_godown, date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
     USE WHEN: customer returns goods back to you
 - rejection_out: party_name (required, vendor name), from_godown, date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit, rate, godown}])
+    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
     USE WHEN: you return goods back to supplier
 
 Stock transaction keyword routing:
@@ -265,7 +265,7 @@ class DemoEntityAgent:
             base = {
                 "date": "",
                 "narration": text[:80],
-                "entries": [{"stock_item_name": item, "quantity": qty, "unit": "Nos", "rate": 0, "godown": ""}],
+                "entries": [{"stock_item_name": item, "quantity": qty, "unit": "", "rate": 0, "godown": ""}],
             }
             if entity_type == "stock_journal":
                 base["from_godown"] = from_m.group(1).strip() if from_m else ""
@@ -277,7 +277,7 @@ class DemoEntityAgent:
                 "entity_type": entity_type,
                 "data": base,
                 "confidence": 0.45,
-                "missing_fields": ["date", "stock_item_name", "quantity"],
+                "missing_fields": ["unit (must match TallyPrime item unit exactly, e.g. Units / Cartons / Nos)", "date"],
             }
 
         return {

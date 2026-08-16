@@ -94,9 +94,11 @@ def _translate_tally_error(error: str) -> str:
         )
     if "date is missing" in e or "voucher date" in e:
         return (
-            "TallyPrime rejected the voucher: the date is outside your active financial year. "
-            "In TallyPrime, press F2 (or go to Gateway of Tally → Change Period) and open "
-            "the financial year that includes this date, then retry."
+            "TallyPrime rejected the voucher with 'date is missing'. "
+            "This usually means the party/customer ledger does not exist in TallyPrime — "
+            "create the ledger first (Gateway of Tally → Accounts → Ledgers), then retry. "
+            "Less commonly: the date may be outside the active financial year "
+            "(press F2 in TallyPrime to check the current period)."
         )
     if "date is required" in e or "invalid date format" in e:
         return (

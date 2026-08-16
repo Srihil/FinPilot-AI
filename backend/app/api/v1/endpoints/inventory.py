@@ -422,12 +422,23 @@ def create_stock_transaction(
     return _serialize_txn(txn)
 
 
+_TXN_TYPE_TO_VCH_NAME = {
+    "STOCK_JOURNAL":  "Stock Journal",
+    "PHYSICAL_STOCK": "Physical Stock",
+    "DELIVERY_NOTE":  "Delivery Note",
+    "RECEIPT_NOTE":   "Receipt Note",
+    "REJECTION_IN":   "Rejections In",
+    "REJECTION_OUT":  "Rejections Out",
+}
+
+
 @router.delete("/stock-transactions/{txn_id}")
 def delete_stock_transaction(
     txn_id: str,
     current_user: User = Depends(require_admin_or_accountant),
     db: Session = Depends(get_db),
 ):
+    import secrets as _secrets
     txn = db.query(StockTransaction).filter(
         StockTransaction.id == uuid.UUID(txn_id),
         StockTransaction.company_id == current_user.company_id,
@@ -435,6 +446,44 @@ def delete_stock_transaction(
     ).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Stock transaction not found")
+
+    # Cancel any in-flight create job so Tally doesn't process it after we delete
+    if txn.tally_job_id:
+        pending_job = db.query(TallyIntegrationJob).filter(
+            TallyIntegrationJob.id == txn.tally_job_id,
+            TallyIntegrationJob.status == JobStatus.PENDING,
+        ).first()
+        if pending_job:
+            pending_job.status = JobStatus.CANCELLED
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+
+    if connector and txn.tally_sync_status == "synced":
+        # Transaction is in TallyPrime — cancel there first, then remove locally
+        txn.tally_sync_status = "delete_pending"
+        vch_type = _TXN_TYPE_TO_VCH_NAME.get(txn.transaction_type, "Stock Journal")
+        db.add(TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            operation=TallyJobOperation.CANCEL_VOUCHER,
+            payload={
+                "voucher_ref":  txn.transaction_number,
+                "voucher_type": vch_type,
+                "entity_type":  "stock_transaction",
+                "txn_id":       str(txn.id),
+            },
+            idempotency_key=f"cancel_stock_txn::{txn.id}::{_secrets.token_hex(4)}",
+        ))
+        db.commit()
+        audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                          entity_type="stock_transaction", entity_id=txn.id,
+                          description=f"Delete queued for {txn.transaction_number} — waiting for TallyPrime confirmation")
+        return {"status": "pending", "message": "Cancellation sent to TallyPrime. The transaction will be removed once TallyPrime confirms."}
+
+    # Not synced to Tally (local_only / pending / failed) — safe to delete immediately
     txn.is_active = False
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,

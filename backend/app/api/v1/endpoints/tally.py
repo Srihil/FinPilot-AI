@@ -729,7 +729,7 @@ def submit_job_result(
                 if master:
                     master.is_active = False  # record confirmed deleted in Tally, now hide in FinPilot
 
-        # CANCEL_VOUCHER confirmed → soft-delete the invoice/expense in FinPilot
+        # CANCEL_VOUCHER confirmed → soft-delete the record in FinPilot
         elif job.operation == TallyJobOperation.CANCEL_VOUCHER:
             vref = (job.payload or {}).get("voucher_ref", "")
             entity_type = (job.payload or {}).get("entity_type", "")
@@ -750,6 +750,15 @@ def submit_job_result(
                     if rec:
                         rec.is_deleted = True
                         rec.tally_sync_status = "delete_success"
+                elif entity_type == "stock_transaction":
+                    txn_id_str = (job.payload or {}).get("txn_id", "")
+                    if txn_id_str:
+                        txn = db.query(StockTransaction).filter(
+                            StockTransaction.id == uuid.UUID(txn_id_str),
+                            StockTransaction.company_id == job.company_id,
+                        ).first()
+                        if txn:
+                            txn.is_active = False
 
         # Voucher CREATE confirmed → mark invoice/expense as synced
         elif job.operation in _VOUCHER_CREATE_OPS:
@@ -840,13 +849,23 @@ def submit_job_result(
             vref = (job.payload or {}).get("voucher_ref", "")
             entity_type = (job.payload or {}).get("entity_type", "")
             if vref:
-                model = Invoice if entity_type == "invoice" else Expense
-                rec = db.query(model).filter(
-                    model.tally_voucher_ref == vref,
-                    model.company_id == job.company_id,
-                ).first()
-                if rec:
-                    rec.tally_sync_status = "delete_failed"
+                if entity_type == "stock_transaction":
+                    txn_id_str = (job.payload or {}).get("txn_id", "")
+                    if txn_id_str:
+                        txn = db.query(StockTransaction).filter(
+                            StockTransaction.id == uuid.UUID(txn_id_str),
+                            StockTransaction.company_id == job.company_id,
+                        ).first()
+                        if txn:
+                            txn.tally_sync_status = "delete_failed"
+                else:
+                    model = Invoice if entity_type == "invoice" else Expense
+                    rec = db.query(model).filter(
+                        model.tally_voucher_ref == vref,
+                        model.company_id == job.company_id,
+                    ).first()
+                    if rec:
+                        rec.tally_sync_status = "delete_failed"
 
         # Handle master table status on final failure
         if job.status == JobStatus.FAILED:
@@ -887,14 +906,15 @@ def submit_job_result(
                             db.delete(rec)
                             break
 
-            # Stock transaction CREATE permanently failed → mark as failed
+            # Stock transaction CREATE permanently failed → remove from FinPilot
+            # (same as Invoice/Expense: don't leave a ghost "pending" record behind)
             elif job.operation in _STOCK_TXN_OPS:
                 txn = db.query(StockTransaction).filter(
                     StockTransaction.tally_job_id == job.id,
                     StockTransaction.company_id == job.company_id,
                 ).first()
                 if txn:
-                    txn.tally_sync_status = "failed"
+                    txn.is_active = False
     else:
         raise HTTPException(status_code=400, detail="status must be SUCCESS or FAILED")
 

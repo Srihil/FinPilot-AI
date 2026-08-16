@@ -438,6 +438,61 @@ def _detect_custom_voucher_type(text: str, company_id, db) -> dict | None:
     }
 
 
+_STOCK_TXN_ENTITY_TYPES = {
+    "stock_journal", "physical_stock", "delivery_note",
+    "receipt_note", "rejection_in", "rejection_out",
+}
+
+
+def _enrich_stock_txn_entries(result: dict, company_id, db) -> dict:
+    """
+    For stock transaction extractions, look up each entry's stock item
+    in TallyStockItem and fill in the correct unit and rate so the
+    preview shows real values before the user clicks Create.
+    """
+    from app.models.tally_masters import TallyStockItem as _TSI
+    entries = result.get("data", {}).get("entries")
+    if not isinstance(entries, list):
+        return result
+
+    missing = []
+    enriched = []
+    for e in entries:
+        if not isinstance(e, dict):
+            enriched.append(e)
+            continue
+        item_name = str(e.get("stock_item_name") or "").strip()
+        unit  = str(e.get("unit") or "").strip()
+        rate  = float(e.get("rate") or 0)
+
+        if item_name and (not unit or rate == 0):
+            si = db.query(_TSI).filter(
+                _TSI.company_id == company_id,
+                _TSI.name.ilike(item_name),
+                _TSI.is_active == True,
+            ).first()
+            if si:
+                if not unit:
+                    unit = si.unit or ""
+                if rate == 0 and si.rate:
+                    rate = float(si.rate)
+            elif item_name:
+                missing.append(item_name)
+
+        enriched.append({**e, "unit": unit, "rate": rate})
+
+    result = {**result, "data": {**result.get("data", {}), "entries": enriched}}
+
+    # Warn if any item name wasn't found in synced data
+    if missing:
+        existing_missing = list(result.get("missing_fields") or [])
+        for m in missing:
+            existing_missing.insert(0, f'"{m}" not found in synced stock items — verify the exact name in TallyPrime')
+        result = {**result, "missing_fields": existing_missing}
+
+    return result
+
+
 @router.post("/extract-entity")
 def extract_entity(
     data: EntityExtractRequest,
@@ -454,6 +509,10 @@ def extract_entity(
 
     agent = EntityAgent()
     result = agent.extract(data.text)
+
+    # For stock transaction types, enrich entries with unit/rate from synced TallyStockItem
+    if result.get("entity_type") in _STOCK_TXN_ENTITY_TYPES:
+        result = _enrich_stock_txn_entries(result, current_user.company_id, db)
 
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.AI_QUERY,
                       description=f"AI entity extraction: {data.text[:100]}")

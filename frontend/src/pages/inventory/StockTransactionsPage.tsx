@@ -90,7 +90,15 @@ export default function StockTransactionsPage() {
 
   const deleteMut = useMutation({
     mutationFn: () => api.delete(deleteItem!.id),
-    onSuccess: () => { toast({ title: 'Deleted' }); qc.invalidateQueries({ queryKey: ['stock-transactions'] }); setDeleteItem(null); },
+    onSuccess: (data: { deleted?: boolean; status?: string; message?: string }) => {
+      if (data.status === 'pending') {
+        toast({ title: 'Cancellation sent to TallyPrime', description: data.message });
+      } else {
+        toast({ title: 'Deleted successfully' });
+      }
+      qc.invalidateQueries({ queryKey: ['stock-transactions'] });
+      setDeleteItem(null);
+    },
     onError: (e: { response?: { data?: { detail?: string } } }) => toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' }),
   });
 
@@ -181,6 +189,11 @@ export default function StockTransactionsPage() {
 
       <Dialog open={!!deleteItem} onOpenChange={()=>setDeleteItem(null)}><DialogContent className="max-w-sm"><DialogHeader><DialogTitle className="text-red-600">Delete Transaction</DialogTitle></DialogHeader>
         <p className="text-sm">Delete <strong>{deleteItem?.transaction_number}</strong>?</p>
+        {deleteItem?.tally_sync_status === 'synced' && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            This transaction is synced in TallyPrime. It will be cancelled there first, then removed here automatically.
+          </p>
+        )}
         <DialogFooter><Button variant="outline" onClick={()=>setDeleteItem(null)}>Cancel</Button><Button variant="destructive" onClick={()=>deleteMut.mutate()} disabled={deleteMut.isPending}>{deleteMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Delete</Button></DialogFooter>
       </DialogContent></Dialog>
     </div>

@@ -17,34 +17,46 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Create tally_stock_items table
-    op.create_table(
-        'tally_stock_items',
-        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column('company_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('companies.id'), nullable=False, index=True),
-        sa.Column('name', sa.String(500), nullable=False),
-        sa.Column('stock_group', sa.String(255), nullable=True),
-        sa.Column('unit', sa.String(50), nullable=True),
-        sa.Column('rate', sa.Float, default=0.0),
-        sa.Column('tally_key', sa.String(512), nullable=False),
-        sa.Column('source', sa.String(50), default='tally_sync'),
-        sa.Column('tally_job_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('tally_sync_status', sa.String(50), default='pending'),
-        sa.Column('synced_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('conflict_data', postgresql.JSON(astext_type=sa.Text()), nullable=True),
-        sa.Column('conflict_detected_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('is_active', sa.Boolean, default=True),
-        sa.Column('created_at', sa.DateTime(timezone=True)),
-        sa.Column('updated_at', sa.DateTime(timezone=True)),
-    )
-    op.create_index('ix_tally_stock_items_company_id', 'tally_stock_items', ['company_id'])
+    conn = op.get_bind()
 
-    # Add Tally sync fields to stock_categories
-    op.add_column('stock_categories', sa.Column('tally_key', sa.String(512), nullable=True))
-    op.add_column('stock_categories', sa.Column('source', sa.String(50), server_default='finpilot'))
-    op.add_column('stock_categories', sa.Column('tally_job_id', postgresql.UUID(as_uuid=True), nullable=True))
-    op.add_column('stock_categories', sa.Column('tally_sync_status', sa.String(50), server_default='pending'))
-    op.add_column('stock_categories', sa.Column('synced_at', sa.DateTime(timezone=True), nullable=True))
+    # Create tally_stock_items table if it doesn't exist
+    if not conn.dialect.has_table(conn, 'tally_stock_items'):
+        op.create_table(
+            'tally_stock_items',
+            sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
+            sa.Column('company_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('companies.id'), nullable=False),
+            sa.Column('name', sa.String(500), nullable=False),
+            sa.Column('stock_group', sa.String(255), nullable=True),
+            sa.Column('unit', sa.String(50), nullable=True),
+            sa.Column('rate', sa.Float, server_default='0'),
+            sa.Column('tally_key', sa.String(512), nullable=False),
+            sa.Column('source', sa.String(50), server_default='tally_sync'),
+            sa.Column('tally_job_id', postgresql.UUID(as_uuid=True), nullable=True),
+            sa.Column('tally_sync_status', sa.String(50), server_default='pending'),
+            sa.Column('synced_at', sa.DateTime(timezone=True), nullable=True),
+            sa.Column('conflict_data', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+            sa.Column('conflict_detected_at', sa.DateTime(timezone=True), nullable=True),
+            sa.Column('is_active', sa.Boolean, server_default='true'),
+            sa.Column('created_at', sa.DateTime(timezone=True)),
+            sa.Column('updated_at', sa.DateTime(timezone=True)),
+        )
+
+    op.execute("CREATE INDEX IF NOT EXISTS ix_tally_stock_items_company_id ON tally_stock_items (company_id)")
+
+    # Add Tally sync fields to stock_categories (skip if column already exists)
+    existing_cols = {row[0] for row in conn.execute(sa.text(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='stock_categories'"
+    ))}
+    if 'tally_key' not in existing_cols:
+        op.add_column('stock_categories', sa.Column('tally_key', sa.String(512), nullable=True))
+    if 'source' not in existing_cols:
+        op.add_column('stock_categories', sa.Column('source', sa.String(50), server_default='finpilot'))
+    if 'tally_job_id' not in existing_cols:
+        op.add_column('stock_categories', sa.Column('tally_job_id', postgresql.UUID(as_uuid=True), nullable=True))
+    if 'tally_sync_status' not in existing_cols:
+        op.add_column('stock_categories', sa.Column('tally_sync_status', sa.String(50), server_default='pending'))
+    if 'synced_at' not in existing_cols:
+        op.add_column('stock_categories', sa.Column('synced_at', sa.DateTime(timezone=True), nullable=True))
 
     # Add new enum values for CREATE_STOCK_CATEGORY and DELETE_STOCK_CATEGORY
     op.execute("ALTER TYPE tallyjoboperation ADD VALUE IF NOT EXISTS 'CREATE_STOCK_CATEGORY'")

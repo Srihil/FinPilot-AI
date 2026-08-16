@@ -37,9 +37,6 @@ import StockTransactionsPage from './pages/inventory/StockTransactionsPage';
 // Tally
 import ConflictsPage from './pages/tally/ConflictsPage';
 
-// Orders
-import OrdersPage from './pages/orders/OrdersPage';
-
 // Parties
 import PartiesCustomersPage from './pages/parties/CustomersPage';
 import PartiesVendorsPage from './pages/parties/VendorsPage';
@@ -94,11 +91,6 @@ export default function App() {
               <Route path="/inventory/units" element={<UnitsPage />} />
               <Route path="/inventory/godowns" element={<GodownsPage />} />
               <Route path="/inventory/stock-transactions" element={<StockTransactionsPage />} />
-
-              {/* Orders */}
-              <Route path="/orders/sales" element={<OrdersPage />} />
-              <Route path="/orders/purchase" element={<OrdersPage />} />
-              <Route path="/orders" element={<Navigate to="/orders/sales" replace />} />
 
               {/* Parties */}
               <Route path="/parties/customers" element={<PartiesCustomersPage />} />

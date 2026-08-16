@@ -12,7 +12,6 @@ import type {
   PaginatedResponse,
   TallyLedger, TallyGroup, TallyStockGroup, TallyUnit, TallyGodown,
   ManagementOverview, VoucherItem, VoucherTypeItem, SyncHealth,
-  Order,
 } from '../types';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
@@ -483,37 +482,6 @@ export const groupsApi = {
   },
   delete: async (id: string) => {
     const res = await apiClient.delete(`/api/management/groups/${id}`);
-    return res.data;
-  },
-};
-
-// ─── Orders ──────────────────────────────────────────────────────────────────
-
-export const ordersApi = {
-  list: async (params: {
-    page?: number;
-    page_size?: number;
-    order_type?: string;
-    status?: string;
-    search?: string;
-  }): Promise<PaginatedResponse<Order>> => {
-    const res = await apiClient.get('/api/orders', { params });
-    return res.data;
-  },
-  create: async (data: Partial<Order>): Promise<Order> => {
-    const res = await apiClient.post('/api/orders', data);
-    return res.data;
-  },
-  get: async (id: string): Promise<Order> => {
-    const res = await apiClient.get(`/api/orders/${id}`);
-    return res.data;
-  },
-  update: async (id: string, data: Partial<Order>): Promise<Order> => {
-    const res = await apiClient.patch(`/api/orders/${id}`, data);
-    return res.data;
-  },
-  delete: async (id: string) => {
-    const res = await apiClient.delete(`/api/orders/${id}`);
     return res.data;
   },
 };

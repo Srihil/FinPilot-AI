@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MessageSquare, Upload, BarChart3, FileBarChart,
   CheckSquare, ScrollText, Settings, Zap, Wand2, ChevronRight,
   ChevronDown, X, BookOpen, FolderOpen, FileText, Package, Scale,
-  Warehouse, ShoppingCart, Users, Building2, Tag, ArrowLeftRight,
+  Warehouse, Users, Building2, Tag, ArrowLeftRight,
   AlertTriangle, Receipt,
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
@@ -59,15 +59,6 @@ const navStructure: NavItem[] = [
       { label: 'Units', path: '/inventory/units', icon: Scale },
       { label: 'Godowns', path: '/inventory/godowns', icon: Warehouse },
       { label: 'Stock Journal', path: '/inventory/stock-transactions', icon: ArrowLeftRight },
-    ],
-  },
-  {
-    type: 'section',
-    label: 'Orders',
-    icon: ShoppingCart,
-    children: [
-      { label: 'Sales Orders', path: '/orders/sales', icon: ShoppingCart },
-      { label: 'Purchase Orders', path: '/orders/purchase', icon: ShoppingCart },
     ],
   },
   {

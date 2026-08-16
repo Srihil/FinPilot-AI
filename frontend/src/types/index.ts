@@ -480,28 +480,3 @@ export interface TallyGroup {
   created_at: string;
 }
 
-export interface OrderItem {
-  id?: string;
-  stock_item_name?: string;
-  description?: string;
-  quantity: number;
-  unit?: string;
-  unit_price: number;
-  amount?: number;
-}
-
-export interface Order {
-  id: string;
-  order_number: string;
-  order_type: 'SALES' | 'PURCHASE';
-  party_name?: string;
-  party_ledger?: string;
-  order_date?: string;
-  due_date?: string;
-  total_amount: number;
-  narration?: string;
-  status: 'DRAFT' | 'CONFIRMED' | 'FULFILLED' | 'CANCELLED';
-  tally_sync_status: string;
-  created_at: string;
-  items: OrderItem[];
-}

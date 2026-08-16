@@ -1036,7 +1036,7 @@ def list_vouchers(
     # ── Invoices (SALES / PURCHASE) ──────────────────────────────────────────
     vt = (voucher_type or "").upper()
     include_invoices = vt in ("", "ALL", "SALES", "PURCHASE")
-    include_expenses = vt in ("", "ALL", "PAYMENT")
+    include_expenses = vt in ("", "ALL", "PAYMENT", "PURCHASE", "DEBIT_NOTE")
 
     if include_invoices:
         inv_q = db.query(Invoice).options(
@@ -1097,17 +1097,26 @@ def list_vouchers(
             except ValueError:
                 pass
 
+        # Map category → voucher type for display and filtering
+        _cat_to_vtype = {
+            "Purchase": "PURCHASE",
+            "Purchase Return": "DEBIT_NOTE",
+            "Payment": "PAYMENT",
+        }
         for exp in exp_q.all():
             party_name = (exp.vendor.name if exp.vendor else None) or exp.title
             exp_sync = getattr(exp, "tally_sync_status", None) or "local_only"
-            # Determine source: if notes has [tally-sync] tag it came from TallyPrime
             exp_notes = getattr(exp, "notes", None) or ""
             exp_source = "tally_sync" if "[tally-sync]" in exp_notes else "finpilot"
+            exp_vtype = _cat_to_vtype.get(exp.category or "", "PAYMENT")
+            # Apply voucher type filter to expenses too
+            if vt and vt not in ("", "ALL") and exp_vtype != vt:
+                continue
             results.append({
                 "id": str(exp.id),
                 "voucher_number": getattr(exp, "ref_number", None) or f"EXP-{str(exp.id)[:8].upper()}",
                 "date": exp.expense_date.isoformat() if exp.expense_date else None,
-                "voucher_type": "PAYMENT",
+                "voucher_type": exp_vtype,
                 "party": None,
                 "party_name": party_name,
                 "amount": float(exp.amount or 0),

@@ -435,6 +435,9 @@ export interface VoucherItem {
   created_at: string;
   entity_type: 'invoice' | 'expense';
   title?: string;
+  is_custom_voucher?: boolean;
+  custom_type_name?: string | null;
+  parent_type?: string | null;
 }
 
 export interface VoucherTypeItem {

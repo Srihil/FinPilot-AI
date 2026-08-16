@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, Search, Loader2, AlertCircle, Trash2, Filter, Eraser } from 'lucide-react';
+import { FileText, Search, Loader2, AlertCircle, Trash2, Filter, Eraser, Sparkles, ChevronRight, Info } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -24,7 +24,20 @@ const VOUCHER_TYPES = [
   { label: 'Contra', value: 'CONTRA' },
   { label: 'Credit Note', value: 'CREDIT_NOTE' },
   { label: 'Debit Note', value: 'DEBIT_NOTE' },
+  { label: '✨ Custom', value: 'CUSTOM' },
 ];
+
+// Parent type → human description of what it does
+const PARENT_DESC: Record<string, { color: string; meaning: string }> = {
+  Sales:       { color: 'bg-green-100 text-green-800',  meaning: 'Records a sale — increases customer receivable' },
+  Purchase:    { color: 'bg-orange-100 text-orange-800', meaning: 'Records a purchase — increases supplier payable' },
+  Receipt:     { color: 'bg-blue-100 text-blue-800',    meaning: 'Money received from a party into bank/cash' },
+  Payment:     { color: 'bg-red-100 text-red-800',      meaning: 'Money paid out to a party from bank/cash' },
+  Journal:     { color: 'bg-purple-100 text-purple-800', meaning: 'Internal ledger adjustment — no cash movement' },
+  Contra:      { color: 'bg-cyan-100 text-cyan-800',    meaning: 'Transfer between your own bank/cash accounts' },
+  'Credit Note':{ color: 'bg-yellow-100 text-yellow-800', meaning: 'Sales return — reverses a sale entry' },
+  'Debit Note': { color: 'bg-pink-100 text-pink-800',   meaning: 'Purchase return — reverses a purchase entry' },
+};
 
 function statusColor(status: string) {
   const map: Record<string, string> = {
@@ -171,64 +184,160 @@ export default function VouchersPage() {
         </div>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
+      {voucherType === 'CUSTOM' ? (
+        /* ── Custom voucher cards view ──────────────────────────────────── */
+        <div className="space-y-3">
           {isLoading ? (
-            <div className="p-6 space-y-3">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+            [...Array(4)].map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)
           ) : isError ? (
-            <div className="flex items-center gap-2 p-6 text-red-600"><AlertCircle className="w-5 h-5" /> Failed to load vouchers.</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
-                  <th className="px-4 py-3 text-left">Number</th>
-                  <th className="px-4 py-3 text-left">Date</th>
-                  <th className="px-4 py-3 text-left">Type</th>
-                  <th className="px-4 py-3 text-left">Party</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                  <th className="px-4 py-3 text-center">Status</th>
-                  <th className="px-4 py-3 text-center">Sync</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.items.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-10 text-slate-400">No vouchers found.</td></tr>
-                ) : data?.items.map(v => (
-                  <tr key={v.id} className="border-b hover:bg-slate-50">
-                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{v.voucher_number}</td>
-                    <td className="px-4 py-3 text-slate-500 text-xs">{v.date ? formatDate(v.date) : '—'}</td>
-                    <td className="px-4 py-3">
-                      <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs">{v.voucher_type}</span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{v.party_name || v.title || '—'}</td>
-                    <td className="px-4 py-3 text-right font-medium">{formatCurrency(v.amount)}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', statusColor(v.status))}>{v.status}</span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <SyncBadge status={v.tally_sync_status} source={v.source} />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {v.tally_sync_status === 'delete_pending' ? (
-                        <span className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">Cancelling…</span>
-                      ) : (
-                        <button
-                          onClick={() => setDeleteItem(v)}
-                          className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
-                          title="Delete voucher"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </td>
+            <div className="flex items-center gap-2 p-6 text-red-600"><AlertCircle className="w-5 h-5" /> Failed to load.</div>
+          ) : data?.items.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
+                <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center">
+                  <Sparkles className="w-7 h-7 text-indigo-400" />
+                </div>
+                <p className="font-medium text-slate-700">No custom voucher entries yet</p>
+                <p className="text-sm text-slate-400 text-center max-w-sm">
+                  Use <strong>Create with AI</strong> and say something like "Create a GST Bill for ABC Traders for ₹25,000"
+                  to create an entry using a custom voucher type.
+                </p>
+              </CardContent>
+            </Card>
+          ) : data?.items.map(v => {
+            const parentMeta = PARENT_DESC[v.parent_type || ''];
+            return (
+              <div key={v.id} className="rounded-xl border border-indigo-100 bg-white p-4 shadow-sm hover:shadow-md transition-all">
+                <div className="flex items-start justify-between gap-4">
+                  {/* Left: type + parent chain */}
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    {/* Custom type badge */}
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-semibold shrink-0">
+                      <Sparkles className="w-3 h-3" />
+                      {v.custom_type_name || v.voucher_type}
+                    </span>
+                    {v.parent_type && (
+                      <>
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        {/* Parent badge with color */}
+                        <span className={cn(
+                          'px-2 py-0.5 rounded text-xs font-medium shrink-0',
+                          parentMeta?.color || 'bg-slate-100 text-slate-600'
+                        )}>
+                          based on {v.parent_type}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  {/* Right: sync + delete */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <SyncBadge status={v.tally_sync_status} source={v.source} />
+                    {v.tally_sync_status === 'delete_pending' ? (
+                      <span className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">Cancelling…</span>
+                    ) : (
+                      <button
+                        onClick={() => setDeleteItem(v)}
+                        className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* What this type does */}
+                {parentMeta && (
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
+                    <Info className="w-3 h-3 shrink-0" />
+                    <span>{parentMeta.meaning}</span>
+                  </div>
+                )}
+
+                {/* Details row */}
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Party</p>
+                    <p className="text-sm font-medium text-slate-800 truncate">{v.party_name || v.title || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Amount</p>
+                    <p className="text-sm font-semibold text-slate-900">{formatCurrency(v.amount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Date</p>
+                    <p className="text-sm text-slate-700">{v.date ? formatDate(v.date) : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Narration</p>
+                    <p className="text-sm text-slate-600 truncate">{v.title || '—'}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* ── Standard table view ────────────────────────────────────────── */
+        <Card>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <div className="p-6 space-y-3">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+            ) : isError ? (
+              <div className="flex items-center gap-2 p-6 text-red-600"><AlertCircle className="w-5 h-5" /> Failed to load vouchers.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+                    <th className="px-4 py-3 text-left">Number</th>
+                    <th className="px-4 py-3 text-left">Date</th>
+                    <th className="px-4 py-3 text-left">Type</th>
+                    <th className="px-4 py-3 text-left">Party</th>
+                    <th className="px-4 py-3 text-right">Amount</th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center">Sync</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </CardContent>
-      </Card>
+                </thead>
+                <tbody>
+                  {data?.items.length === 0 ? (
+                    <tr><td colSpan={8} className="text-center py-10 text-slate-400">No vouchers found.</td></tr>
+                  ) : data?.items.map(v => (
+                    <tr key={v.id} className="border-b hover:bg-slate-50">
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{v.voucher_number}</td>
+                      <td className="px-4 py-3 text-slate-500 text-xs">{v.date ? formatDate(v.date) : '—'}</td>
+                      <td className="px-4 py-3">
+                        <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs">{v.voucher_type}</span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{v.party_name || v.title || '—'}</td>
+                      <td className="px-4 py-3 text-right font-medium">{formatCurrency(v.amount)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', statusColor(v.status))}>{v.status}</span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <SyncBadge status={v.tally_sync_status} source={v.source} />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {v.tally_sync_status === 'delete_pending' ? (
+                          <span className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">Cancelling…</span>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteItem(v)}
+                            className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
+                            title="Delete voucher"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-sm text-slate-500">

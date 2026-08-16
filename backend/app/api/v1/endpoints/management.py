@@ -1037,20 +1037,31 @@ def list_vouchers(
     from app.models.tally_masters import TallyVoucherType as _TVT
     vt = (voucher_type or "").upper()
 
-    # Build set of active custom voucher type names (upper-cased) for dynamic filtering
-    _custom_vtype_names_upper = {
-        r.name.upper()
-        for r in db.query(_TVT.name).filter(
-            _TVT.company_id == cid,
-            _TVT.is_active == True,
-        ).all()
+    _STANDARD_TYPES = {
+        "SALES", "PURCHASE", "RECEIPT", "PAYMENT", "CONTRA", "JOURNAL",
+        "CREDIT NOTE", "DEBIT NOTE", "SALES ORDER", "PURCHASE ORDER",
+        "DELIVERY NOTE", "RECEIPT NOTE", "STOCK JOURNAL", "PHYSICAL STOCK",
+        "REVERSING JOURNAL", "MEMORANDUM", "ATTENDANCE", "PAYROLL",
+        "MATERIAL IN", "MATERIAL OUT", "REJECTIONS IN", "REJECTIONS OUT",
+        "JOB WORK IN ORDER", "JOB WORK OUT ORDER",
     }
+
+    # Build full map: uppercase name → (original name, parent) for custom types
+    _all_vtypes = db.query(_TVT).filter(
+        _TVT.company_id == cid, _TVT.is_active == True,
+    ).all()
+    _custom_vtype_map = {
+        r.name.upper(): {"name": r.name, "parent": r.parent or ""}
+        for r in _all_vtypes
+        if r.name.upper() not in _STANDARD_TYPES
+    }
+    _custom_vtype_names_upper = set(_custom_vtype_map.keys())
 
     include_invoices = vt in ("", "ALL", "SALES", "PURCHASE")
     include_expenses = vt in (
         "", "ALL", "PAYMENT", "PURCHASE", "DEBIT_NOTE",
         "RECEIPT", "JOURNAL", "CONTRA", "CREDIT_NOTE",
-    ) or vt in _custom_vtype_names_upper
+    ) or vt in _custom_vtype_names_upper or vt == "CUSTOM"
 
     if include_invoices:
         inv_q = db.query(Invoice).options(
@@ -1127,11 +1138,27 @@ def list_vouchers(
             exp_notes = getattr(exp, "notes", None) or ""
             exp_source = "tally_sync" if "[tally-sync]" in exp_notes else "finpilot"
             raw_cat = exp.category or ""
+            is_custom = raw_cat.upper() in _custom_vtype_names_upper
             exp_vtype = _cat_to_vtype.get(raw_cat, raw_cat.upper() if raw_cat else "PAYMENT")
-            # Apply voucher type filter to expenses too
-            if vt and vt not in ("", "ALL") and exp_vtype.upper() != vt.upper():
+
+            # CUSTOM filter: only include expenses whose category is a custom voucher type
+            if vt == "CUSTOM":
+                if not is_custom:
+                    continue
+            elif vt and vt not in ("", "ALL") and exp_vtype.upper() != vt.upper():
                 continue
-            display_name = (exp.vendor.name if exp.vendor else None) or exp.title
+
+            # Extract party name from notes ("Party: ABC Traders | Type: GST Bill")
+            party_from_notes = ""
+            if "Party: " in exp_notes:
+                try:
+                    party_from_notes = exp_notes.split("Party: ")[1].split(" |")[0].strip()
+                except Exception:
+                    pass
+            display_name = party_from_notes or (exp.vendor.name if exp.vendor else None) or exp.title
+
+            # Custom type metadata
+            custom_meta = _custom_vtype_map.get(raw_cat.upper(), {})
             results.append({
                 "id": str(exp.id),
                 "voucher_number": exp.reference_number or f"EXP-{str(exp.id)[:8].upper()}",
@@ -1147,6 +1174,10 @@ def list_vouchers(
                 "entity_type": "expense",
                 "title": exp.title,
                 "paid_amount": 0,
+                # Custom voucher type fields
+                "is_custom_voucher": is_custom,
+                "custom_type_name": custom_meta.get("name", raw_cat) if is_custom else None,
+                "parent_type": custom_meta.get("parent", "") if is_custom else None,
             })
 
     # Unified case-insensitive search across all fields

@@ -412,6 +412,16 @@ class TallyClient:
         return f"{year - 1}0401", f"{year}0331"
 
     @staticmethod
+    def _month_start(date_yyyymmdd: str) -> str:
+        """Return the 1st of the month for the given YYYYMMDD.
+
+        TallyPrime's GST split requires DATE == period SVFROMDATE (always the
+        1st of the month). Mid-month dates fail with 'Voucher date is missing'.
+        Normalising to month-start puts the entry in the correct GST period.
+        """
+        return date_yyyymmdd[:6] + "01"
+
+    @staticmethod
     def _require_date(payload: dict, voucher_type: str) -> str:
         """
         Extract and validate the date from payload.
@@ -783,41 +793,29 @@ class TallyClient:
         amount        = str(payload.get("amount", "0")).lstrip("-")
         narration     = payload.get("narration", "")
         vnum          = payload.get("voucher_number") or self._vch_id()
-        fy_start, fy_end = self._fy_dates(date)
+        tally_date    = self._month_start(date)
 
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY>
-    <DESC>
-      <STATICVARIABLES>
-        <SVFROMDATE>{fy_start}</SVFROMDATE>
-        <SVTODATE>{fy_end}</SVTODATE>
-      </STATICVARIABLES>
-    </DESC>
-    <DATA>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
-        <DATE>{date}</DATE>
-        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
-        <ISINVOICE>No</ISINVOICE>
-        <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
+  <BODY><DESC/>
+    <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="{vtype}" ACTION="Create">
+        <DATE>{tally_date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{party}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-          <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
           <AMOUNT>-{amount}</AMOUNT>
         </ALLLEDGERENTRIES.LIST>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{sales_ledger}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-          <ISPARTYLEDGER>No</ISPARTYLEDGER>
           <AMOUNT>{amount}</AMOUNT>
         </ALLLEDGERENTRIES.LIST>
       </VOUCHER>
-    </TALLYMESSAGE>
-  </DATA></BODY>
+    </TALLYMESSAGE></DATA>
+  </BODY>
 </ENVELOPE>"""
         raw = self._post_xml(xml)
         root = self._parse_response(raw)
@@ -839,41 +837,29 @@ class TallyClient:
         amount           = str(payload.get("amount", "0")).lstrip("-")
         narration        = payload.get("narration", "")
         vnum             = payload.get("voucher_number") or self._vch_id()
-        fy_start, fy_end = self._fy_dates(date)
+        tally_date       = self._month_start(date)
 
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY>
-    <DESC>
-      <STATICVARIABLES>
-        <SVFROMDATE>{fy_start}</SVFROMDATE>
-        <SVTODATE>{fy_end}</SVTODATE>
-      </STATICVARIABLES>
-    </DESC>
-    <DATA>
-    <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
-        <DATE>{date}</DATE>
-        <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
-        <ISINVOICE>No</ISINVOICE>
-        <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
+  <BODY><DESC/>
+    <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <VOUCHER VCHTYPE="{vtype}" ACTION="Create">
+        <DATE>{tally_date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{party}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-          <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
           <AMOUNT>{amount}</AMOUNT>
         </ALLLEDGERENTRIES.LIST>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{purchase_ledger}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-          <ISPARTYLEDGER>No</ISPARTYLEDGER>
           <AMOUNT>-{amount}</AMOUNT>
         </ALLLEDGERENTRIES.LIST>
       </VOUCHER>
-    </TALLYMESSAGE>
-  </DATA></BODY>
+    </TALLYMESSAGE></DATA>
+  </BODY>
 </ENVELOPE>"""
         raw = self._post_xml(xml)
         root = self._parse_response(raw)

@@ -226,7 +226,7 @@ class TallyClient:
           <COLLECTION NAME="FP Vouchers" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
             <BELONGSTO>Yes</BELONGSTO>
-            <FETCH>DATE,VOUCHERTYPENAME,NARRATION,PARTYLEDGERNAME,ALLLEDGERENTRIES.LIST</FETCH>
+            <FETCH>DATE,VOUCHERNUMBER,VOUCHERTYPENAME,NARRATION,PARTYLEDGERNAME,ALLLEDGERENTRIES.LIST</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -241,6 +241,7 @@ class TallyClient:
         vouchers = []
         for v in root.findall(".//VOUCHER"):
             date_el      = v.find("DATE")
+            vchno_el     = v.find("VOUCHERNUMBER")
             vtype_el     = v.find("VOUCHERTYPENAME")
             narration_el = v.find("NARRATION")
             party_el     = v.find("PARTYLEDGERNAME")
@@ -254,11 +255,12 @@ class TallyClient:
                     break
 
             vouchers.append({
-                "date":         date_el.text.strip()      if date_el      is not None and date_el.text      else "",
-                "voucher_type": vtype_el.text.strip()     if vtype_el     is not None and vtype_el.text     else "",
-                "party":        party_el.text.strip()     if party_el     is not None and party_el.text     else "",
-                "amount":       amount_raw.lstrip("-"),
-                "narration":    narration_el.text.strip() if narration_el is not None and narration_el.text else "",
+                "date":           date_el.text.strip()      if date_el      is not None and date_el.text      else "",
+                "voucher_number": vchno_el.text.strip()     if vchno_el     is not None and vchno_el.text     else "",
+                "voucher_type":   vtype_el.text.strip()     if vtype_el     is not None and vtype_el.text     else "",
+                "party":          party_el.text.strip()     if party_el     is not None and party_el.text     else "",
+                "amount":         amount_raw.lstrip("-"),
+                "narration":      narration_el.text.strip() if narration_el is not None and narration_el.text else "",
             })
         return vouchers
 

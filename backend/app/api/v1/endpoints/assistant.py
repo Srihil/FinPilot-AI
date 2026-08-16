@@ -1192,16 +1192,36 @@ def create_entity(
                     "godown":          payload.get("godown") or "",
                 }]
 
-            entries = [
-                {
-                    "stock_item_name": str(e.get("stock_item_name") or ""),
+            from app.models.tally_masters import TallyStockItem as _TSI
+
+            entries = []
+            for e in raw_entries:
+                if not isinstance(e, dict):
+                    continue
+                item_name = str(e.get("stock_item_name") or "").strip()
+                unit      = str(e.get("unit") or "").strip()
+                rate      = float(e.get("rate") or 0)
+
+                # Auto-fill unit and rate from synced TallyStockItem if not provided
+                if item_name and (not unit or rate == 0):
+                    si = db.query(_TSI).filter(
+                        _TSI.company_id == current_user.company_id,
+                        _TSI.name.ilike(item_name),
+                        _TSI.is_active == True,
+                    ).first()
+                    if si:
+                        if not unit:
+                            unit = si.unit or ""
+                        if rate == 0 and si.rate:
+                            rate = float(si.rate)
+
+                entries.append({
+                    "stock_item_name": item_name,
                     "quantity":        float(e.get("quantity") or 1),
-                    "unit":            str(e.get("unit") or "Nos"),
-                    "rate":            float(e.get("rate") or 0),
+                    "unit":            unit,
+                    "rate":            rate,
                     "godown":          str(e.get("godown") or ""),
-                }
-                for e in raw_entries if isinstance(e, dict)
-            ]
+                })
 
             d = _parse_date(payload.get("date", ""))
             txn_number = f"{_PREFIXES[txn_type]}-{uuid.uuid4().hex[:8].upper()}"

@@ -254,25 +254,46 @@ class DemoEntityAgent:
         _STOCK_TXN_TYPES = {"stock_journal", "physical_stock", "delivery_note", "receipt_note", "rejection_in", "rejection_out"}
         if entity_type in _STOCK_TXN_TYPES:
             import re as _re
-            qty_m = _re.search(r'(\d+(?:\.\d+)?)\s*(?:nos|kg|pcs|units?|ltr|mtrs?)?', text_lower)
+            # Extract quantity — first standalone number
+            qty_m = _re.search(r'(\d+(?:\.\d+)?)', text)
             qty = float(qty_m.group(1)) if qty_m else 1.0
-            item_m = _re.search(r'(?:of|item|stock|goods?)\s+([A-Za-z][A-Za-z0-9\s\-]{1,40}?)(?:\s+from|\s+to|\s+at|\s+qty|$)', text, _re.IGNORECASE)
+
+            # Extract item name — pattern: "<number> <ItemName> from/to/at/on"
+            # handles "Transfer 3 Laptop from..." "deliver 2 Samsung Galaxy to..."
+            item_m = _re.search(
+                r'\b\d+(?:\.\d+)?\s+([A-Z][A-Za-z0-9][A-Za-z0-9\s]{0,40}?)(?:\s+(?:from|to|at|on|in|dated)\b)',
+                text, _re.IGNORECASE
+            )
+            if not item_m:
+                item_m = _re.search(r'(?:of|item|stock|goods?)\s+([A-Za-z][A-Za-z0-9\s\-]{1,40}?)(?:\s+from|\s+to|\s+at|$)', text, _re.IGNORECASE)
             item = item_m.group(1).strip() if item_m else ""
-            party_m = _re.search(r'(?:to|from|for)\s+([A-Z][A-Za-z0-9\s&.]{1,40}?)(?:\s+from|\s+to|\s+qty|\s+\d|$)', text, _re.IGNORECASE)
+
+            # Extract party (customer/vendor) — name after "for/to/from" that starts with capital
+            party_m = _re.search(r'(?:for|to|from)\s+([A-Z][A-Za-z0-9\s&.]{2,40}?)(?:\s+(?:from|to|at|on|—|\d)|$)', text)
             party = party_m.group(1).strip() if party_m else ""
-            from_m = _re.search(r'from\s+([A-Za-z][A-Za-z0-9\s]{1,30}?)(?:\s+to\b|$)', text, _re.IGNORECASE)
-            to_m   = _re.search(r'to\s+([A-Za-z][A-Za-z0-9\s]{1,30}?)(?:\s+from\b|\s+qty|$)', text, _re.IGNORECASE)
+
+            # Extract godown names — "from X to Y" or "at X"
+            from_m = _re.search(r'\bfrom\s+(Main Location|Chennai|[A-Z][A-Za-z0-9\s]{1,25}?)(?:\s+to\b|\s+on\b|$)', text, _re.IGNORECASE)
+            to_m   = _re.search(r'\bto\s+(Main Location|Chennai|[A-Z][A-Za-z0-9\s]{1,25}?)(?:\s+on\b|\s+from\b|$)', text, _re.IGNORECASE)
+            at_m   = _re.search(r'\bat\s+(Main Location|Chennai|[A-Z][A-Za-z0-9\s]{1,25}?)(?:\s+on\b|$)', text, _re.IGNORECASE)
+            godown_from = from_m.group(1).strip() if from_m else ""
+            godown_to   = to_m.group(1).strip()   if to_m   else ""
+            godown_at   = at_m.group(1).strip()   if at_m   else ""
+
+            # For physical_stock the entry godown is "at X"
+            entry_godown = godown_at if entity_type == "physical_stock" else ""
+
             base = {
                 "date": "",
                 "narration": text[:80],
-                "entries": [{"stock_item_name": item, "quantity": qty, "unit": "", "rate": 0, "godown": ""}],
+                "entries": [{"stock_item_name": item, "quantity": qty, "unit": "", "rate": 0, "godown": entry_godown}],
             }
             if entity_type == "stock_journal":
-                base["from_godown"] = from_m.group(1).strip() if from_m else ""
-                base["to_godown"]   = to_m.group(1).strip()   if to_m   else ""
+                base["from_godown"] = godown_from
+                base["to_godown"]   = godown_to
             elif entity_type in ("delivery_note", "receipt_note", "rejection_in", "rejection_out"):
                 base["party_name"]  = party
-                base["from_godown"] = from_m.group(1).strip() if from_m else ""
+                base["from_godown"] = godown_from or godown_at
             return {
                 "entity_type": entity_type,
                 "data": base,

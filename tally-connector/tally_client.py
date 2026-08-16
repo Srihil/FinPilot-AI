@@ -38,6 +38,7 @@ class TallyClient:
         self.timeout = timeout
 
     def _post_xml(self, xml_body: str) -> str:
+        logger.debug("TALLY REQUEST:\n%s", xml_body)
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 resp = client.post(
@@ -46,6 +47,7 @@ class TallyClient:
                     headers={"Content-Type": "application/xml"},
                 )
                 resp.raise_for_status()
+                logger.debug("TALLY RESPONSE:\n%s", resp.text)
                 return resp.text
         except httpx.ConnectError:
             raise TallyError(

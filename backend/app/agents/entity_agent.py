@@ -47,12 +47,14 @@ VOUCHERS (TRANSACTIONS):
 - debit_note: party_ledger (required, vendor), amount (required), date (YYYY-MM-DD), narration, purchase_ledger (default "Purchases")
 - contra: from_account (required), to_account (required), amount (required), date (YYYY-MM-DD), narration
 - expense: title (required), amount (required), category, date (YYYY-MM-DD), vendor_name, description
+- custom_voucher: voucher_type_name (required, the EXACT custom type name as stated by user), party_ledger, amount (required), date (YYYY-MM-DD), narration, sales_ledger (if sales-type), purchase_ledger (if purchase-type), account_ledger (if receipt/payment-type), dr_ledger, cr_ledger (if journal-type)
 
 IMPORTANT rules for entity_type:
 - Cash/bank transfer → always use "contra" (never "voucher" or "transfer")
 - Money received from customer → always "receipt"
 - Money paid to vendor → always "payment"
 - General ledger Dr/Cr entry → always "journal"
+- If user mentions a specific named voucher type that is NOT one of the standard types above (e.g. "GST Bill", "Tax Invoice", "Salary Payment") → use "custom_voucher" and set voucher_type_name to the exact name mentioned
 - Never return entity_type as "voucher" — always use the specific type above
 
 Date format: always YYYY-MM-DD. If no year mentioned, assume current year 2026.

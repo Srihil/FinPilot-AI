@@ -764,8 +764,9 @@ class TallyClient:
     # ── Write: Create sales voucher ───────────────────────────────────────────
 
     def create_sales_voucher(self, payload: dict) -> dict:
-        """payload: date (YYYYMMDD), party_ledger, sales_ledger, amount, narration"""
-        date          = self._require_date(payload, "Sales")
+        """payload: date (YYYYMMDD), party_ledger, sales_ledger, amount, narration, voucher_type_name (optional custom type)"""
+        vtype         = payload.get("voucher_type_name", "Sales")
+        date          = self._require_date(payload, vtype)
         party         = payload.get("party_ledger", "")
         sales_ledger  = payload.get("sales_ledger", "Sales")
         amount        = str(payload.get("amount", "0")).lstrip("-")
@@ -776,12 +777,12 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Sales" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
-        <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+        <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{party}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
@@ -808,8 +809,9 @@ class TallyClient:
     # ── Write: Create purchase voucher ────────────────────────────────────────
 
     def create_purchase_voucher(self, payload: dict) -> dict:
-        """payload: date (YYYYMMDD), party_ledger, purchase_ledger, amount, narration"""
-        date             = self._require_date(payload, "Purchase")
+        """payload: date (YYYYMMDD), party_ledger, purchase_ledger, amount, narration, voucher_type_name (optional custom type)"""
+        vtype            = payload.get("voucher_type_name", "Purchase")
+        date             = self._require_date(payload, vtype)
         party            = payload.get("party_ledger", "")
         purchase_ledger  = payload.get("purchase_ledger", "Purchases")
         amount           = str(payload.get("amount", "0")).lstrip("-")
@@ -820,12 +822,12 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Purchase" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
-        <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>
+        <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{party}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
@@ -1011,22 +1013,23 @@ class TallyClient:
 
     def create_receipt_voucher(self, payload: dict) -> dict:
         """Money received FROM customer INTO bank/cash account."""
-        date      = self._require_date(payload, "Receipt")
+        vtype     = payload.get("voucher_type_name", "Receipt")
+        date      = self._require_date(payload, vtype)
         party     = payload.get("party_ledger", "")
         account   = payload.get("account_ledger", "Cash")
         amount    = str(payload.get("amount", "0")).lstrip("-")
         narration = payload.get("narration", "Receipt")
-        vnum      = self._vch_id()
+        vnum      = payload.get("voucher_number") or self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Receipt" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
-        <VOUCHERTYPENAME>Receipt</VOUCHERTYPENAME>
+        <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{account}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
@@ -1048,22 +1051,23 @@ class TallyClient:
 
     def create_payment_voucher(self, payload: dict) -> dict:
         """Money paid TO vendor FROM bank/cash account."""
-        date      = self._require_date(payload, "Payment")
+        vtype     = payload.get("voucher_type_name", "Payment")
+        date      = self._require_date(payload, vtype)
         party     = payload.get("party_ledger", "")
         account   = payload.get("account_ledger", "Cash")
         amount    = str(payload.get("amount", "0")).lstrip("-")
         narration = payload.get("narration", "Payment")
-        vnum      = self._vch_id()
+        vnum      = payload.get("voucher_number") or self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Payment" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
-        <VOUCHERTYPENAME>Payment</VOUCHERTYPENAME>
+        <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{party}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
@@ -1085,22 +1089,23 @@ class TallyClient:
 
     def create_journal_voucher(self, payload: dict) -> dict:
         """General journal entry: dr_ledger Dr, cr_ledger Cr."""
-        date      = self._require_date(payload, "Journal")
+        vtype     = payload.get("voucher_type_name", "Journal")
+        date      = self._require_date(payload, vtype)
         dr_ledger = payload.get("dr_ledger", "")
         cr_ledger = payload.get("cr_ledger", "")
         amount    = str(payload.get("amount", "0")).lstrip("-")
         narration = payload.get("narration", "Journal Entry")
-        vnum      = self._vch_id()
+        vnum      = payload.get("voucher_number") or self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Journal" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
-        <VOUCHERTYPENAME>Journal</VOUCHERTYPENAME>
+        <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{dr_ledger}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
@@ -1122,22 +1127,23 @@ class TallyClient:
 
     def create_credit_note(self, payload: dict) -> dict:
         """Sales return: reduces receivable, reduces sales."""
-        date          = self._require_date(payload, "Credit Note")
+        vtype         = payload.get("voucher_type_name", "Credit Note")
+        date          = self._require_date(payload, vtype)
         party         = payload.get("party_ledger", "")
         sales_ledger  = payload.get("sales_ledger", "Sales")
         amount        = str(payload.get("amount", "0")).lstrip("-")
         narration     = payload.get("narration", "Sales Return")
-        vnum          = self._vch_id()
+        vnum          = payload.get("voucher_number") or self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Credit Note" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
-        <VOUCHERTYPENAME>Credit Note</VOUCHERTYPENAME>
+        <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{sales_ledger}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
@@ -1159,22 +1165,23 @@ class TallyClient:
 
     def create_debit_note(self, payload: dict) -> dict:
         """Purchase return: reduces payable, reduces purchases."""
-        date             = self._require_date(payload, "Debit Note")
+        vtype            = payload.get("voucher_type_name", "Debit Note")
+        date             = self._require_date(payload, vtype)
         party            = payload.get("party_ledger", "")
         purchase_ledger  = payload.get("purchase_ledger", "Purchases")
         amount           = str(payload.get("amount", "0")).lstrip("-")
         narration        = payload.get("narration", "Purchase Return")
-        vnum             = self._vch_id()
+        vnum             = payload.get("voucher_number") or self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Debit Note" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
-        <VOUCHERTYPENAME>Debit Note</VOUCHERTYPENAME>
+        <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{party}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
@@ -1196,22 +1203,23 @@ class TallyClient:
 
     def create_contra_voucher(self, payload: dict) -> dict:
         """Cash/bank transfer between two cash or bank accounts."""
-        date       = self._require_date(payload, "Contra")
+        vtype      = payload.get("voucher_type_name", "Contra")
+        date       = self._require_date(payload, vtype)
         from_acct  = payload.get("from_account", "Cash")
         to_acct    = payload.get("to_account", "Bank")
         amount     = str(payload.get("amount", "0")).lstrip("-")
         narration  = payload.get("narration", "Fund Transfer")
-        vnum       = self._vch_id()
+        vnum       = payload.get("voucher_number") or self._vch_id()
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="Contra" ACTION="Create">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>
         <NARRATION>{narration}</NARRATION>
-        <VOUCHERTYPENAME>Contra</VOUCHERTYPENAME>
+        <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
           <LEDGERNAME>{to_acct}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>

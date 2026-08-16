@@ -29,6 +29,7 @@ const QUICK_GROUPS = [
       'Create Sales Invoice', 'Record Purchase Bill', 'Record Receipt from customer',
       'Record Payment to vendor', 'Journal Entry', 'Credit Note (sales return)',
       'Debit Note (purchase return)', 'Contra / bank transfer',
+      'Create GST Bill entry', 'Custom voucher type entry',
     ],
   },
 ];
@@ -53,6 +54,7 @@ const ENTITY_COLORS: Record<string, string> = {
   credit_note: 'bg-yellow-100 text-yellow-800',
   debit_note: 'bg-pink-100 text-pink-800',
   contra: 'bg-cyan-100 text-cyan-800',
+  custom_voucher: 'bg-orange-100 text-orange-800',
 };
 
 // ─── Tally activity helpers ───────────────────────────────────────────────────

@@ -930,6 +930,57 @@ def create_entity(
                  "amount": str(int(amount)), "narration": narration, "voucher_number": vnum})
             if tally_queued: db.commit()
 
+        elif entity_type == "custom_voucher":
+            from app.models.tally_masters import TallyVoucherType
+            vt_name = (payload.get("voucher_type_name") or "").strip()
+            if not vt_name:
+                raise HTTPException(status_code=422, detail="voucher_type_name is required for custom_voucher")
+            vt_record = db.query(TallyVoucherType).filter(
+                TallyVoucherType.company_id == current_user.company_id,
+                TallyVoucherType.name.ilike(vt_name),
+                TallyVoucherType.is_active == True,
+            ).first()
+            if not vt_record:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Custom voucher type '{vt_name}' not found. Create it first from Accounting → Voucher Types.",
+                )
+            parent = (vt_record.parent or "Sales").strip()
+            d = _parse_date(payload.get("date", ""))
+            amount = float(payload.get("amount", 0))
+            narration = payload.get("narration", vt_name)
+            vnum = f"FP-{uuid.uuid4().hex[:12].upper()}"
+            record = Expense(
+                company_id=current_user.company_id, created_by=current_user.id,
+                title=narration or vt_name, category=vt_record.name,
+                expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+                currency="INR", status=ExpenseStatus.APPROVED,
+                notes=f"Party: {payload.get('party_ledger', '')} | Type: {vt_record.name}",
+                tally_sync_status="pending", tally_voucher_ref=vnum,
+            )
+            db.add(record)
+            db.flush()
+            entity_id = str(record.id)
+            # Map parent → Tally operation and ledger fields
+            _parent_op = {
+                "Sales":       ("CREATE_SALES_VOUCHER",    {"party_ledger": payload.get("party_ledger", ""), "sales_ledger": payload.get("sales_ledger", "Sales")}),
+                "Purchase":    ("CREATE_PURCHASE_VOUCHER", {"party_ledger": payload.get("party_ledger", ""), "purchase_ledger": payload.get("purchase_ledger", "Purchases")}),
+                "Receipt":     ("CREATE_RECEIPT_VOUCHER",  {"party_ledger": payload.get("party_ledger", ""), "account_ledger": payload.get("account_ledger", "Cash")}),
+                "Payment":     ("CREATE_PAYMENT_VOUCHER",  {"party_ledger": payload.get("party_ledger", ""), "account_ledger": payload.get("account_ledger", "Cash")}),
+                "Journal":     ("CREATE_JOURNAL_VOUCHER",  {"dr_ledger": payload.get("dr_ledger", ""), "cr_ledger": payload.get("cr_ledger", "")}),
+                "Contra":      ("CREATE_CONTRA_VOUCHER",   {"from_account": payload.get("from_account", "Cash"), "to_account": payload.get("to_account", "Bank")}),
+                "Credit Note": ("CREATE_CREDIT_NOTE",      {"party_ledger": payload.get("party_ledger", ""), "sales_ledger": payload.get("sales_ledger", "Sales")}),
+                "Debit Note":  ("CREATE_DEBIT_NOTE",       {"party_ledger": payload.get("party_ledger", ""), "purchase_ledger": payload.get("purchase_ledger", "Purchases")}),
+            }
+            operation, extra = _parent_op.get(parent, _parent_op["Sales"])
+            tally_queued = queue_tally_write(db, current_user.company_id, operation, {
+                "date": d.strftime("%Y%m%d"), "amount": str(int(amount)),
+                "narration": narration, "voucher_number": vnum,
+                "voucher_type_name": vt_record.name,  # tells tally_client to use custom type
+                **extra,
+            })
+            if tally_queued: db.commit()
+
         else:
             raise HTTPException(status_code=400, detail=f"Unknown entity_type: {entity_type}")
 

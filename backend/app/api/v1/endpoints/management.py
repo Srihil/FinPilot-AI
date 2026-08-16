@@ -1034,12 +1034,23 @@ def list_vouchers(
     results = []
 
     # ── Invoices (SALES / PURCHASE) ──────────────────────────────────────────
+    from app.models.tally_masters import TallyVoucherType as _TVT
     vt = (voucher_type or "").upper()
+
+    # Build set of active custom voucher type names (upper-cased) for dynamic filtering
+    _custom_vtype_names_upper = {
+        r.name.upper()
+        for r in db.query(_TVT.name).filter(
+            _TVT.company_id == cid,
+            _TVT.is_active == True,
+        ).all()
+    }
+
     include_invoices = vt in ("", "ALL", "SALES", "PURCHASE")
     include_expenses = vt in (
         "", "ALL", "PAYMENT", "PURCHASE", "DEBIT_NOTE",
         "RECEIPT", "JOURNAL", "CONTRA", "CREDIT_NOTE",
-    )
+    ) or vt in _custom_vtype_names_upper
 
     if include_invoices:
         inv_q = db.query(Invoice).options(
@@ -1115,9 +1126,10 @@ def list_vouchers(
             exp_sync = getattr(exp, "tally_sync_status", None) or "local_only"
             exp_notes = getattr(exp, "notes", None) or ""
             exp_source = "tally_sync" if "[tally-sync]" in exp_notes else "finpilot"
-            exp_vtype = _cat_to_vtype.get(exp.category or "", "PAYMENT")
+            raw_cat = exp.category or ""
+            exp_vtype = _cat_to_vtype.get(raw_cat, raw_cat.upper() if raw_cat else "PAYMENT")
             # Apply voucher type filter to expenses too
-            if vt and vt not in ("", "ALL") and exp_vtype != vt:
+            if vt and vt not in ("", "ALL") and exp_vtype.upper() != vt.upper():
                 continue
             display_name = (exp.vendor.name if exp.vendor else None) or exp.title
             results.append({

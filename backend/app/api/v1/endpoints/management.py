@@ -1496,6 +1496,43 @@ def delete_voucher_type(
     return {"status": "deleted", "message": "Deleted successfully."}
 
 
+# ─── Wipe ALL vouchers (invoices + expenses) for the company ─────────────────────
+
+@router.post("/wipe-vouchers")
+def wipe_all_vouchers(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Hard-wipe every invoice and expense for this company so the user can
+    start fresh with a clean sync from TallyPrime.
+    Only voucher data is touched — ledgers, customers, vendors, stock, etc. are untouched.
+    """
+    deleted_invoices = db.query(Invoice).filter(
+        Invoice.company_id == current_user.company_id,
+        Invoice.is_deleted.is_not(True),
+    ).update({"is_deleted": True}, synchronize_session=False)
+
+    deleted_expenses = db.query(Expense).filter(
+        Expense.company_id == current_user.company_id,
+        Expense.is_deleted.is_not(True),
+    ).update({"is_deleted": True}, synchronize_session=False)
+
+    db.commit()
+
+    audit_service.log(
+        db, current_user.company_id, current_user.id, AuditAction.DELETE,
+        entity_type="voucher_wipe",
+        description=f"Wiped all vouchers: {deleted_invoices} invoices, {deleted_expenses} expenses",
+    )
+
+    return {
+        "deleted_invoices": deleted_invoices,
+        "deleted_expenses": deleted_expenses,
+        "message": f"Wiped {deleted_invoices} invoice(s) and {deleted_expenses} expense(s). All Vouchers is now empty. Run a full sync to import from TallyPrime.",
+    }
+
+
 # ─── Clear local-only vouchers ───────────────────────────────────────────────────
 
 @router.post("/clear-local-vouchers")

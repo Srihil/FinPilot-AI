@@ -409,6 +409,11 @@ export const managementApi = {
     return res.data;
   },
 
+  wipeAllVouchers: async (): Promise<{ deleted_invoices: number; deleted_expenses: number; message: string }> => {
+    const res = await apiClient.post('/api/management/wipe-vouchers');
+    return res.data;
+  },
+
   voucherTypes: async (params?: { page?: number; page_size?: number; search?: string }) => {
     const res = await apiClient.get('/api/management/voucher-types', { params });
     return res.data as { items: VoucherTypeItem[]; total: number; total_pages: number };

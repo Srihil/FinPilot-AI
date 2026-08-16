@@ -48,6 +48,7 @@ export default function VouchersPage() {
   const [dateTo, setDateTo] = useState('');
   const [deleteItem, setDeleteItem] = useState<VoucherItem | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showWipeConfirm, setShowWipeConfirm] = useState(false);
 
   const voucherType = urlType?.toUpperCase() || '';
 
@@ -83,6 +84,18 @@ export default function VouchersPage() {
     },
   });
 
+  const wipeMut = useMutation({
+    mutationFn: () => managementApi.wipeAllVouchers(),
+    onSuccess: (res) => {
+      toast({ title: 'All vouchers wiped', description: res.message });
+      qc.invalidateQueries({ queryKey: ['vouchers'] });
+      setShowWipeConfirm(false);
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to wipe vouchers', variant: 'destructive' });
+    },
+  });
+
   const clearMut = useMutation({
     mutationFn: () => managementApi.clearLocalVouchers(),
     onSuccess: (res) => {
@@ -109,12 +122,12 @@ export default function VouchersPage() {
           <p className="text-sm text-slate-500 mt-0.5">Transactions and vouchers</p>
         </div>
         <Button
-          variant="outline"
+          variant="destructive"
           size="sm"
-          className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
-          onClick={() => setShowClearConfirm(true)}
+          className="gap-2"
+          onClick={() => setShowWipeConfirm(true)}
         >
-          <Eraser className="w-4 h-4" /> Clear Local Data
+          <Eraser className="w-4 h-4" /> Wipe All Vouchers
         </Button>
       </div>
 
@@ -226,6 +239,32 @@ export default function VouchersPage() {
           </div>
         </div>
       )}
+
+      {/* Wipe All Vouchers Dialog */}
+      <Dialog open={showWipeConfirm} onOpenChange={setShowWipeConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <Eraser className="w-4 h-4" /> Wipe All Vouchers
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-slate-700">
+            <p>This will permanently delete <strong>every invoice and expense</strong> from FinPilot for your company.</p>
+            <div className="bg-red-50 border border-red-200 p-3 rounded text-red-700 text-xs space-y-1">
+              <p className="font-semibold">Only voucher data is deleted.</p>
+              <p>Ledgers, customers, vendors, stock groups, units, godowns — all safe.</p>
+            </div>
+            <p className="text-xs text-slate-500 bg-slate-50 p-2 rounded">After wiping, go to <strong>TallyPrime → Sync Center → Sync</strong> to import fresh data.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWipeConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => wipeMut.mutate()} disabled={wipeMut.isPending}>
+              {wipeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Eraser className="w-4 h-4 mr-2" />}
+              Yes, Wipe Everything
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Clear Local Data Dialog */}
       <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>

@@ -49,12 +49,19 @@ VOUCHERS (TRANSACTIONS):
 - expense: title (required), amount (required), category, date (YYYY-MM-DD), vendor_name, description
 - custom_voucher: voucher_type_name (required, the EXACT custom type name as stated by user), party_ledger, amount (required), date (YYYY-MM-DD), narration, sales_ledger (if sales-type), purchase_ledger (if purchase-type), account_ledger (if receipt/payment-type), dr_ledger, cr_ledger (if journal-type)
 
-IMPORTANT rules for entity_type:
-- Cash/bank transfer → always use "contra" (never "voucher" or "transfer")
-- Money received from customer → always "receipt"
-- Money paid to vendor → always "payment"
-- General ledger Dr/Cr entry → always "journal"
-- If user mentions a specific named voucher type that is NOT one of the standard types above (e.g. "GST Bill", "Tax Invoice", "Salary Payment") → use "custom_voucher" and set voucher_type_name to the exact name mentioned
+CRITICAL RULE — check this FIRST before anything else:
+If the user explicitly names a specific voucher type (e.g. "GST Bill", "Tax Invoice", "Salary Voucher", "Export Invoice") that does NOT exactly match one of these standard types: sales_invoice, purchase_bill, receipt, payment, journal, credit_note, debit_note, contra — then ALWAYS use entity_type "custom_voucher" with voucher_type_name set to that exact name. Never map a custom type name to a standard type.
+
+Example: "Create a GST Bill for ABC Traders for ₹25000" → entity_type: "custom_voucher", voucher_type_name: "GST Bill"
+Example: "Make a Tax Invoice entry for XYZ for ₹10000" → entity_type: "custom_voucher", voucher_type_name: "Tax Invoice"
+
+Standard type rules (only apply when no custom type is named):
+- Cash/bank transfer → "contra"
+- Money received from customer → "receipt"
+- Money paid to vendor → "payment"
+- General ledger Dr/Cr entry → "journal"
+- Credit Note / Sales Return → "credit_note"
+- Debit Note / Purchase Return → "debit_note"
 - Never return entity_type as "voucher" — always use the specific type above
 
 Date format: always YYYY-MM-DD. If no year mentioned, assume current year 2026.

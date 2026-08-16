@@ -87,7 +87,7 @@ def _translate_tally_error(error: str) -> str:
             "Restart TallyPrime and try again."
         )
     if "already exists" in e or "duplicate original name" in e:
-        return "TallyPrime refused: a record with this name already exists in Tally."
+        return "TallyPrime: record already exists (no action needed)."
     if "cannot proceed" in e:
         return "TallyPrime refused the operation — the record may be in use or locked."
     if "bad unit name" in e:
@@ -746,6 +746,29 @@ def submit_job_result(
 
     elif body.status == "FAILED":
         raw_error = body.error_message or ""
+
+        # "DUPLICATE ORIGINAL NAME" for unit CREATE means the unit already exists in Tally
+        # (TallyPrime pre-loads UQC abbreviations internally). Treat as success.
+        if "duplicate original name" in raw_error.lower() and job.operation == TallyJobOperation.CREATE_UNIT:
+            job.status = JobStatus.SUCCESS
+            job.error_message = None
+            job.result = {"note": "Unit already exists in TallyPrime"}
+            name = (job.payload or {}).get("name", "").strip()
+            if name:
+                tally_key = f"{job.company_id}::{name.lower()}"
+                master = db.query(TallyUnit).filter(
+                    TallyUnit.company_id == job.company_id,
+                    TallyUnit.tally_key == tally_key,
+                ).first()
+                if master:
+                    master.tally_sync_status = "synced"
+                    master.synced_at = now
+            db.commit()
+            audit_service.log(db, job.company_id, None, AuditAction.UPDATE,
+                              entity_type="tally_job", entity_id=job.id,
+                              description=f"Unit already existed in Tally — marked synced")
+            return {"ok": True}
+
         job.error_message = _translate_tally_error(raw_error)
 
         # Permanent Tally constraint failures — retrying won't help

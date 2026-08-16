@@ -92,11 +92,11 @@ export default function UnitsPage() {
   const createMut = useMutation({
     mutationFn: () => {
       if (createMode === 'standard' && selectedUqc) {
-        // name = TallyPrime symbol (e.g. "Nos") — this is what BASEUNITS references
-        // symbol = UQC code (e.g. "NOS") — stored as ORIGINALNAME / formal name in Tally
+        // name   = formal/display name (e.g. "Numbers")   → TallyPrime NAME field
+        // symbol = short abbreviation (e.g. "Nos")        → TallyPrime ORIGINALNAME field
         return managementApi.createUnit({
-          name: selectedUqc.tallySymbol,
-          symbol: selectedUqc.uqc,
+          name: selectedUqc.formal,
+          symbol: selectedUqc.tallySymbol,
           decimal_places: parseInt(uqcDecimals) || 0,
         });
       }

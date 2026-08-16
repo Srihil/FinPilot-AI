@@ -1011,17 +1011,20 @@ class TallyClient:
         return {"created": int(created.text) if created is not None and created.text else 0}
 
     def create_unit(self, payload: dict) -> dict:
-        name     = payload.get("name", "Nos").strip()
+        # NAME = formal/display name shown in unit list (e.g. "Numbers", "Kilograms")
+        # ORIGINALNAME = short symbol/abbreviation (e.g. "Nos", "Kg")
+        # ISSIMPLEUNIT=Yes is required — omitting it causes "BAD UNIT NAME" rejection.
+        name     = payload.get("name", "").strip()
+        symbol   = (payload.get("symbol") or name).strip()
         decimals = payload.get("decimal_places", "0")
-        # TYPE=Masters is required for UNIT import. TYPE=Data causes "BAD UNIT NAME".
-        # NAME and ORIGINALNAME must both be the unit symbol (e.g. "Nos").
         xml = f"""<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Masters</TYPE><ID>All Masters</ID></HEADER>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <UNIT NAME="{name}" ACTION="Create">
         <NAME>{name}</NAME>
-        <ORIGINALNAME>{name}</ORIGINALNAME>
+        <ORIGINALNAME>{symbol}</ORIGINALNAME>
+        <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
         <DECIMALPLACES>{decimals}</DECIMALPLACES>
       </UNIT>
     </TALLYMESSAGE>

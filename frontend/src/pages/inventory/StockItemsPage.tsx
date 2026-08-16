@@ -11,7 +11,8 @@ import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
 import { managementApi } from '../../api/endpoints';
 import { formatCurrency } from '../../utils/format';
-import type { TallyStockItem, TallyUnit } from '../../types';
+import { cn } from '../../utils/cn';
+import type { TallyStockItem, TallyUnit, TallyStockGroup } from '../../types';
 
 export default function StockItemsPage() {
   const qc = useQueryClient();
@@ -23,6 +24,8 @@ export default function StockItemsPage() {
 
   const [formName, setFormName] = useState('');
   const [formGroup, setFormGroup] = useState('');
+  const [formGroupInput, setFormGroupInput] = useState('');
+  const [showGroupSuggestions, setShowGroupSuggestions] = useState(false);
   const [formUnit, setFormUnit] = useState('');
   const [formRate, setFormRate] = useState('');
   const [formQty, setFormQty] = useState('');
@@ -37,6 +40,16 @@ export default function StockItemsPage() {
     queryFn: () => managementApi.units({ page_size: 100 }),
     staleTime: 60_000,
   });
+
+  const { data: groupsData } = useQuery({
+    queryKey: ['stock-groups-all'],
+    queryFn: () => managementApi.stockGroups({ page_size: 200 }),
+    staleTime: 60_000,
+  });
+
+  const filteredGroups = (groupsData?.items ?? []).filter((g: TallyStockGroup) =>
+    !formGroupInput || g.name.toLowerCase().includes(formGroupInput.toLowerCase())
+  );
 
   const createMut = useMutation({
     mutationFn: () => managementApi.createStockItem({
@@ -85,7 +98,7 @@ export default function StockItemsPage() {
     },
   });
 
-  function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); setFormQty(''); }
+  function resetForm() { setFormName(''); setFormGroup(''); setFormGroupInput(''); setFormUnit(''); setFormRate(''); setFormQty(''); }
   function openEdit(item: TallyStockItem) {
     setFormName(item.name); setFormGroup(item.stock_group || '');
     setFormUnit(item.unit || 'Nos'); setFormRate(item.rate ? String(item.rate) : '');
@@ -147,10 +160,32 @@ export default function StockItemsPage() {
 
       {totalPages > 1 && <div className="flex justify-between text-sm text-slate-500"><span>Page {page} of {totalPages}</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Prev</Button><Button variant="outline" size="sm" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>Next</Button></div></div>}
 
-      <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>New Stock Item</DialogTitle></DialogHeader>
+      <Dialog open={showCreate} onOpenChange={v => { setShowCreate(v); if (!v) setShowGroupSuggestions(false); }}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>New Stock Item</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div><Label>Name *</Label><Input value={formName} onChange={e=>setFormName(e.target.value)} placeholder="e.g. Laptop" /></div>
-          <div><Label>Stock Group</Label><Input value={formGroup} onChange={e=>setFormGroup(e.target.value)} placeholder="e.g. Electronics (leave empty for root)" /></div>
+          <div className="relative">
+            <Label>Stock Group</Label>
+            <Input
+              value={formGroupInput}
+              onChange={e => { setFormGroupInput(e.target.value); setFormGroup(e.target.value); setShowGroupSuggestions(true); }}
+              onFocus={() => setShowGroupSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowGroupSuggestions(false), 150)}
+              placeholder="Type to search groups (e.g. Electronics)…"
+              className="mt-1"
+            />
+            {showGroupSuggestions && filteredGroups.length > 0 && (
+              <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                {filteredGroups.map((g: TallyStockGroup) => (
+                  <button key={g.id} type="button"
+                    onMouseDown={() => { setFormGroup(g.name); setFormGroupInput(g.name); setShowGroupSuggestions(false); }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 hover:text-indigo-700"
+                  >
+                    {g.name} {g.parent ? <span className="text-slate-400 text-xs">({g.parent})</span> : null}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div>
             <Label>Unit</Label>
             <select value={formUnit} onChange={e=>setFormUnit(e.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">

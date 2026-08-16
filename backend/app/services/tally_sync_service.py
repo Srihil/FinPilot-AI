@@ -16,7 +16,7 @@ from app.models.vendor import Vendor
 from app.models.invoice import Invoice, InvoiceStatus, InvoiceType
 from app.models.expense import Expense, ExpenseStatus
 from app.models.product import Product
-from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, TallyGodown, TallyGroup, TallyVoucherType
+from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyStockItem, TallyUnit, TallyGodown, TallyGroup, TallyVoucherType
 
 TALLY_TAG = "[tally-sync]"
 DEBTOR_GROUPS = {"sundry debtors", "debtors", "trade receivables"}
@@ -359,19 +359,13 @@ def sync_voucher_types(db: Session, company_id: uuid.UUID, voucher_types: list[d
 def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]) -> dict:
     created = 0
     updated = 0
+    now = datetime.now(timezone.utc)
 
     for item in stock_items:
         name = item.get("name", "").strip()
         if not name:
             continue
-        unit = item.get("unit", "Nos")
-
-        # Parse closing balance (quantity)
-        qty_raw = item.get("closing_balance", "0")
-        try:
-            qty = abs(float(str(qty_raw).split()[0].replace(",", ""))) if qty_raw else 0.0
-        except (ValueError, IndexError):
-            qty = 0.0
+        unit = item.get("unit", "")
 
         # Parse closing rate
         rate_raw = item.get("closing_rate", "0")
@@ -380,28 +374,32 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
         except (ValueError, IndexError):
             rate = 0.0
 
-        # Dedup by name (case-insensitive) within company
-        existing = db.query(Product).filter(
-            Product.company_id == company_id,
-            func.lower(Product.name) == name.lower(),
-            Product.is_active == True,
+        tally_key = f"{company_id}::{name.lower()}"
+
+        # Dedup against TallyStockItem (active records only)
+        existing = db.query(TallyStockItem).filter(
+            TallyStockItem.company_id == company_id,
+            TallyStockItem.tally_key == tally_key,
+            TallyStockItem.is_active == True,
         ).first()
 
         if existing:
-            existing.stock_quantity = qty
-            existing.selling_price = rate if rate > 0 else existing.selling_price
-            if not existing.unit:
+            if rate > 0:
+                existing.rate = rate
+            if unit:
                 existing.unit = unit
+            existing.synced_at = now
             updated += 1
         else:
-            db.add(Product(
+            db.add(TallyStockItem(
                 company_id=company_id,
                 name=name,
-                unit=unit,
-                stock_quantity=qty,
-                selling_price=rate,
-                purchase_price=0.0,
-                tax_rate=0.0,
+                unit=unit or None,
+                rate=rate,
+                tally_key=tally_key,
+                source="tally_sync",
+                tally_sync_status="synced",
+                synced_at=now,
                 is_active=True,
             ))
             created += 1

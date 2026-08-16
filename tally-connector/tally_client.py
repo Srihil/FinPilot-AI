@@ -907,14 +907,24 @@ class TallyClient:
     # ── Write: Create stock item ──────────────────────────────────────────────
 
     def create_stock_item(self, payload: dict) -> dict:
-        name = payload.get("name", "")
-        unit = (payload.get("unit") or "").strip()
+        name  = payload.get("name", "")
+        unit  = (payload.get("unit") or "").strip()
         group = (payload.get("stock_group") or "").strip()
+        rate  = float(payload.get("rate", 0) or 0)
+        qty   = float(payload.get("opening_qty", 0) or 0)
 
-        # Only include PARENT if it's a real group (not root)
         parent_xml = f"<PARENT>{group}</PARENT>" if group and group.lower() not in ("", "primary") else ""
-        # Only include BASEUNITS if a unit is specified — avoids "does not exist" errors
-        unit_xml = f"<BASEUNITS>{unit}</BASEUNITS>" if unit else ""
+        unit_xml   = f"<BASEUNITS>{unit}</BASEUNITS>" if unit else ""
+
+        # Opening balance: only include if qty > 0 AND unit is set
+        opening_xml = ""
+        if qty > 0 and unit:
+            value = round(qty * rate, 2)
+            opening_xml = (
+                f"<OPENINGBALANCE>{qty} {unit}</OPENINGBALANCE>"
+                f"<OPENINGRATE>{rate}/{unit}</OPENINGRATE>"
+                f"<OPENINGVALUE>{value}</OPENINGVALUE>"
+            )
 
         xml = f"""<ENVELOPE>
   <HEADER>
@@ -931,6 +941,7 @@ class TallyClient:
           <NAME>{name}</NAME>
           {parent_xml}
           {unit_xml}
+          {opening_xml}
         </STOCKITEM>
       </TALLYMESSAGE>
     </DATA>

@@ -1017,6 +1017,7 @@ class StockItemCreate(BaseModel):
     stock_group: Optional[str] = None
     unit: Optional[str] = None
     rate: Optional[float] = 0.0
+    opening_qty: Optional[float] = 0.0
 
 
 class StockItemUpdate(BaseModel):
@@ -1087,6 +1088,7 @@ def create_stock_item(
         stock_group=data.stock_group or None,
         unit=data.unit or None,
         rate=data.rate or 0.0,
+        opening_qty=data.opening_qty or 0.0,
         tally_key=key,
         source="finpilot",
         tally_sync_status="pending",
@@ -1101,7 +1103,12 @@ def create_stock_item(
 
     tally_queued = False
     if connector:
-        payload = {"name": name, "unit": data.unit or "Nos", "rate": str(data.rate or 0)}
+        payload = {
+            "name": name,
+            "unit": data.unit or "",
+            "rate": str(data.rate or 0),
+            "opening_qty": str(data.opening_qty or 0),
+        }
         if data.stock_group:
             payload["stock_group"] = data.stock_group
         job = TallyIntegrationJob(

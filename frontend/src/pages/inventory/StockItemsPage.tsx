@@ -23,8 +23,9 @@ export default function StockItemsPage() {
 
   const [formName, setFormName] = useState('');
   const [formGroup, setFormGroup] = useState('');
-  const [formUnit, setFormUnit] = useState('Nos');
+  const [formUnit, setFormUnit] = useState('');
   const [formRate, setFormRate] = useState('');
+  const [formQty, setFormQty] = useState('');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stock-items', page, search],
@@ -41,8 +42,9 @@ export default function StockItemsPage() {
     mutationFn: () => managementApi.createStockItem({
       name: formName.trim(),
       stock_group: formGroup || undefined,
-      unit: formUnit || 'Nos',
+      unit: formUnit || undefined,
       rate: formRate ? parseFloat(formRate) : 0,
+      opening_qty: formQty ? parseFloat(formQty) : 0,
     }),
     onSuccess: () => {
       toast({ title: 'Stock item created', description: 'Queued for TallyPrime sync.' });
@@ -83,7 +85,7 @@ export default function StockItemsPage() {
     },
   });
 
-  function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); }
+  function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); setFormQty(''); }
   function openEdit(item: TallyStockItem) {
     setFormName(item.name); setFormGroup(item.stock_group || '');
     setFormUnit(item.unit || 'Nos'); setFormRate(item.rate ? String(item.rate) : '');
@@ -149,19 +151,21 @@ export default function StockItemsPage() {
         <div className="space-y-3">
           <div><Label>Name *</Label><Input value={formName} onChange={e=>setFormName(e.target.value)} placeholder="e.g. Laptop" /></div>
           <div><Label>Stock Group</Label><Input value={formGroup} onChange={e=>setFormGroup(e.target.value)} placeholder="e.g. Electronics (leave empty for root)" /></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Unit</Label>
-              <select value={formUnit} onChange={e=>setFormUnit(e.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">
-                <option value="">— No unit —</option>
-                {unitsData?.items.map((u: TallyUnit) => (
-                  <option key={u.id} value={u.name}>{u.name} {u.symbol ? `(${u.symbol})` : ''}</option>
-                ))}
-              </select>
-              {(!unitsData?.items.length) && <p className="text-xs text-amber-600 mt-1">No units yet — create units first.</p>}
-            </div>
-            <div><Label>Rate (₹)</Label><Input type="number" value={formRate} onChange={e=>setFormRate(e.target.value)} placeholder="0" /></div>
+          <div>
+            <Label>Unit</Label>
+            <select value={formUnit} onChange={e=>setFormUnit(e.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">
+              <option value="">— No unit —</option>
+              {unitsData?.items.map((u: TallyUnit) => (
+                <option key={u.id} value={u.name}>{u.name} {u.symbol ? `(${u.symbol})` : ''}</option>
+              ))}
+            </select>
+            {(!unitsData?.items.length) && <p className="text-xs text-amber-600 mt-1">No units yet — create units first.</p>}
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label>Opening Qty</Label><Input type="number" min="0" value={formQty} onChange={e=>setFormQty(e.target.value)} placeholder="0" /></div>
+            <div><Label>Rate (₹)</Label><Input type="number" min="0" value={formRate} onChange={e=>setFormRate(e.target.value)} placeholder="0" /></div>
+          </div>
+          <p className="text-xs text-slate-400">Opening Qty × Rate = Opening Balance shown in TallyPrime</p>
         </div>
         <DialogFooter><Button variant="outline" onClick={()=>setShowCreate(false)}>Cancel</Button><Button onClick={()=>createMut.mutate()} disabled={!formName.trim()||createMut.isPending}>{createMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Create</Button></DialogFooter>
       </DialogContent></Dialog>

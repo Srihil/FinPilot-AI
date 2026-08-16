@@ -119,6 +119,7 @@ class TallyStockItem(Base):
     stock_group = Column(String(255), nullable=True)
     unit = Column(String(50), nullable=True)
     rate = Column(Float, default=0.0)
+    opening_qty = Column(Float, default=0.0)
     tally_key = Column(String(512), nullable=False)
     source = Column(String(50), default="tally_sync")
     tally_job_id = Column(UUID(as_uuid=True), nullable=True)

@@ -400,6 +400,31 @@ class TallyClient:
         """Generate a unique voucher remote ID."""
         return f"FP-{int(time.time() * 1000) % 100000000:08d}"
 
+    @staticmethod
+    def _require_date(payload: dict, voucher_type: str) -> str:
+        """
+        Extract and validate the date from payload.
+        Must be YYYYMMDD (8 digits). Raises TallyError with a clear message
+        instead of sending <DATE></DATE> to TallyPrime and getting a confusing
+        'Voucher date is missing' error from Tally.
+        """
+        date = str(payload.get("date", "")).strip()
+        if not date:
+            raise TallyError(
+                f"{voucher_type} voucher: date is required. "
+                "Please specify a date like '1 September 2026' or '2026-09-01'."
+            )
+        # Accept YYYYMMDD (8 digits) — the expected format from the backend
+        if len(date) == 8 and date.isdigit():
+            return date
+        # Accept YYYY-MM-DD and strip dashes
+        if len(date) == 10 and date[4] == '-' and date[7] == '-':
+            return date.replace("-", "")
+        raise TallyError(
+            f"{voucher_type} voucher: invalid date format '{date}'. "
+            "Expected YYYYMMDD (e.g. 20260901)."
+        )
+
     # ── Read: Godowns ─────────────────────────────────────────────────────────
 
     def get_godowns(self) -> list[dict]:
@@ -740,7 +765,7 @@ class TallyClient:
 
     def create_sales_voucher(self, payload: dict) -> dict:
         """payload: date (YYYYMMDD), party_ledger, sales_ledger, amount, narration"""
-        date          = payload.get("date", "")
+        date          = self._require_date(payload, "Sales")
         party         = payload.get("party_ledger", "")
         sales_ledger  = payload.get("sales_ledger", "Sales")
         amount        = str(payload.get("amount", "0")).lstrip("-")
@@ -784,7 +809,7 @@ class TallyClient:
 
     def create_purchase_voucher(self, payload: dict) -> dict:
         """payload: date (YYYYMMDD), party_ledger, purchase_ledger, amount, narration"""
-        date             = payload.get("date", "")
+        date             = self._require_date(payload, "Purchase")
         party            = payload.get("party_ledger", "")
         purchase_ledger  = payload.get("purchase_ledger", "Purchases")
         amount           = str(payload.get("amount", "0")).lstrip("-")
@@ -986,7 +1011,7 @@ class TallyClient:
 
     def create_receipt_voucher(self, payload: dict) -> dict:
         """Money received FROM customer INTO bank/cash account."""
-        date      = payload.get("date", "")
+        date      = self._require_date(payload, "Receipt")
         party     = payload.get("party_ledger", "")
         account   = payload.get("account_ledger", "Cash")
         amount    = str(payload.get("amount", "0")).lstrip("-")
@@ -1023,7 +1048,7 @@ class TallyClient:
 
     def create_payment_voucher(self, payload: dict) -> dict:
         """Money paid TO vendor FROM bank/cash account."""
-        date      = payload.get("date", "")
+        date      = self._require_date(payload, "Payment")
         party     = payload.get("party_ledger", "")
         account   = payload.get("account_ledger", "Cash")
         amount    = str(payload.get("amount", "0")).lstrip("-")
@@ -1060,7 +1085,7 @@ class TallyClient:
 
     def create_journal_voucher(self, payload: dict) -> dict:
         """General journal entry: dr_ledger Dr, cr_ledger Cr."""
-        date      = payload.get("date", "")
+        date      = self._require_date(payload, "Journal")
         dr_ledger = payload.get("dr_ledger", "")
         cr_ledger = payload.get("cr_ledger", "")
         amount    = str(payload.get("amount", "0")).lstrip("-")
@@ -1097,7 +1122,7 @@ class TallyClient:
 
     def create_credit_note(self, payload: dict) -> dict:
         """Sales return: reduces receivable, reduces sales."""
-        date          = payload.get("date", "")
+        date          = self._require_date(payload, "Credit Note")
         party         = payload.get("party_ledger", "")
         sales_ledger  = payload.get("sales_ledger", "Sales")
         amount        = str(payload.get("amount", "0")).lstrip("-")
@@ -1134,7 +1159,7 @@ class TallyClient:
 
     def create_debit_note(self, payload: dict) -> dict:
         """Purchase return: reduces payable, reduces purchases."""
-        date             = payload.get("date", "")
+        date             = self._require_date(payload, "Debit Note")
         party            = payload.get("party_ledger", "")
         purchase_ledger  = payload.get("purchase_ledger", "Purchases")
         amount           = str(payload.get("amount", "0")).lstrip("-")
@@ -1171,7 +1196,7 @@ class TallyClient:
 
     def create_contra_voucher(self, payload: dict) -> dict:
         """Cash/bank transfer between two cash or bank accounts."""
-        date       = payload.get("date", "")
+        date       = self._require_date(payload, "Contra")
         from_acct  = payload.get("from_account", "Cash")
         to_acct    = payload.get("to_account", "Bank")
         amount     = str(payload.get("amount", "0")).lstrip("-")

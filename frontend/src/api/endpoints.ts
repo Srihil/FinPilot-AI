@@ -10,8 +10,8 @@ import type {
   CompanySettings, AISettings,
   AnalyticsOverview, AnalyticsCharts,
   PaginatedResponse,
-  TallyLedger, TallyGroup, TallyStockGroup, TallyUnit, TallyGodown,
-  ManagementOverview, VoucherItem, VoucherTypeItem, SyncHealth,
+  TallyLedger, TallyGroup, TallyStockGroup, TallyStockItem, TallyUnit, TallyGodown,
+  ManagementOverview, VoucherItem, VoucherTypeItem, SyncHealth, StockCategory,
 } from '../types';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
@@ -461,6 +461,40 @@ export const managementApi = {
   },
   deleteGodown: async (id: string) => {
     const res = await apiClient.delete(`/api/management/godowns/${id}`);
+    return res.data;
+  },
+
+  stockItems: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<TallyStockItem>> => {
+    const res = await apiClient.get('/api/management/stock-items', { params });
+    return res.data;
+  },
+  createStockItem: async (data: { name: string; stock_group?: string; unit?: string; rate?: number }): Promise<TallyStockItem> => {
+    const res = await apiClient.post('/api/management/stock-items', data);
+    return res.data;
+  },
+  updateStockItem: async (id: string, data: { name?: string; stock_group?: string; unit?: string; rate?: number }) => {
+    const res = await apiClient.patch(`/api/management/stock-items/${id}`, data);
+    return res.data;
+  },
+  deleteStockItem: async (id: string) => {
+    const res = await apiClient.delete(`/api/management/stock-items/${id}`);
+    return res.data;
+  },
+
+  stockCategories: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<StockCategory>> => {
+    const res = await apiClient.get('/api/inventory/stock-categories', { params });
+    return res.data;
+  },
+  createStockCategory: async (data: { name: string; parent?: string; description?: string }): Promise<StockCategory> => {
+    const res = await apiClient.post('/api/inventory/stock-categories', data);
+    return res.data;
+  },
+  updateStockCategory: async (id: string, data: { name?: string; parent?: string; description?: string }) => {
+    const res = await apiClient.patch(`/api/inventory/stock-categories/${id}`, data);
+    return res.data;
+  },
+  deleteStockCategory: async (id: string) => {
+    const res = await apiClient.delete(`/api/inventory/stock-categories/${id}`);
     return res.data;
   },
 };

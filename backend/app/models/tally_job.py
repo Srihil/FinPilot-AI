@@ -36,6 +36,7 @@ class TallyJobOperation(str, enum.Enum):
     CREATE_STOCK_GROUP = "CREATE_STOCK_GROUP"
     CREATE_UNIT = "CREATE_UNIT"
     CREATE_GODOWN = "CREATE_GODOWN"
+    CREATE_STOCK_CATEGORY = "CREATE_STOCK_CATEGORY"
     # Voucher type
     CREATE_VOUCHER_TYPE = "CREATE_VOUCHER_TYPE"
     # Voucher writes
@@ -53,6 +54,7 @@ class TallyJobOperation(str, enum.Enum):
     DELETE_STOCK_GROUP = "DELETE_STOCK_GROUP"
     DELETE_UNIT = "DELETE_UNIT"
     DELETE_GODOWN = "DELETE_GODOWN"
+    DELETE_STOCK_CATEGORY = "DELETE_STOCK_CATEGORY"
     DELETE_VOUCHER_TYPE = "DELETE_VOUCHER_TYPE"
     # Voucher cancel (Tally-confirmed-first)
     CANCEL_VOUCHER = "CANCEL_VOUCHER"
@@ -67,6 +69,7 @@ DELETE_OPERATIONS = {
     TallyJobOperation.DELETE_STOCK_GROUP,
     TallyJobOperation.DELETE_UNIT,
     TallyJobOperation.DELETE_GODOWN,
+    TallyJobOperation.DELETE_STOCK_CATEGORY,
     TallyJobOperation.DELETE_VOUCHER_TYPE,
 }
 
@@ -77,6 +80,7 @@ WRITE_OPERATIONS = {
     TallyJobOperation.CREATE_STOCK_GROUP,
     TallyJobOperation.CREATE_UNIT,
     TallyJobOperation.CREATE_GODOWN,
+    TallyJobOperation.CREATE_STOCK_CATEGORY,
     TallyJobOperation.CREATE_VOUCHER_TYPE,
     TallyJobOperation.CREATE_SALES_VOUCHER,
     TallyJobOperation.CREATE_PURCHASE_VOUCHER,

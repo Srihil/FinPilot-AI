@@ -1,30 +1,16 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Tag, Plus, Search, Loader2, AlertCircle, Pencil, Trash2, Info } from 'lucide-react';
+import { Tag, Plus, Search, Loader2, AlertCircle, Pencil, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
+import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
-import apiClient from '../../api/client';
-
-interface StockCategory {
-  id: string;
-  name: string;
-  parent?: string;
-  description?: string;
-  tally_sync_status: string;
-  created_at: string;
-}
-
-const api = {
-  list: (params: Record<string, unknown>) => apiClient.get('/api/inventory/stock-categories', { params }).then(r => r.data),
-  create: (d: object) => apiClient.post('/api/inventory/stock-categories', d).then(r => r.data),
-  update: (id: string, d: object) => apiClient.patch(`/api/inventory/stock-categories/${id}`, d).then(r => r.data),
-  delete: (id: string) => apiClient.delete(`/api/inventory/stock-categories/${id}`).then(r => r.data),
-};
+import { managementApi } from '../../api/endpoints';
+import type { StockCategory } from '../../types';
 
 export default function StockCategoriesPage() {
   const qc = useQueryClient();
@@ -39,24 +25,27 @@ export default function StockCategoriesPage() {
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stock-categories', page, search],
-    queryFn: () => api.list({ page, page_size: 20, search: search || undefined }),
+    queryFn: () => managementApi.stockCategories({ page, page_size: 20, search: search || undefined }),
   });
 
   const createMut = useMutation({
-    mutationFn: () => api.create({ name: formName.trim(), parent: formParent || undefined, description: formDesc || undefined }),
-    onSuccess: () => { toast({ title: 'Category created' }); qc.invalidateQueries({ queryKey: ['stock-categories'] }); setShowCreate(false); resetForm(); },
+    mutationFn: () => managementApi.createStockCategory({ name: formName.trim(), parent: formParent || undefined, description: formDesc || undefined }),
+    onSuccess: () => { toast({ title: 'Category created', description: 'Queued for TallyPrime sync.' }); qc.invalidateQueries({ queryKey: ['stock-categories'] }); setShowCreate(false); resetForm(); },
     onError: (e: { response?: { data?: { detail?: string } } }) => toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' }),
   });
 
   const updateMut = useMutation({
-    mutationFn: () => api.update(editItem!.id, { name: formName || undefined, parent: formParent || undefined, description: formDesc || undefined }),
+    mutationFn: () => managementApi.updateStockCategory(editItem!.id, { name: formName || undefined, parent: formParent || undefined, description: formDesc || undefined }),
     onSuccess: () => { toast({ title: 'Updated' }); qc.invalidateQueries({ queryKey: ['stock-categories'] }); setEditItem(null); },
     onError: (e: { response?: { data?: { detail?: string } } }) => toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' }),
   });
 
   const deleteMut = useMutation({
-    mutationFn: () => api.delete(deleteItem!.id),
-    onSuccess: () => { toast({ title: 'Deleted' }); qc.invalidateQueries({ queryKey: ['stock-categories'] }); setDeleteItem(null); },
+    mutationFn: () => managementApi.deleteStockCategory(deleteItem!.id),
+    onSuccess: (res: { status?: string; message?: string }) => {
+      toast({ title: res.status === 'pending' ? 'Delete queued' : 'Deleted', description: res.message });
+      qc.invalidateQueries({ queryKey: ['stock-categories'] }); setDeleteItem(null);
+    },
     onError: (e: { response?: { data?: { detail?: string } } }) => toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' }),
   });
 
@@ -69,15 +58,9 @@ export default function StockCategoriesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2"><Tag className="w-6 h-6 text-indigo-600" /> Stock Categories</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Additional classification for stock items</p>
+          <p className="text-sm text-slate-500 mt-0.5">Stock categories synced with TallyPrime</p>
         </div>
         <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2"><Plus className="w-4 h-4" /> New Category</Button>
-      </div>
-
-      {/* Tally note */}
-      <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
-        <Info className="w-4 h-4 shrink-0 mt-0.5" />
-        <span>Stock categories are <strong>local to FinPilot</strong>. TallyPrime sync for stock categories requires TDL configuration not included in the standard connector.</span>
       </div>
 
       <div className="relative max-w-sm"><Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" /><Input placeholder="Search categories…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="pl-9" /></div>
@@ -87,15 +70,16 @@ export default function StockCategoriesPage() {
         : isError ? <div className="flex items-center gap-2 p-6 text-red-600"><AlertCircle className="w-5 h-5" /> Failed to load.</div>
         : <table className="w-full text-sm">
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
-              <th className="px-4 py-3 text-left">Name</th><th className="px-4 py-3 text-left">Parent</th><th className="px-4 py-3 text-left">Description</th><th className="px-4 py-3 text-right">Actions</th>
+              <th className="px-4 py-3 text-left">Name</th><th className="px-4 py-3 text-left">Parent</th><th className="px-4 py-3 text-left">Description</th><th className="px-4 py-3 text-center">Sync</th><th className="px-4 py-3 text-right">Actions</th>
             </tr></thead>
             <tbody>
-              {data?.items?.length === 0 ? <tr><td colSpan={4} className="text-center py-10 text-slate-400">No categories yet. Create one to start classifying stock items.</td></tr>
+              {data?.items?.length === 0 ? <tr><td colSpan={5} className="text-center py-10 text-slate-400">No categories yet. Create one to start classifying stock items.</td></tr>
               : data?.items?.map((c: StockCategory) => (
                 <tr key={c.id} className="border-b hover:bg-slate-50">
                   <td className="px-4 py-3 font-medium">{c.name}</td>
                   <td className="px-4 py-3 text-slate-500">{c.parent || '—'}</td>
                   <td className="px-4 py-3 text-slate-500 text-xs truncate max-w-xs">{c.description || '—'}</td>
+                  <td className="px-4 py-3 text-center"><SyncBadge status={c.tally_sync_status} source={c.source} /></td>
                   <td className="px-4 py-3 text-right"><div className="flex items-center justify-end gap-2">
                     <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-slate-100 text-slate-500"><Pencil className="w-3.5 h-3.5" /></button>
                     <button onClick={() => setDeleteItem(c)} className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -127,7 +111,7 @@ export default function StockCategoriesPage() {
       </DialogContent></Dialog>
 
       <Dialog open={!!deleteItem} onOpenChange={()=>setDeleteItem(null)}><DialogContent className="max-w-sm"><DialogHeader><DialogTitle className="text-red-600">Delete Category</DialogTitle></DialogHeader>
-        <p className="text-sm">Delete <strong>{deleteItem?.name}</strong>?</p>
+        <p className="text-sm">Delete <strong>{deleteItem?.name}</strong>? This will also remove it from TallyPrime.</p>
         <DialogFooter><Button variant="outline" onClick={()=>setDeleteItem(null)}>Cancel</Button><Button variant="destructive" onClick={()=>deleteMut.mutate()} disabled={deleteMut.isPending}>{deleteMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Delete</Button></DialogFooter>
       </DialogContent></Dialog>
     </div>

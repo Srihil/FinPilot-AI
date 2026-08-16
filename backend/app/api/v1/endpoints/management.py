@@ -21,7 +21,7 @@ from app.models.payment import Payment
 from app.models.product import Product
 from app.models.tally_connector import TallyConnector, ConnectorStatus
 from app.models.tally_job import TallyIntegrationJob, JobStatus, TallyJobOperation
-from app.models.tally_masters import TallyGodown, TallyGroup, TallyLedger, TallyStockGroup, TallyUnit, TallyVoucherType
+from app.models.tally_masters import TallyGodown, TallyGroup, TallyLedger, TallyStockGroup, TallyStockItem, TallyUnit, TallyVoucherType
 from app.models.user import User
 from app.models.vendor import Vendor
 from app.services.audit_service import audit_service
@@ -1007,6 +1007,205 @@ def delete_godown(
         audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
                           entity_type="tally_godown", entity_id=godown.id,
                           description=f"Deleted godown: {godown.name}")
+        return {"status": "deleted", "message": "Deleted successfully."}
+
+
+# ─── Stock Item management ───────────────────────────────────────────────────────
+
+class StockItemCreate(BaseModel):
+    name: str
+    stock_group: Optional[str] = None
+    unit: Optional[str] = None
+    rate: Optional[float] = 0.0
+
+
+class StockItemUpdate(BaseModel):
+    name: Optional[str] = None
+    stock_group: Optional[str] = None
+    unit: Optional[str] = None
+    rate: Optional[float] = None
+
+
+@router.get("/stock-items")
+def list_stock_items(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(TallyStockItem).filter(
+        TallyStockItem.company_id == current_user.company_id,
+        TallyStockItem.is_active == True,
+    )
+    if search:
+        q = q.filter(TallyStockItem.name.ilike(f"%{search}%"))
+    q = q.order_by(TallyStockItem.name)
+    result = _paginate(q, page, page_size)
+    records = result["items"]
+    if _reconcile_sync_status(db, records):
+        db.commit()
+    result["items"] = [
+        {
+            "id": str(r.id),
+            "name": r.name,
+            "stock_group": r.stock_group,
+            "unit": r.unit,
+            "rate": r.rate,
+            "source": r.source,
+            "tally_sync_status": r.tally_sync_status,
+            "synced_at": r.synced_at.isoformat() if r.synced_at else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in records
+    ]
+    return result
+
+
+@router.post("/stock-items")
+def create_stock_item(
+    data: StockItemCreate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Stock item name is required")
+
+    key = _tally_key(current_user.company_id, name)
+    existing = db.query(TallyStockItem).filter(
+        TallyStockItem.company_id == current_user.company_id,
+        TallyStockItem.tally_key == key,
+        TallyStockItem.is_active == True,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Stock item '{name}' already exists")
+
+    item = TallyStockItem(
+        company_id=current_user.company_id,
+        name=name,
+        stock_group=data.stock_group or None,
+        unit=data.unit or None,
+        rate=data.rate or 0.0,
+        tally_key=key,
+        source="finpilot",
+        tally_sync_status="pending",
+    )
+    db.add(item)
+    db.flush()
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+
+    tally_queued = False
+    if connector:
+        payload = {"name": name, "unit": data.unit or "Nos", "rate": str(data.rate or 0)}
+        if data.stock_group:
+            payload["stock_group"] = data.stock_group
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            created_by=current_user.id,
+            operation=TallyJobOperation.CREATE_STOCK_ITEM,
+            payload=payload,
+            idempotency_key=f"create_stock_item::{item.id}",
+        )
+        db.add(job)
+        db.flush()
+        item.tally_job_id = job.id
+        tally_queued = True
+
+    db.commit()
+    db.refresh(item)
+
+    audit_service.log(
+        db, current_user.company_id, current_user.id,
+        AuditAction.CREATE,
+        entity_type="tally_stock_item",
+        entity_id=item.id,
+        description=f"Created Tally stock item: {name}",
+    )
+
+    return {
+        "id": str(item.id),
+        "name": item.name,
+        "stock_group": item.stock_group,
+        "unit": item.unit,
+        "rate": item.rate,
+        "tally_sync_status": item.tally_sync_status,
+        "tally_queued": tally_queued,
+    }
+
+
+@router.patch("/stock-items/{item_id}")
+def update_stock_item(
+    item_id: str,
+    data: StockItemUpdate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    item = db.query(TallyStockItem).filter(
+        TallyStockItem.id == uuid.UUID(item_id),
+        TallyStockItem.company_id == current_user.company_id,
+        TallyStockItem.is_active == True,
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Stock item not found")
+    was_synced = item.tally_sync_status == "synced"
+    if data.name is not None:
+        item.name = data.name.strip()
+    if data.stock_group is not None:
+        item.stock_group = data.stock_group.strip() or None
+    if data.unit is not None:
+        item.unit = data.unit.strip() or None
+    if data.rate is not None:
+        item.rate = data.rate
+    item.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
+                      entity_type="tally_stock_item", entity_id=item.id,
+                      description=f"Updated stock item: {item.name}")
+    return {
+        "id": str(item.id), "name": item.name, "tally_sync_status": item.tally_sync_status,
+        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
+    }
+
+
+@router.delete("/stock-items/{item_id}")
+def delete_stock_item(
+    item_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    item = db.query(TallyStockItem).filter(
+        TallyStockItem.id == uuid.UUID(item_id),
+        TallyStockItem.company_id == current_user.company_id,
+        TallyStockItem.is_active == True,
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Stock item not found")
+    _cancel_pending_job(db, item.tally_job_id)
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if connector and item.tally_sync_status in ("synced", "finpilot", "delete_failed"):
+        item.tally_sync_status = "delete_pending"
+        db.flush()
+        _queue_tally_delete(db, current_user.company_id, TallyJobOperation.DELETE_STOCK_ITEM, item.name)
+        db.commit()
+        audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                          entity_type="tally_stock_item", entity_id=item.id,
+                          description=f"Delete queued for stock item: {item.name}")
+        return {"status": "pending", "message": "Delete queued. The item will be removed from FinPilot once TallyPrime confirms deletion."}
+    else:
+        item.is_active = False
+        db.commit()
+        audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                          entity_type="tally_stock_item", entity_id=item.id,
+                          description=f"Deleted stock item: {item.name}")
         return {"status": "deleted", "message": "Deleted successfully."}
 
 

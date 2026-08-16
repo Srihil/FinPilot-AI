@@ -24,7 +24,8 @@ from app.models.audit_log import AuditAction
 from app.models.approval import Approval, ApprovalStatus
 from app.models.tally_connector import TallyConnector, TallyPairingCode, ConnectorStatus
 from app.models.tally_job import TallyIntegrationJob, JobStatus, TallyJobOperation, WRITE_OPERATIONS
-from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, TallyGodown, TallyGroup, TallyVoucherType
+from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyStockItem, TallyUnit, TallyGodown, TallyGroup, TallyVoucherType
+from app.models.stock_category import StockCategory
 from app.models.invoice import Invoice
 from app.models.expense import Expense
 from app.models.user import User
@@ -32,21 +33,25 @@ from app.services.audit_service import audit_service
 
 # Map CREATE operations to their master table model (for sync status updates)
 _MASTER_MODELS = {
-    TallyJobOperation.CREATE_LEDGER:      TallyLedger,
-    TallyJobOperation.CREATE_GROUP:        TallyGroup,
-    TallyJobOperation.CREATE_STOCK_GROUP:  TallyStockGroup,
-    TallyJobOperation.CREATE_VOUCHER_TYPE: TallyVoucherType,
-    TallyJobOperation.CREATE_UNIT:        TallyUnit,
-    TallyJobOperation.CREATE_GODOWN:      TallyGodown,
+    TallyJobOperation.CREATE_LEDGER:         TallyLedger,
+    TallyJobOperation.CREATE_GROUP:          TallyGroup,
+    TallyJobOperation.CREATE_STOCK_GROUP:    TallyStockGroup,
+    TallyJobOperation.CREATE_STOCK_ITEM:     TallyStockItem,
+    TallyJobOperation.CREATE_STOCK_CATEGORY: StockCategory,
+    TallyJobOperation.CREATE_VOUCHER_TYPE:   TallyVoucherType,
+    TallyJobOperation.CREATE_UNIT:           TallyUnit,
+    TallyJobOperation.CREATE_GODOWN:         TallyGodown,
 }
 
 # Map DELETE operations to their master table model
 _DELETE_MODELS = {
-    TallyJobOperation.DELETE_LEDGER:       TallyLedger,
-    TallyJobOperation.DELETE_STOCK_GROUP:  TallyStockGroup,
-    TallyJobOperation.DELETE_UNIT:         TallyUnit,
-    TallyJobOperation.DELETE_GODOWN:       TallyGodown,
-    TallyJobOperation.DELETE_VOUCHER_TYPE: TallyVoucherType,
+    TallyJobOperation.DELETE_LEDGER:          TallyLedger,
+    TallyJobOperation.DELETE_STOCK_GROUP:     TallyStockGroup,
+    TallyJobOperation.DELETE_STOCK_ITEM:      TallyStockItem,
+    TallyJobOperation.DELETE_STOCK_CATEGORY:  StockCategory,
+    TallyJobOperation.DELETE_UNIT:            TallyUnit,
+    TallyJobOperation.DELETE_GODOWN:          TallyGodown,
+    TallyJobOperation.DELETE_VOUCHER_TYPE:    TallyVoucherType,
 }
 
 # Voucher CREATE operations (track on Invoice/Expense)

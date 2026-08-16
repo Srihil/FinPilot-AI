@@ -1,7 +1,7 @@
 """
 Inventory endpoints — Stock Categories and Stock Transactions.
 
-Stock Categories: FinPilot-local classification (not synced to TallyPrime by default).
+Stock Categories: Synced to TallyPrime via the standard connector.
 Stock Transactions: local inventory movement records (Stock Journal, Physical Stock, etc.)
   - Tally sync requires TDL voucher handlers not included in the standard connector.
 """
@@ -19,6 +19,8 @@ from app.db.base import get_db
 from app.models.audit_log import AuditAction
 from app.models.stock_category import StockCategory
 from app.models.stock_transaction import StockTransaction
+from app.models.tally_connector import TallyConnector, ConnectorStatus
+from app.models.tally_job import TallyIntegrationJob, JobStatus, TallyJobOperation
 from app.models.user import User
 from app.services.audit_service import audit_service
 
@@ -54,6 +56,10 @@ class CategoryUpdate(BaseModel):
     description: Optional[str] = None
 
 
+def _tally_cat_key(company_id: uuid.UUID, name: str) -> str:
+    return f"{company_id}::{name.strip().lower()}"
+
+
 def _serialize_category(c: StockCategory) -> dict:
     return {
         "id": str(c.id),
@@ -61,7 +67,9 @@ def _serialize_category(c: StockCategory) -> dict:
         "parent": c.parent,
         "description": c.description,
         "is_active": c.is_active,
-        "tally_sync_status": "local_only",
+        "source": getattr(c, "source", "finpilot"),
+        "tally_sync_status": getattr(c, "tally_sync_status", "pending"),
+        "synced_at": c.synced_at.isoformat() if getattr(c, "synced_at", None) else None,
         "created_at": c.created_at.isoformat() if c.created_at else None,
     }
 
@@ -86,7 +94,6 @@ def list_stock_categories(
         "items": [_serialize_category(c) for c in items],
         "total": total, "page": page, "page_size": page_size,
         "total_pages": max(1, (total + page_size - 1) // page_size),
-        "tally_note": "Stock categories are local-only. TallyPrime sync requires TDL configuration.",
     }
 
 
@@ -99,9 +106,10 @@ def create_stock_category(
     name = data.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Category name is required")
+    tkey = _tally_cat_key(current_user.company_id, name)
     existing = db.query(StockCategory).filter(
         StockCategory.company_id == current_user.company_id,
-        StockCategory.name.ilike(name),
+        StockCategory.tally_key == tkey,
         StockCategory.is_active == True,
     ).first()
     if existing:
@@ -111,8 +119,35 @@ def create_stock_category(
         name=name,
         parent=data.parent or None,
         description=data.description or None,
+        tally_key=tkey,
+        source="finpilot",
+        tally_sync_status="pending",
     )
     db.add(cat)
+    db.flush()
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+
+    if connector:
+        payload = {"name": name}
+        raw_parent = (data.parent or "").strip()
+        if raw_parent and raw_parent.lower() not in ("", "primary"):
+            payload["parent"] = raw_parent
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            created_by=current_user.id,
+            operation=TallyJobOperation.CREATE_STOCK_CATEGORY,
+            payload=payload,
+            idempotency_key=f"create_stock_category::{cat.id}",
+        )
+        db.add(job)
+        db.flush()
+        cat.tally_job_id = job.id
+
     db.commit()
     db.refresh(cat)
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.CREATE,
@@ -162,12 +197,46 @@ def delete_stock_category(
     ).first()
     if not cat:
         raise HTTPException(status_code=404, detail="Stock category not found")
-    cat.is_active = False
-    db.commit()
-    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
-                      entity_type="stock_category", entity_id=cat.id,
-                      description=f"Deleted stock category: {cat.name}")
-    return {"deleted": True}
+
+    # Cancel any in-flight create job
+    if getattr(cat, "tally_job_id", None):
+        pending_job = db.query(TallyIntegrationJob).filter(
+            TallyIntegrationJob.id == cat.tally_job_id,
+            TallyIntegrationJob.status == JobStatus.PENDING,
+        ).first()
+        if pending_job:
+            pending_job.status = JobStatus.CANCELLED
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+
+    sync_status = getattr(cat, "tally_sync_status", "pending")
+    if connector and sync_status in ("synced", "finpilot", "delete_failed"):
+        cat.tally_sync_status = "delete_pending"
+        db.flush()
+        import secrets as _secrets
+        ikey = f"delete::DELETE_STOCK_CATEGORY::{current_user.company_id}::{cat.name.strip().lower()}::{_secrets.token_hex(4)}"
+        db.add(TallyIntegrationJob(
+            company_id=current_user.company_id,
+            connector_id=connector.id,
+            operation=TallyJobOperation.DELETE_STOCK_CATEGORY,
+            payload={"name": cat.name},
+            idempotency_key=ikey,
+        ))
+        db.commit()
+        audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                          entity_type="stock_category", entity_id=cat.id,
+                          description=f"Delete queued for stock category: {cat.name}")
+        return {"status": "pending", "message": "Delete queued. The category will be removed once TallyPrime confirms."}
+    else:
+        cat.is_active = False
+        db.commit()
+        audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
+                          entity_type="stock_category", entity_id=cat.id,
+                          description=f"Deleted stock category: {cat.name}")
+        return {"status": "deleted", "message": "Deleted successfully."}
 
 
 # ─── Stock Transactions ──────────────────────────────────────────────────────

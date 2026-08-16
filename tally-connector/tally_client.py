@@ -741,6 +741,9 @@ class TallyClient:
     def delete_stock_item(self, payload: dict) -> dict:
         return self._delete_master("STOCKITEM", payload.get("name", ""))
 
+    def delete_stock_category(self, payload: dict) -> dict:
+        return self._delete_master("STOCKCATEGORY", payload.get("name", ""))
+
     # ── Write: Cancel voucher (Tally-confirmed-first delete) ──────────────────
 
     def cancel_voucher(self, payload: dict) -> dict:
@@ -928,6 +931,27 @@ class TallyClient:
       </TALLYMESSAGE>
     </DATA>
   </BODY>
+</ENVELOPE>"""
+        raw = self._post_xml(xml)
+        root = self._parse_response(raw)
+        created = root.find(".//CREATED")
+        return {"created": int(created.text) if created is not None and created.text else 0}
+
+    def create_stock_category(self, payload: dict) -> dict:
+        name = payload.get("name", "")
+        raw_parent = (payload.get("parent") or "").strip()
+        use_parent = raw_parent and raw_parent.lower() != "primary"
+        parent_xml = f"<PARENT>{raw_parent}</PARENT>" if use_parent else ""
+        xml = f"""<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+  <BODY><DESC/><DATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+      <STOCKCATEGORY NAME="{name}" ACTION="Create">
+        <NAME>{name}</NAME>
+        {parent_xml}
+      </STOCKCATEGORY>
+    </TALLYMESSAGE>
+  </DATA></BODY>
 </ENVELOPE>"""
         raw = self._post_xml(xml)
         root = self._parse_response(raw)

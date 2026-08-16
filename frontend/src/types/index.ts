@@ -480,3 +480,26 @@ export interface TallyGroup {
   created_at: string;
 }
 
+export interface TallyStockItem {
+  id: string;
+  name: string;
+  stock_group?: string;
+  unit?: string;
+  rate: number;
+  source: TallySource;
+  tally_sync_status: TallySyncStatus;
+  synced_at?: string;
+  created_at: string;
+}
+
+export interface StockCategory {
+  id: string;
+  name: string;
+  parent?: string;
+  description?: string;
+  source: TallySource;
+  tally_sync_status: TallySyncStatus;
+  synced_at?: string;
+  created_at: string;
+}
+

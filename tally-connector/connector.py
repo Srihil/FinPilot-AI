@@ -118,12 +118,12 @@ ALLOWED_OPERATIONS = {
     # Accounting masters
     "CREATE_LEDGER", "CREATE_GROUP",
     # Inventory masters
-    "CREATE_STOCK_ITEM", "CREATE_STOCK_GROUP", "CREATE_UNIT", "CREATE_GODOWN",
+    "CREATE_STOCK_ITEM", "CREATE_STOCK_GROUP", "CREATE_UNIT", "CREATE_GODOWN", "CREATE_STOCK_CATEGORY",
     # Voucher type
     "CREATE_VOUCHER_TYPE",
     # Delete operations
     "DELETE_LEDGER", "DELETE_STOCK_ITEM", "DELETE_STOCK_GROUP", "DELETE_UNIT", "DELETE_GODOWN",
-    "DELETE_VOUCHER_TYPE",
+    "DELETE_STOCK_CATEGORY", "DELETE_VOUCHER_TYPE",
     # Vouchers
     "CREATE_SALES_VOUCHER", "CREATE_PURCHASE_VOUCHER",
     "CREATE_RECEIPT_VOUCHER", "CREATE_PAYMENT_VOUCHER",
@@ -184,6 +184,8 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
             return tally.create_unit(payload), None
         if op == "CREATE_GODOWN":
             return tally.create_godown(payload), None
+        if op == "CREATE_STOCK_CATEGORY":
+            return tally.create_stock_category(payload), None
         if op == "CREATE_VOUCHER_TYPE":
             return tally.create_voucher_type(payload), None
         # Vouchers
@@ -213,6 +215,8 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
             return tally.delete_godown(payload), None
         if op == "DELETE_STOCK_ITEM":
             return tally.delete_stock_item(payload), None
+        if op == "DELETE_STOCK_CATEGORY":
+            return tally.delete_stock_category(payload), None
         if op == "DELETE_VOUCHER_TYPE":
             return tally.delete_voucher_type(payload), None
         if op == "CANCEL_VOUCHER":

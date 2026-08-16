@@ -41,6 +41,35 @@ def _find_by_tally_id(db: Session, model, company_id: uuid.UUID, tally_name: str
     ).first()
 
 
+def _prune_deleted(
+    db: Session,
+    model,
+    company_id: uuid.UUID,
+    tally_keys_present: set,
+) -> int:
+    """
+    Tombstone any record that was previously synced from TallyPrime but is
+    no longer present in the latest sync response — meaning it was deleted
+    in TallyPrime.  Only touches records with tally_sync_status='synced'
+    so FinPilot-created pending/failed records are never accidentally removed.
+
+    Safety: if tally_keys_present is empty we skip pruning entirely — an
+    empty response most likely means the connector couldn't fetch that
+    category, not that Tally has zero items.
+    """
+    if not tally_keys_present:
+        return 0
+
+    removed = db.query(model).filter(
+        model.company_id == company_id,
+        model.is_active == True,
+        model.tally_sync_status == "synced",
+        ~model.tally_key.in_(tally_keys_present),
+    ).update({"is_active": False}, synchronize_session=False)
+
+    return removed or 0
+
+
 # ─── Ledgers → Customers / Vendors + TallyLedger ────────────────────────────
 
 def sync_ledgers(db: Session, company_id: uuid.UUID, ledgers: list[dict]) -> dict:
@@ -53,7 +82,9 @@ def sync_ledgers(db: Session, company_id: uuid.UUID, ledgers: list[dict]) -> dic
     created_customers = 0
     created_vendors = 0
     created_ledgers = 0
+    removed_ledgers = 0
     now = datetime.now(timezone.utc)
+    tally_keys_seen: set = set()
 
     for ledger in ledgers:
         name = ledger.get("name", "").strip()
@@ -66,6 +97,7 @@ def sync_ledgers(db: Session, company_id: uuid.UUID, ledgers: list[dict]) -> dic
 
         # ── Upsert into TallyLedger (all ledgers) ──
         key = _tally_key(company_id, name)
+        tally_keys_seen.add(key)
         tl = db.query(TallyLedger).filter(
             TallyLedger.company_id == company_id,
             TallyLedger.tally_key == key,
@@ -81,6 +113,7 @@ def sync_ledgers(db: Session, company_id: uuid.UUID, ledgers: list[dict]) -> dic
             tl.closing_balance = closing_balance
             tl.tally_sync_status = "synced"
             tl.synced_at = now
+            tl.is_active = True
             tl.source = "tally_sync"
         else:
             tl = TallyLedger(
@@ -122,10 +155,12 @@ def sync_ledgers(db: Session, company_id: uuid.UUID, ledgers: list[dict]) -> dic
                 created_vendors += 1
 
     db.flush()
+    removed_ledgers = _prune_deleted(db, TallyLedger, company_id, tally_keys_seen)
     return {
         "customers": created_customers,
         "vendors": created_vendors,
         "ledgers": created_ledgers,
+        "removed_ledgers": removed_ledgers,
     }
 
 
@@ -135,6 +170,7 @@ def sync_godowns(db: Session, company_id: uuid.UUID, godowns: list[dict]) -> dic
     created = 0
     updated = 0
     now = datetime.now(timezone.utc)
+    keys_seen: set = set()
 
     for item in godowns:
         name = item.get("name", "").strip()
@@ -143,6 +179,7 @@ def sync_godowns(db: Session, company_id: uuid.UUID, godowns: list[dict]) -> dic
         parent = item.get("parent") or None
 
         key = _tally_key(company_id, name)
+        keys_seen.add(key)
         existing = db.query(TallyGodown).filter(
             TallyGodown.company_id == company_id,
             TallyGodown.tally_key == key,
@@ -152,6 +189,7 @@ def sync_godowns(db: Session, company_id: uuid.UUID, godowns: list[dict]) -> dic
             existing.parent = parent
             existing.tally_sync_status = "synced"
             existing.synced_at = now
+            existing.is_active = True
             existing.source = "tally_sync"
             updated += 1
         else:
@@ -168,7 +206,8 @@ def sync_godowns(db: Session, company_id: uuid.UUID, godowns: list[dict]) -> dic
             created += 1
 
     db.flush()
-    return {"created": created, "updated": updated}
+    removed = _prune_deleted(db, TallyGodown, company_id, keys_seen)
+    return {"created": created, "updated": updated, "removed": removed}
 
 
 # ─── Stock Groups ──────────────────────────────────────────────────────────────
@@ -177,6 +216,7 @@ def sync_stock_groups(db: Session, company_id: uuid.UUID, stock_groups: list[dic
     created = 0
     updated = 0
     now = datetime.now(timezone.utc)
+    keys_seen: set = set()
 
     for item in stock_groups:
         name = item.get("name", "").strip()
@@ -187,6 +227,7 @@ def sync_stock_groups(db: Session, company_id: uuid.UUID, stock_groups: list[dic
             parent = None
 
         key = _tally_key(company_id, name)
+        keys_seen.add(key)
         existing = db.query(TallyStockGroup).filter(
             TallyStockGroup.company_id == company_id,
             TallyStockGroup.tally_key == key,
@@ -196,6 +237,7 @@ def sync_stock_groups(db: Session, company_id: uuid.UUID, stock_groups: list[dic
             existing.parent = parent
             existing.tally_sync_status = "synced"
             existing.synced_at = now
+            existing.is_active = True
             existing.source = "tally_sync"
             updated += 1
         else:
@@ -212,7 +254,8 @@ def sync_stock_groups(db: Session, company_id: uuid.UUID, stock_groups: list[dic
             created += 1
 
     db.flush()
-    return {"created": created, "updated": updated}
+    removed = _prune_deleted(db, TallyStockGroup, company_id, keys_seen)
+    return {"created": created, "updated": updated, "removed": removed}
 
 
 # ─── Units ────────────────────────────────────────────────────────────────────
@@ -221,6 +264,7 @@ def sync_units(db: Session, company_id: uuid.UUID, units: list[dict]) -> dict:
     created = 0
     updated = 0
     now = datetime.now(timezone.utc)
+    keys_seen: set = set()
 
     for item in units:
         name = item.get("name", "").strip()
@@ -231,6 +275,7 @@ def sync_units(db: Session, company_id: uuid.UUID, units: list[dict]) -> dict:
         unit_type = item.get("unit_type", "simple")
 
         key = _tally_key(company_id, name)
+        keys_seen.add(key)
         existing = db.query(TallyUnit).filter(
             TallyUnit.company_id == company_id,
             TallyUnit.tally_key == key,
@@ -242,6 +287,7 @@ def sync_units(db: Session, company_id: uuid.UUID, units: list[dict]) -> dict:
             existing.unit_type = unit_type
             existing.tally_sync_status = "synced"
             existing.synced_at = now
+            existing.is_active = True
             existing.source = "tally_sync"
             updated += 1
         else:
@@ -260,7 +306,8 @@ def sync_units(db: Session, company_id: uuid.UUID, units: list[dict]) -> dict:
             created += 1
 
     db.flush()
-    return {"created": created, "updated": updated}
+    removed = _prune_deleted(db, TallyUnit, company_id, keys_seen)
+    return {"created": created, "updated": updated, "removed": removed}
 
 
 # ─── Account Groups ───────────────────────────────────────────────────────────
@@ -269,6 +316,7 @@ def sync_groups(db: Session, company_id: uuid.UUID, groups: list[dict]) -> dict:
     created = 0
     updated = 0
     now = datetime.now(timezone.utc)
+    keys_seen: set = set()
 
     for item in groups:
         name = item.get("name", "").strip()
@@ -279,6 +327,7 @@ def sync_groups(db: Session, company_id: uuid.UUID, groups: list[dict]) -> dict:
             parent = None
 
         key = _tally_key(company_id, name)
+        keys_seen.add(key)
         existing = db.query(TallyGroup).filter(
             TallyGroup.company_id == company_id,
             TallyGroup.tally_key == key,
@@ -288,6 +337,7 @@ def sync_groups(db: Session, company_id: uuid.UUID, groups: list[dict]) -> dict:
             existing.parent = parent
             existing.tally_sync_status = "synced"
             existing.synced_at = now
+            existing.is_active = True
             existing.source = "tally_sync"
             updated += 1
         else:
@@ -304,7 +354,8 @@ def sync_groups(db: Session, company_id: uuid.UUID, groups: list[dict]) -> dict:
             created += 1
 
     db.flush()
-    return {"created": created, "updated": updated}
+    removed = _prune_deleted(db, TallyGroup, company_id, keys_seen)
+    return {"created": created, "updated": updated, "removed": removed}
 
 
 # ─── Voucher Types ────────────────────────────────────────────────────────────
@@ -313,6 +364,7 @@ def sync_voucher_types(db: Session, company_id: uuid.UUID, voucher_types: list[d
     created = 0
     updated = 0
     now = datetime.now(timezone.utc)
+    keys_seen: set = set()
 
     for item in voucher_types:
         name = item.get("name", "").strip()
@@ -320,9 +372,10 @@ def sync_voucher_types(db: Session, company_id: uuid.UUID, voucher_types: list[d
             continue
         parent = item.get("parent") or None
         numbering = item.get("numbering_method", "Automatic")
-        is_active = item.get("is_active", True)
+        is_active_in_tally = item.get("is_active", True)
 
         key = _tally_key(company_id, name)
+        keys_seen.add(key)
         existing = db.query(TallyVoucherType).filter(
             TallyVoucherType.company_id == company_id,
             TallyVoucherType.tally_key == key,
@@ -331,7 +384,7 @@ def sync_voucher_types(db: Session, company_id: uuid.UUID, voucher_types: list[d
         if existing:
             existing.parent = parent
             existing.numbering_method = numbering
-            existing.is_active = is_active
+            existing.is_active = is_active_in_tally
             existing.tally_sync_status = "synced"
             existing.synced_at = now
             existing.source = "tally_sync"
@@ -346,12 +399,13 @@ def sync_voucher_types(db: Session, company_id: uuid.UUID, voucher_types: list[d
                 source="tally_sync",
                 tally_sync_status="synced",
                 synced_at=now,
-                is_active=is_active,
+                is_active=is_active_in_tally,
             ))
             created += 1
 
     db.flush()
-    return {"created": created, "updated": updated}
+    removed = _prune_deleted(db, TallyVoucherType, company_id, keys_seen)
+    return {"created": created, "updated": updated, "removed": removed}
 
 
 # ─── Stock Items → Products ────────────────────────────────────────────────────
@@ -360,6 +414,7 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
     created = 0
     updated = 0
     now = datetime.now(timezone.utc)
+    keys_seen: set = set()
 
     for item in stock_items:
         name = item.get("name", "").strip()
@@ -374,13 +429,19 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
         except (ValueError, IndexError):
             rate = 0.0
 
-        tally_key = f"{company_id}::{name.lower()}"
+        # Parse closing balance (quantity)
+        qty_raw = item.get("closing_balance", "0")
+        try:
+            qty = abs(float(str(qty_raw).split()[0].replace(",", ""))) if qty_raw else 0.0
+        except (ValueError, IndexError):
+            qty = 0.0
 
-        # Dedup against TallyStockItem (active records only)
+        tally_key = f"{company_id}::{name.lower()}"
+        keys_seen.add(tally_key)
+
         existing = db.query(TallyStockItem).filter(
             TallyStockItem.company_id == company_id,
             TallyStockItem.tally_key == tally_key,
-            TallyStockItem.is_active == True,
         ).first()
 
         if existing:
@@ -388,6 +449,9 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
                 existing.rate = rate
             if unit:
                 existing.unit = unit
+            existing.opening_qty = qty
+            existing.tally_sync_status = "synced"
+            existing.is_active = True
             existing.synced_at = now
             updated += 1
         else:
@@ -396,6 +460,7 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
                 name=name,
                 unit=unit or None,
                 rate=rate,
+                opening_qty=qty,
                 tally_key=tally_key,
                 source="tally_sync",
                 tally_sync_status="synced",
@@ -405,7 +470,8 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
             created += 1
 
     db.flush()
-    return {"created": created, "updated": updated}
+    removed = _prune_deleted(db, TallyStockItem, company_id, keys_seen)
+    return {"created": created, "updated": updated, "removed": removed}
 
 
 # ─── Vouchers → Invoices / Expenses ──────────────────────────────────────────
@@ -600,22 +666,40 @@ def process_sync_result(db: Session, company_id: uuid.UUID, result: dict) -> dic
     if voucher_types:
         voucher_type_stats = sync_voucher_types(db, company_id, voucher_types)
 
+    total_removed = (
+        ledger_stats.get("removed_ledgers", 0)
+        + stock_item_stats.get("removed", 0)
+        + godown_stats.get("removed", 0)
+        + stock_group_stats.get("removed", 0)
+        + unit_stats.get("removed", 0)
+        + group_stats.get("removed", 0)
+        + voucher_type_stats.get("removed", 0)
+    )
+
     return {
         "imported_customers":      ledger_stats["customers"],
         "imported_vendors":        ledger_stats["vendors"],
         "imported_ledgers":        ledger_stats["ledgers"],
+        "removed_ledgers":         ledger_stats.get("removed_ledgers", 0),
         "imported_invoices":       voucher_stats["invoices"],
         "imported_expenses":       voucher_stats["expenses"],
         "imported_products":       stock_item_stats["created"],
         "updated_products":        stock_item_stats["updated"],
+        "removed_products":        stock_item_stats.get("removed", 0),
         "imported_godowns":        godown_stats["created"],
         "updated_godowns":         godown_stats["updated"],
+        "removed_godowns":         godown_stats.get("removed", 0),
         "imported_stock_groups":   stock_group_stats["created"],
         "updated_stock_groups":    stock_group_stats["updated"],
+        "removed_stock_groups":    stock_group_stats.get("removed", 0),
         "imported_units":          unit_stats["created"],
         "updated_units":           unit_stats["updated"],
+        "removed_units":           unit_stats.get("removed", 0),
         "imported_groups":         group_stats["created"],
         "updated_groups":          group_stats["updated"],
+        "removed_groups":          group_stats.get("removed", 0),
         "imported_voucher_types":  voucher_type_stats["created"],
         "updated_voucher_types":   voucher_type_stats["updated"],
+        "removed_voucher_types":   voucher_type_stats.get("removed", 0),
+        "total_removed_from_tally": total_removed,
     }

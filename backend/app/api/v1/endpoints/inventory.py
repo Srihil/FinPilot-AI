@@ -77,7 +77,7 @@ def _serialize_category(c: StockCategory) -> dict:
 @router.get("/stock-categories")
 def list_stock_categories(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     search: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

@@ -26,9 +26,6 @@ export default function StockItemsPage() {
   const [formUnit, setFormUnit] = useState('');
   const [formRate, setFormRate] = useState('');
   const [formQty, setFormQty] = useState('');
-  const [formHsn, setFormHsn] = useState('');
-  const [formGst, setFormGst] = useState('');
-  const [formSupply, setFormSupply] = useState('Goods');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stock-items', page, search],
@@ -55,9 +52,6 @@ export default function StockItemsPage() {
       unit: formUnit || undefined,
       rate: formRate ? parseFloat(formRate) : 0,
       opening_qty: formQty ? parseFloat(formQty) : 0,
-      hsn_code: formHsn || undefined,
-      gst_rate: formGst ? parseFloat(formGst) : undefined,
-      type_of_supply: formSupply || 'Goods',
     }),
     onSuccess: () => {
       toast({ title: 'Stock item created', description: 'Queued for TallyPrime sync.' });
@@ -98,7 +92,7 @@ export default function StockItemsPage() {
     },
   });
 
-  function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); setFormQty(''); setFormHsn(''); setFormGst(''); setFormSupply('Goods'); }
+  function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); setFormQty(''); }
   function openEdit(item: TallyStockItem) {
     setFormName(item.name);
     setFormGroup(item.stock_group || '');
@@ -195,28 +189,6 @@ export default function StockItemsPage() {
             <div><Label>Rate (₹)</Label><Input type="number" min="0" value={formRate} onChange={e=>setFormRate(e.target.value)} placeholder="0" /></div>
           </div>
           <p className="text-xs text-slate-400">Opening Qty × Rate = Opening Balance in TallyPrime</p>
-          <div className="border-t pt-3 space-y-3">
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">GST / Statutory (optional)</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label>HSN / SAC Code</Label><Input value={formHsn} onChange={e=>setFormHsn(e.target.value)} placeholder="e.g. 8471" /></div>
-              <div><Label>GST Rate (%)</Label>
-                <select value={formGst} onChange={e=>setFormGst(e.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">
-                  <option value="">— As per group —</option>
-                  <option value="0">0%</option>
-                  <option value="5">5%</option>
-                  <option value="12">12%</option>
-                  <option value="18">18%</option>
-                  <option value="28">28%</option>
-                </select>
-              </div>
-            </div>
-            <div><Label>Type of Supply</Label>
-              <select value={formSupply} onChange={e=>setFormSupply(e.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">
-                <option value="Goods">Goods</option>
-                <option value="Services">Services</option>
-              </select>
-            </div>
-          </div>
         </div>
         <DialogFooter><Button variant="outline" onClick={()=>setShowCreate(false)}>Cancel</Button><Button onClick={()=>createMut.mutate()} disabled={!formName.trim()||createMut.isPending}>{createMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Create</Button></DialogFooter>
       </DialogContent></Dialog>

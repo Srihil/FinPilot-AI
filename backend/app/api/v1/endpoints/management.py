@@ -437,7 +437,7 @@ class StockGroupCreate(BaseModel):
 @router.get("/stock-groups")
 def list_stock_groups(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     search: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1018,9 +1018,6 @@ class StockItemCreate(BaseModel):
     unit: Optional[str] = None
     rate: Optional[float] = 0.0
     opening_qty: Optional[float] = 0.0
-    hsn_code: Optional[str] = None
-    gst_rate: Optional[float] = None
-    type_of_supply: Optional[str] = "Goods"
 
 
 class StockItemUpdate(BaseModel):
@@ -1092,9 +1089,6 @@ def create_stock_item(
         unit=data.unit or None,
         rate=data.rate or 0.0,
         opening_qty=data.opening_qty or 0.0,
-        hsn_code=data.hsn_code or None,
-        gst_rate=data.gst_rate,
-        type_of_supply=data.type_of_supply or "Goods",
         tally_key=key,
         source="finpilot",
         tally_sync_status="pending",
@@ -1114,14 +1108,9 @@ def create_stock_item(
             "unit": data.unit or "",
             "rate": str(data.rate or 0),
             "opening_qty": str(data.opening_qty or 0),
-            "type_of_supply": data.type_of_supply or "Goods",
         }
         if data.stock_group:
             payload["stock_group"] = data.stock_group
-        if data.hsn_code:
-            payload["hsn_code"] = data.hsn_code
-        if data.gst_rate is not None:
-            payload["gst_rate"] = str(data.gst_rate)
         job = TallyIntegrationJob(
             company_id=current_user.company_id,
             connector_id=connector.id,

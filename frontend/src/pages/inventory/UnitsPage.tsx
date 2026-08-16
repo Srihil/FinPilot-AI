@@ -13,51 +13,54 @@ import { managementApi } from '../../api/endpoints';
 import { cn } from '../../utils/cn';
 import type { TallyUnit } from '../../types';
 
-// Full TallyPrime UQC list
+// Full TallyPrime UQC list.
+// `tallySymbol` = the NAME TallyPrime stores (what BASEUNITS references in stock items).
+// `uqc`        = the UQC code shown in TallyPrime's UQC dropdown.
+// `formal`     = human-readable description shown in our UI only.
 const STANDARD_UQCS = [
-  { symbol: 'BAG', name: 'Bags' },
-  { symbol: 'BAL', name: 'Bale' },
-  { symbol: 'BDL', name: 'Bundles' },
-  { symbol: 'BKL', name: 'Buckles' },
-  { symbol: 'BOU', name: 'Billion of Units' },
-  { symbol: 'BOX', name: 'Box' },
-  { symbol: 'BTL', name: 'Bottles' },
-  { symbol: 'BUN', name: 'Bunches' },
-  { symbol: 'CAN', name: 'Cans' },
-  { symbol: 'CBM', name: 'Cubic Meters' },
-  { symbol: 'CCM', name: 'Cubic Centimeters' },
-  { symbol: 'CMS', name: 'Centimeters' },
-  { symbol: 'CTN', name: 'Cartons' },
-  { symbol: 'DOZ', name: 'Dozens' },
-  { symbol: 'DRM', name: 'Drums' },
-  { symbol: 'GGK', name: 'Great Gross' },
-  { symbol: 'GMS', name: 'Grammes' },
-  { symbol: 'GRS', name: 'Gross' },
-  { symbol: 'GYD', name: 'Gross Yards' },
-  { symbol: 'KGS', name: 'Kilograms' },
-  { symbol: 'KLR', name: 'Kilolitre' },
-  { symbol: 'KME', name: 'Kilometre' },
-  { symbol: 'LTR', name: 'Litres' },
-  { symbol: 'MLT', name: 'Mililitre' },
-  { symbol: 'MTR', name: 'Meters' },
-  { symbol: 'MTS', name: 'Metric Ton' },
-  { symbol: 'NOS', name: 'Numbers' },
-  { symbol: 'OTH', name: 'Others' },
-  { symbol: 'PAC', name: 'Packs' },
-  { symbol: 'PCS', name: 'Pieces' },
-  { symbol: 'PKT', name: 'Packets' },
-  { symbol: 'PRS', name: 'Pairs' },
-  { symbol: 'QNT', name: 'Quintal' },
-  { symbol: 'ROL', name: 'Rolls' },
-  { symbol: 'SET', name: 'Sets' },
-  { symbol: 'SQF', name: 'Square Feet' },
-  { symbol: 'SQM', name: 'Square Meters' },
-  { symbol: 'SQY', name: 'Square Yards' },
-  { symbol: 'TBL', name: 'Tablets' },
-  { symbol: 'TON', name: 'Tonnes' },
-  { symbol: 'TUB', name: 'Tubes' },
-  { symbol: 'UNT', name: 'Units' },
-  { symbol: 'YDS', name: 'Yards' },
+  { uqc: 'BAG', tallySymbol: 'Bag',  formal: 'Bags' },
+  { uqc: 'BAL', tallySymbol: 'Bal',  formal: 'Bale' },
+  { uqc: 'BDL', tallySymbol: 'Bdl',  formal: 'Bundles' },
+  { uqc: 'BKL', tallySymbol: 'Bkl',  formal: 'Buckles' },
+  { uqc: 'BOU', tallySymbol: 'Bou',  formal: 'Billion of Units' },
+  { uqc: 'BOX', tallySymbol: 'Box',  formal: 'Box' },
+  { uqc: 'BTL', tallySymbol: 'Btl',  formal: 'Bottles' },
+  { uqc: 'BUN', tallySymbol: 'Bun',  formal: 'Bunches' },
+  { uqc: 'CAN', tallySymbol: 'Can',  formal: 'Cans' },
+  { uqc: 'CBM', tallySymbol: 'Cbm',  formal: 'Cubic Meters' },
+  { uqc: 'CCM', tallySymbol: 'Ccm',  formal: 'Cubic Centimeters' },
+  { uqc: 'CMS', tallySymbol: 'Cms',  formal: 'Centimeters' },
+  { uqc: 'CTN', tallySymbol: 'Ctn',  formal: 'Cartons' },
+  { uqc: 'DOZ', tallySymbol: 'Doz',  formal: 'Dozens' },
+  { uqc: 'DRM', tallySymbol: 'Drm',  formal: 'Drums' },
+  { uqc: 'GGK', tallySymbol: 'Ggk',  formal: 'Great Gross' },
+  { uqc: 'GMS', tallySymbol: 'Gms',  formal: 'Grammes' },
+  { uqc: 'GRS', tallySymbol: 'Grs',  formal: 'Gross' },
+  { uqc: 'GYD', tallySymbol: 'Gyd',  formal: 'Gross Yards' },
+  { uqc: 'KGS', tallySymbol: 'Kgs',  formal: 'Kilograms' },
+  { uqc: 'KLR', tallySymbol: 'Klr',  formal: 'Kilolitre' },
+  { uqc: 'KME', tallySymbol: 'Kme',  formal: 'Kilometre' },
+  { uqc: 'LTR', tallySymbol: 'Ltr',  formal: 'Litres' },
+  { uqc: 'MLT', tallySymbol: 'Mlt',  formal: 'Mililitre' },
+  { uqc: 'MTR', tallySymbol: 'Mtr',  formal: 'Meters' },
+  { uqc: 'MTS', tallySymbol: 'Mts',  formal: 'Metric Ton' },
+  { uqc: 'NOS', tallySymbol: 'Nos',  formal: 'Numbers' },
+  { uqc: 'OTH', tallySymbol: 'Oth',  formal: 'Others' },
+  { uqc: 'PAC', tallySymbol: 'Pac',  formal: 'Packs' },
+  { uqc: 'PCS', tallySymbol: 'Pcs',  formal: 'Pieces' },
+  { uqc: 'PKT', tallySymbol: 'Pkt',  formal: 'Packets' },
+  { uqc: 'PRS', tallySymbol: 'Prs',  formal: 'Pairs' },
+  { uqc: 'QNT', tallySymbol: 'Qnt',  formal: 'Quintal' },
+  { uqc: 'ROL', tallySymbol: 'Rol',  formal: 'Rolls' },
+  { uqc: 'SET', tallySymbol: 'Set',  formal: 'Sets' },
+  { uqc: 'SQF', tallySymbol: 'Sqf',  formal: 'Square Feet' },
+  { uqc: 'SQM', tallySymbol: 'Sqm',  formal: 'Square Meters' },
+  { uqc: 'SQY', tallySymbol: 'Sqy',  formal: 'Square Yards' },
+  { uqc: 'TBL', tallySymbol: 'Tbl',  formal: 'Tablets' },
+  { uqc: 'TON', tallySymbol: 'Ton',  formal: 'Tonnes' },
+  { uqc: 'TUB', tallySymbol: 'Tub',  formal: 'Tubes' },
+  { uqc: 'UNT', tallySymbol: 'Unt',  formal: 'Units' },
+  { uqc: 'YDS', tallySymbol: 'Yds',  formal: 'Yards' },
 ];
 
 type CreateMode = 'standard' | 'custom';
@@ -89,9 +92,11 @@ export default function UnitsPage() {
   const createMut = useMutation({
     mutationFn: () => {
       if (createMode === 'standard' && selectedUqc) {
+        // name = TallyPrime symbol (e.g. "Nos") — this is what BASEUNITS references
+        // symbol = UQC code (e.g. "NOS") — stored as ORIGINALNAME / formal name in Tally
         return managementApi.createUnit({
-          name: selectedUqc.name,
-          symbol: selectedUqc.symbol,
+          name: selectedUqc.tallySymbol,
+          symbol: selectedUqc.uqc,
           decimal_places: parseInt(uqcDecimals) || 0,
         });
       }
@@ -141,8 +146,9 @@ export default function UnitsPage() {
   }
 
   const filteredUqcs = STANDARD_UQCS.filter(u =>
-    u.symbol.toLowerCase().includes(uqcSearch.toLowerCase()) ||
-    u.name.toLowerCase().includes(uqcSearch.toLowerCase())
+    u.uqc.toLowerCase().includes(uqcSearch.toLowerCase()) ||
+    u.tallySymbol.toLowerCase().includes(uqcSearch.toLowerCase()) ||
+    u.formal.toLowerCase().includes(uqcSearch.toLowerCase())
   );
 
   const canCreate = createMode === 'standard' ? !!selectedUqc : !!formName.trim();
@@ -219,22 +225,23 @@ export default function UnitsPage() {
                   <div className="p-4 text-center text-slate-400 text-sm">No match found.</div>
                 ) : filteredUqcs.map(u => (
                   <button
-                    key={u.symbol}
+                    key={u.uqc}
                     onClick={() => setSelectedUqc(u)}
                     className={cn(
                       'w-full flex items-center gap-3 px-3 py-2 text-left text-sm border-b last:border-0 transition-colors',
-                      selectedUqc?.symbol === u.symbol ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700',
+                      selectedUqc?.uqc === u.uqc ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700',
                     )}
                   >
-                    <span className="font-mono text-xs font-bold w-10 shrink-0">{u.symbol}</span>
-                    <span>{u.name}</span>
+                    <span className="font-mono text-xs font-bold w-10 shrink-0">{u.uqc}</span>
+                    <span className="flex-1">{u.formal}</span>
+                    <span className="text-xs text-slate-400 font-mono">{u.tallySymbol}</span>
                   </button>
                 ))}
               </div>
               {selectedUqc && (
                 <div className="flex items-center gap-3 p-3 bg-indigo-50 rounded-lg">
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-indigo-900">{selectedUqc.name} <span className="font-mono text-indigo-600">({selectedUqc.symbol})</span></p>
+                    <p className="text-sm font-medium text-indigo-900">{selectedUqc.formal} <span className="font-mono text-indigo-600">({selectedUqc.uqc})</span> <span className="text-xs text-indigo-500">→ Tally: <strong>{selectedUqc.tallySymbol}</strong></span></p>
                   </div>
                   <div className="w-28">
                     <Label className="text-xs">Decimal Places</Label>

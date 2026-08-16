@@ -908,9 +908,13 @@ class TallyClient:
 
     def create_stock_item(self, payload: dict) -> dict:
         name = payload.get("name", "")
-        unit = payload.get("unit", "Nos")
-        rate = str(payload.get("rate", payload.get("selling_price", "0")))
-        group = payload.get("stock_group", "Primary")
+        unit = (payload.get("unit") or "").strip()
+        group = (payload.get("stock_group") or "").strip()
+
+        # Only include PARENT if it's a real group (not root)
+        parent_xml = f"<PARENT>{group}</PARENT>" if group and group.lower() not in ("", "primary") else ""
+        # Only include BASEUNITS if a unit is specified — avoids "does not exist" errors
+        unit_xml = f"<BASEUNITS>{unit}</BASEUNITS>" if unit else ""
 
         xml = f"""<ENVELOPE>
   <HEADER>
@@ -925,8 +929,8 @@ class TallyClient:
       <TALLYMESSAGE xmlns:UDF="TallyUDF">
         <STOCKITEM NAME="{name}" ACTION="Create">
           <NAME>{name}</NAME>
-          <PARENT>{group}</PARENT>
-          <BASEUNITS>{unit}</BASEUNITS>
+          {parent_xml}
+          {unit_xml}
         </STOCKITEM>
       </TALLYMESSAGE>
     </DATA>

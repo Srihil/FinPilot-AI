@@ -11,7 +11,7 @@ import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
 import { managementApi } from '../../api/endpoints';
 import { formatCurrency } from '../../utils/format';
-import type { TallyStockItem } from '../../types';
+import type { TallyStockItem, TallyUnit } from '../../types';
 
 export default function StockItemsPage() {
   const qc = useQueryClient();
@@ -29,6 +29,12 @@ export default function StockItemsPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stock-items', page, search],
     queryFn: () => managementApi.stockItems({ page, page_size: 20, search: search || undefined }),
+  });
+
+  const { data: unitsData } = useQuery({
+    queryKey: ['units-all'],
+    queryFn: () => managementApi.units({ page_size: 100 }),
+    staleTime: 60_000,
   });
 
   const createMut = useMutation({
@@ -77,7 +83,7 @@ export default function StockItemsPage() {
     },
   });
 
-  function resetForm() { setFormName(''); setFormGroup(''); setFormUnit('Nos'); setFormRate(''); }
+  function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); }
   function openEdit(item: TallyStockItem) {
     setFormName(item.name); setFormGroup(item.stock_group || '');
     setFormUnit(item.unit || 'Nos'); setFormRate(item.rate ? String(item.rate) : '');
@@ -144,7 +150,16 @@ export default function StockItemsPage() {
           <div><Label>Name *</Label><Input value={formName} onChange={e=>setFormName(e.target.value)} placeholder="e.g. Laptop" /></div>
           <div><Label>Stock Group</Label><Input value={formGroup} onChange={e=>setFormGroup(e.target.value)} placeholder="e.g. Electronics (leave empty for root)" /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><Label>Unit</Label><Input value={formUnit} onChange={e=>setFormUnit(e.target.value)} placeholder="Nos" /></div>
+            <div>
+              <Label>Unit</Label>
+              <select value={formUnit} onChange={e=>setFormUnit(e.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">
+                <option value="">— No unit —</option>
+                {unitsData?.items.map((u: TallyUnit) => (
+                  <option key={u.id} value={u.name}>{u.name} {u.symbol ? `(${u.symbol})` : ''}</option>
+                ))}
+              </select>
+              {(!unitsData?.items.length) && <p className="text-xs text-amber-600 mt-1">No units yet — create units first.</p>}
+            </div>
             <div><Label>Rate (₹)</Label><Input type="number" value={formRate} onChange={e=>setFormRate(e.target.value)} placeholder="0" /></div>
           </div>
         </div>
@@ -156,7 +171,15 @@ export default function StockItemsPage() {
           <div><Label>Name</Label><Input value={formName} onChange={e=>setFormName(e.target.value)}/></div>
           <div><Label>Stock Group</Label><Input value={formGroup} onChange={e=>setFormGroup(e.target.value)}/></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><Label>Unit</Label><Input value={formUnit} onChange={e=>setFormUnit(e.target.value)}/></div>
+            <div>
+              <Label>Unit</Label>
+              <select value={formUnit} onChange={e=>setFormUnit(e.target.value)} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring">
+                <option value="">— No unit —</option>
+                {unitsData?.items.map((u: TallyUnit) => (
+                  <option key={u.id} value={u.name}>{u.name} {u.symbol ? `(${u.symbol})` : ''}</option>
+                ))}
+              </select>
+            </div>
             <div><Label>Rate (₹)</Label><Input type="number" value={formRate} onChange={e=>setFormRate(e.target.value)}/></div>
           </div>
         </div>

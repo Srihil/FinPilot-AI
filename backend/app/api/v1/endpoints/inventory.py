@@ -85,6 +85,7 @@ def list_stock_categories(
     q = db.query(StockCategory).filter(
         StockCategory.company_id == current_user.company_id,
         StockCategory.is_active == True,
+        StockCategory.tally_sync_status != 'failed',
     )
     if search:
         q = q.filter(StockCategory.name.ilike(f"%{search}%"))

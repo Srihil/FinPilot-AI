@@ -445,6 +445,7 @@ def list_stock_groups(
     q = db.query(TallyStockGroup).filter(
         TallyStockGroup.company_id == current_user.company_id,
         TallyStockGroup.is_active == True,
+        TallyStockGroup.tally_sync_status != 'failed',
     )
     if search:
         q = q.filter(TallyStockGroup.name.ilike(f"%{search}%"))
@@ -1038,6 +1039,7 @@ def list_stock_items(
     q = db.query(TallyStockItem).filter(
         TallyStockItem.company_id == current_user.company_id,
         TallyStockItem.is_active == True,
+        TallyStockItem.tally_sync_status != 'failed',
     )
     if search:
         q = q.filter(TallyStockItem.name.ilike(f"%{search}%"))

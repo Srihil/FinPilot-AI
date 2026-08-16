@@ -800,56 +800,128 @@ def create_entity(
 
         elif entity_type == "receipt":
             d = _parse_date(payload.get("date", ""))
+            amount = float(payload.get("amount", 0))
+            narration = payload.get("narration", "Receipt")
+            record = Expense(
+                company_id=current_user.company_id, created_by=current_user.id,
+                title=narration or "Receipt", category="Receipt",
+                expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+                currency="INR", status=ExpenseStatus.APPROVED,
+                notes=f"Party: {payload.get('party_ledger', '')} | Account: {payload.get('account_ledger', 'Cash')}",
+                tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            entity_id = str(record.id)
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_RECEIPT_VOUCHER",
                 {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
                  "account_ledger": payload.get("account_ledger", "Cash"),
-                 "amount": str(int(float(payload.get("amount", 0)))),
-                 "narration": payload.get("narration", "Receipt")})
+                 "amount": str(int(amount)), "narration": narration})
             if tally_queued: db.commit()
 
         elif entity_type == "payment":
             d = _parse_date(payload.get("date", ""))
+            amount = float(payload.get("amount", 0))
+            narration = payload.get("narration", "Payment")
+            record = Expense(
+                company_id=current_user.company_id, created_by=current_user.id,
+                title=narration or "Payment", category="Payment",
+                expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+                currency="INR", status=ExpenseStatus.APPROVED,
+                notes=f"Party: {payload.get('party_ledger', '')} | Account: {payload.get('account_ledger', 'Cash')}",
+                tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            entity_id = str(record.id)
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_PAYMENT_VOUCHER",
                 {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
                  "account_ledger": payload.get("account_ledger", "Cash"),
-                 "amount": str(int(float(payload.get("amount", 0)))),
-                 "narration": payload.get("narration", "Payment")})
+                 "amount": str(int(amount)), "narration": narration})
             if tally_queued: db.commit()
 
         elif entity_type == "journal":
             d = _parse_date(payload.get("date", ""))
+            amount = float(payload.get("amount", 0))
+            narration = payload.get("narration", "Journal Entry")
+            record = Expense(
+                company_id=current_user.company_id, created_by=current_user.id,
+                title=narration or "Journal Entry", category="Journal",
+                expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+                currency="INR", status=ExpenseStatus.APPROVED,
+                notes=f"Dr: {payload.get('dr_ledger', '')} | Cr: {payload.get('cr_ledger', '')}",
+                tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            entity_id = str(record.id)
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_JOURNAL_VOUCHER",
                 {"date": d.strftime("%Y%m%d"), "dr_ledger": payload.get("dr_ledger", ""),
                  "cr_ledger": payload.get("cr_ledger", ""),
-                 "amount": str(int(float(payload.get("amount", 0)))),
-                 "narration": payload.get("narration", "Journal Entry")})
+                 "amount": str(int(amount)), "narration": narration})
             if tally_queued: db.commit()
 
         elif entity_type == "credit_note":
             d = _parse_date(payload.get("date", ""))
+            amount = float(payload.get("amount", 0))
+            narration = payload.get("narration", "Sales Return")
+            record = Expense(
+                company_id=current_user.company_id, created_by=current_user.id,
+                title=narration or "Sales Return", category="Credit Note",
+                expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+                currency="INR", status=ExpenseStatus.APPROVED,
+                notes=f"Party: {payload.get('party_ledger', '')}",
+                tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            entity_id = str(record.id)
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_CREDIT_NOTE",
                 {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
                  "sales_ledger": payload.get("sales_ledger", "Sales"),
-                 "amount": str(int(float(payload.get("amount", 0)))),
-                 "narration": payload.get("narration", "Sales Return")})
+                 "amount": str(int(amount)), "narration": narration})
             if tally_queued: db.commit()
 
         elif entity_type == "debit_note":
             d = _parse_date(payload.get("date", ""))
+            amount = float(payload.get("amount", 0))
+            narration = payload.get("narration", "Purchase Return")
+            record = Expense(
+                company_id=current_user.company_id, created_by=current_user.id,
+                title=narration or "Purchase Return", category="Debit Note",
+                expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+                currency="INR", status=ExpenseStatus.APPROVED,
+                notes=f"Party: {payload.get('party_ledger', '')}",
+                tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            entity_id = str(record.id)
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_DEBIT_NOTE",
                 {"date": d.strftime("%Y%m%d"), "party_ledger": payload.get("party_ledger", ""),
                  "purchase_ledger": payload.get("purchase_ledger", "Purchases"),
-                 "amount": str(int(float(payload.get("amount", 0)))),
-                 "narration": payload.get("narration", "Purchase Return")})
+                 "amount": str(int(amount)), "narration": narration})
             if tally_queued: db.commit()
 
         elif entity_type == "contra":
             d = _parse_date(payload.get("date", ""))
+            amount = float(payload.get("amount", 0))
+            narration = payload.get("narration", "Fund Transfer")
+            record = Expense(
+                company_id=current_user.company_id, created_by=current_user.id,
+                title=narration or "Fund Transfer", category="Contra",
+                expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+                currency="INR", status=ExpenseStatus.APPROVED,
+                notes=f"From: {payload.get('from_account', 'Cash')} | To: {payload.get('to_account', 'Bank')}",
+                tally_sync_status="pending",
+            )
+            db.add(record)
+            db.flush()
+            entity_id = str(record.id)
             tally_queued = queue_tally_write(db, current_user.company_id, "CREATE_CONTRA_VOUCHER",
                 {"date": d.strftime("%Y%m%d"), "from_account": payload.get("from_account", "Cash"),
                  "to_account": payload.get("to_account", "Bank"),
-                 "amount": str(int(float(payload.get("amount", 0)))),
-                 "narration": payload.get("narration", "Fund Transfer")})
+                 "amount": str(int(amount)), "narration": narration})
             if tally_queued: db.commit()
 
         else:

@@ -1036,7 +1036,10 @@ def list_vouchers(
     # ── Invoices (SALES / PURCHASE) ──────────────────────────────────────────
     vt = (voucher_type or "").upper()
     include_invoices = vt in ("", "ALL", "SALES", "PURCHASE")
-    include_expenses = vt in ("", "ALL", "PAYMENT", "PURCHASE", "DEBIT_NOTE")
+    include_expenses = vt in (
+        "", "ALL", "PAYMENT", "PURCHASE", "DEBIT_NOTE",
+        "RECEIPT", "JOURNAL", "CONTRA", "CREDIT_NOTE",
+    )
 
     if include_invoices:
         inv_q = db.query(Invoice).options(
@@ -1102,9 +1105,13 @@ def list_vouchers(
             "Purchase": "PURCHASE",
             "Purchase Return": "DEBIT_NOTE",
             "Payment": "PAYMENT",
+            "Receipt": "RECEIPT",
+            "Journal": "JOURNAL",
+            "Contra": "CONTRA",
+            "Credit Note": "CREDIT_NOTE",
+            "Debit Note": "DEBIT_NOTE",
         }
         for exp in exp_q.all():
-            party_name = (exp.vendor.name if exp.vendor else None) or exp.title
             exp_sync = getattr(exp, "tally_sync_status", None) or "local_only"
             exp_notes = getattr(exp, "notes", None) or ""
             exp_source = "tally_sync" if "[tally-sync]" in exp_notes else "finpilot"
@@ -1112,13 +1119,14 @@ def list_vouchers(
             # Apply voucher type filter to expenses too
             if vt and vt not in ("", "ALL") and exp_vtype != vt:
                 continue
+            display_name = (exp.vendor.name if exp.vendor else None) or exp.title
             results.append({
                 "id": str(exp.id),
-                "voucher_number": getattr(exp, "ref_number", None) or f"EXP-{str(exp.id)[:8].upper()}",
+                "voucher_number": exp.reference_number or f"EXP-{str(exp.id)[:8].upper()}",
                 "date": exp.expense_date.isoformat() if exp.expense_date else None,
                 "voucher_type": exp_vtype,
                 "party": None,
-                "party_name": party_name,
+                "party_name": display_name,
                 "amount": float(exp.amount or 0),
                 "status": exp.status.value if exp.status else "DRAFT",
                 "source": exp_source,

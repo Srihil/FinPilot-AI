@@ -436,24 +436,31 @@ def create_entity(
                 db.commit()
 
         elif entity_type == "invoice":
-            # Find customer if customer_name is given
             customer_id = payload.get("customer_id")
             vendor_id = payload.get("vendor_id")
             invoice_type = payload.get("invoice_type", "SALES").upper()
 
-            if not customer_id and payload.get("customer_name") and invoice_type == "SALES":
+            # Normalise: AI may use customer_name OR party_ledger for the party field
+            _cust_name = payload.get("customer_name") or payload.get("party_ledger") or payload.get("party", "")
+            _vend_name = payload.get("vendor_name") or payload.get("party_ledger") or payload.get("party", "")
+            if _cust_name:
+                payload["customer_name"] = _cust_name
+            if _vend_name:
+                payload["vendor_name"] = _vend_name
+
+            if not customer_id and _cust_name and invoice_type == "SALES":
                 cust = db.query(Customer).filter(
                     Customer.company_id == current_user.company_id,
-                    Customer.name.ilike(f"%{payload['customer_name']}%"),
+                    Customer.name.ilike(f"%{_cust_name}%"),
                     Customer.is_active == True,
                 ).first()
                 if cust:
                     customer_id = str(cust.id)
 
-            if not vendor_id and payload.get("vendor_name") and invoice_type == "PURCHASE":
+            if not vendor_id and _vend_name and invoice_type == "PURCHASE":
                 vend = db.query(Vendor).filter(
                     Vendor.company_id == current_user.company_id,
-                    Vendor.name.ilike(f"%{payload['vendor_name']}%"),
+                    Vendor.name.ilike(f"%{_vend_name}%"),
                     Vendor.is_active == True,
                 ).first()
                 if vend:
@@ -484,19 +491,31 @@ def create_entity(
             # Pre-generate REMOTEID so we can cancel later by this ref
             vnum = f"FP-{uuid.uuid4().hex[:12].upper()}"
             if invoice_type == "SALES":
-                party_name = payload.get("customer_name", "")
+                # AI may extract customer name as customer_name OR party_ledger — accept both
+                party_name = (
+                    payload.get("customer_name")
+                    or payload.get("party_ledger")
+                    or payload.get("party", "")
+                )
+                sales_ledger = payload.get("sales_ledger") or "Sales"
                 tally_queued = queue_tally_write(
                     db, current_user.company_id, "CREATE_SALES_VOUCHER",
                     {"date": tally_date, "party_ledger": party_name,
-                     "sales_ledger": "Sales", "amount": amount_str,
+                     "sales_ledger": sales_ledger, "amount": amount_str,
                      "narration": entity.invoice_number, "voucher_number": vnum},
                 )
             else:
-                party_name = payload.get("vendor_name", "")
+                # AI may extract vendor name as vendor_name OR party_ledger — accept both
+                party_name = (
+                    payload.get("vendor_name")
+                    or payload.get("party_ledger")
+                    or payload.get("party", "")
+                )
+                purchase_ledger = payload.get("purchase_ledger") or "Purchases"
                 tally_queued = queue_tally_write(
                     db, current_user.company_id, "CREATE_PURCHASE_VOUCHER",
                     {"date": tally_date, "party_ledger": party_name,
-                     "purchase_ledger": "Purchases", "amount": amount_str,
+                     "purchase_ledger": purchase_ledger, "amount": amount_str,
                      "narration": entity.invoice_number, "voucher_number": vnum},
                 )
             if tally_queued:

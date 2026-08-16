@@ -794,6 +794,21 @@ def submit_job_result(
                 ).first()
                 if master:
                     master.tally_sync_status = "failed"
+
+            # Voucher CREATE permanently failed → delete the local record so it
+            # doesn't appear as a ghost "pending" entry in FinPilot forever.
+            # Only entries confirmed by TallyPrime should exist here.
+            elif job.operation in _VOUCHER_CREATE_OPS:
+                vref = (job.payload or {}).get("voucher_number", "")
+                if vref:
+                    for model in (Invoice, Expense):
+                        rec = db.query(model).filter(
+                            model.tally_voucher_ref == vref,
+                            model.company_id == job.company_id,
+                        ).first()
+                        if rec:
+                            db.delete(rec)
+                            break
     else:
         raise HTTPException(status_code=400, detail="status must be SUCCESS or FAILED")
 

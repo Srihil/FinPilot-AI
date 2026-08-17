@@ -178,6 +178,7 @@ export function Combobox({
           }}
           // Stop pointer events reaching Radix Dialog's outside-click handler
           onPointerDown={e => e.stopPropagation()}
+          data-custom-dropdown-portal
           className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
         >
           <ul className="max-h-52 overflow-y-auto py-1">

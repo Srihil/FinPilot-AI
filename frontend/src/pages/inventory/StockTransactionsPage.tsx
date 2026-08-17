@@ -11,6 +11,7 @@ import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { SyncBadge } from '../../components/ui/SyncBadge';
+import { SearchableSelect, preventDropdownDismissal } from '../../components/ui/SearchableSelect';
 import { toast } from '../../components/ui/use-toast';
 import { cn } from '../../utils/cn';
 import { formatDate, formatCurrency } from '../../utils/format';
@@ -252,7 +253,7 @@ export default function StockTransactionsPage() {
 
   // Form state
   const [formType, setFormType]             = useState('STOCK_JOURNAL');
-  const [formDate, setFormDate]             = useState('');
+  const [formDate, setFormDate]             = useState(() => new Date().toISOString().slice(0, 10));
   const [formParty, setFormParty]           = useState('');
   const [formFromGodown, setFormFromGodown] = useState('');
   const [formToGodown, setFormToGodown]     = useState('');
@@ -325,7 +326,7 @@ export default function StockTransactionsPage() {
   });
 
   function resetForm() {
-    setFormType('STOCK_JOURNAL'); setFormDate(''); setFormParty('');
+    setFormType('STOCK_JOURNAL'); setFormDate(new Date().toISOString().slice(0, 10)); setFormParty('');
     setFormFromGodown(''); setFormToGodown(''); setFormNarration('');
     setEntries([{ ...BLANK_ENTRY }]);
   }
@@ -532,7 +533,10 @@ export default function StockTransactionsPage() {
 
       {/* ── Create Dialog ──────────────────────────────────────────────────── */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent
+          className="max-w-2xl"
+          onPointerDownOutside={preventDropdownDismissal}
+        >
           <DialogHeader><DialogTitle>New Stock Transaction</DialogTitle></DialogHeader>
           <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
 
@@ -553,9 +557,9 @@ export default function StockTransactionsPage() {
             {showParty && (
               <div>
                 <Label>Party (Customer / Supplier)</Label>
-                <DatalistInput
+                <SearchableSelect
                   value={formParty} onChange={setFormParty}
-                  options={ledgerNames} placeholder="Type or select party…"
+                  options={ledgerNames} placeholder="— Select party —"
                   className="mt-1"
                 />
               </div>
@@ -564,7 +568,7 @@ export default function StockTransactionsPage() {
             <div className={cn('grid gap-3', showToGodown ? 'grid-cols-2' : 'grid-cols-1')}>
               <div>
                 <Label>{fromLabel}</Label>
-                <NativeSelect
+                <SearchableSelect
                   value={formFromGodown} onChange={setFormFromGodown}
                   options={godownNames} placeholder="— Select godown —"
                   className="mt-1"
@@ -573,7 +577,7 @@ export default function StockTransactionsPage() {
               {showToGodown && (
                 <div>
                   <Label>To Godown</Label>
-                  <NativeSelect
+                  <SearchableSelect
                     value={formToGodown} onChange={setFormToGodown}
                     options={godownNames} placeholder="— Select destination —"
                     className="mt-1"
@@ -597,7 +601,7 @@ export default function StockTransactionsPage() {
                     <tr className="bg-slate-50 border-b text-xs text-slate-500 uppercase tracking-wide">
                       <th className="px-3 py-2 text-left">Stock Item</th>
                       <th className="px-3 py-2 text-right w-24">Qty</th>
-                      <th className="px-3 py-2 text-left w-32">Unit</th>
+                      <th className="px-3 py-2 text-left w-36">Unit</th>
                       <th className="px-3 py-2 text-right w-28">Rate (₹)</th>
                       <th className="px-3 py-2 w-8" />
                     </tr>
@@ -606,11 +610,11 @@ export default function StockTransactionsPage() {
                     {entries.map((entry, idx) => (
                       <tr key={idx} className="border-b last:border-0">
                         <td className="px-2 py-1.5">
-                          <DatalistInput
+                          <SearchableSelect
                             value={entry.stock_item_name}
                             onChange={v => handleEntryItem(idx, v)}
                             options={stockItemNames}
-                            placeholder="Type or select item…"
+                            placeholder="— Select item —"
                           />
                         </td>
                         <td className="px-2 py-1.5">
@@ -619,7 +623,7 @@ export default function StockTransactionsPage() {
                             placeholder="0" className="text-right" />
                         </td>
                         <td className="px-2 py-1.5">
-                          <NativeSelect
+                          <SearchableSelect
                             value={entry.unit}
                             onChange={v => handleEntryField(idx, 'unit', v)}
                             options={unitNames}

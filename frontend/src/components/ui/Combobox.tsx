@@ -18,7 +18,7 @@ export function Combobox({
   value,
   onChange,
   placeholder = 'Search…',
-  emptyLabel = 'No matches',
+  emptyLabel = 'No options — type a value directly',
   className,
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -27,28 +27,10 @@ export function Combobox({
   const portalRef = useRef<HTMLDivElement>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
 
-  // Ref flag set by capture-phase mousedown on the portal, checked in onBlur
-  // This is the reliable way to prevent blur from closing the dropdown when
-  // the user clicks an option — relatedTarget is unreliable for portal elements
-  const clickingOptionRef = useRef(false);
-
-  // Sync display when value changes externally (e.g. clear from parent)
+  // Sync display when value changes externally
   useEffect(() => {
     if (!open) setQuery(value);
   }, [value, open]);
-
-  // Capture-phase native listener: fires before blur, marks that a portal click
-  // is in progress so the blur handler knows not to close the dropdown
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (portalRef.current?.contains(e.target as Node)) {
-        clickingOptionRef.current = true;
-      }
-    };
-    document.addEventListener('mousedown', onDown, true);
-    return () => document.removeEventListener('mousedown', onDown, true);
-  }, [open]);
 
   const filtered = options.filter(o =>
     !query || o.toLowerCase().includes(query.toLowerCase())
@@ -61,10 +43,10 @@ export function Combobox({
   };
 
   const select = (opt: string) => {
-    clickingOptionRef.current = false;
     onChange(opt);
     setQuery(opt);
     setOpen(false);
+    inputRef.current?.focus();
   };
 
   const clear = (e: React.MouseEvent) => {
@@ -75,18 +57,24 @@ export function Combobox({
     inputRef.current?.focus();
   };
 
+  // On blur: if the typed query is non-empty and differs from current value,
+  // accept it as a free-text value so users can type godown/party names
+  // even when the list hasn't been synced yet.
   const handleBlur = () => {
-    if (clickingOptionRef.current) {
-      // User is clicking an option — keep dropdown open, let click fire
-      clickingOptionRef.current = false;
-      inputRef.current?.focus();
-      return;
-    }
-    // Clicked outside — restore display and close
     setTimeout(() => {
-      setQuery(value);
+      const trimmed = query.trim();
+      if (trimmed && trimmed !== value) {
+        onChange(trimmed);
+        setQuery(trimmed);
+      } else if (!trimmed && value) {
+        // User cleared the field
+        onChange('');
+        setQuery('');
+      } else {
+        setQuery(value);
+      }
       setOpen(false);
-    }, 100);
+    }, 80);
   };
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -101,9 +89,21 @@ export function Combobox({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') { setQuery(value); setOpen(false); }
-    if (e.key === 'Enter' && filtered.length >= 1) select(filtered[0]);
-    if (e.key === 'ArrowDown' && !open) openDropdown();
+    if (e.key === 'Escape') {
+      setQuery(value);
+      setOpen(false);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filtered.length >= 1) {
+        select(filtered[0]);
+      } else if (query.trim()) {
+        // Accept free-text on Enter when no matches
+        onChange(query.trim());
+        setOpen(false);
+      }
+    } else if (e.key === 'ArrowDown' && !open) {
+      openDropdown();
+    }
   };
 
   // Reposition on scroll / resize
@@ -153,7 +153,11 @@ export function Combobox({
           )}
           <button
             type="button"
-            onMouseDown={e => { e.preventDefault(); open ? setOpen(false) : openDropdown(); inputRef.current?.focus(); }}
+            onMouseDown={e => {
+              e.preventDefault();
+              open ? setOpen(false) : openDropdown();
+              inputRef.current?.focus();
+            }}
             className="p-1 rounded text-slate-400 hover:text-slate-600"
             tabIndex={-1}
           >
@@ -169,24 +173,29 @@ export function Combobox({
             position: 'fixed',
             top: rect.bottom + 4,
             left: rect.left,
-            width: rect.width,
+            width: Math.max(rect.width, 180),
             zIndex: 9999,
           }}
-          // Stop pointer events from bubbling to Radix Dialog's outside-click
-          // dismissal handler — the portal is outside the dialog DOM but clicks
-          // here should NOT close the dialog.
+          // Stop pointer events reaching Radix Dialog's outside-click handler
           onPointerDown={e => e.stopPropagation()}
           className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
         >
           <ul className="max-h-52 overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <li className="px-3 py-3 text-sm text-slate-400 text-center">{emptyLabel}</li>
+              <li className="px-3 py-3 text-xs text-slate-400 text-center italic">{emptyLabel}</li>
             ) : (
               filtered.map(opt => (
                 <li key={opt}>
                   <button
                     type="button"
-                    onClick={() => select(opt)}
+                    // onMouseDown + preventDefault: prevents input blur so the
+                    // dropdown stays open while we complete the selection.
+                    // Using onClick alone would fail because blur fires first
+                    // and closes the dropdown before click can register.
+                    onMouseDown={e => {
+                      e.preventDefault();
+                      select(opt);
+                    }}
                     className={cn(
                       'w-full text-left px-3 py-2 text-sm transition-colors',
                       opt === value

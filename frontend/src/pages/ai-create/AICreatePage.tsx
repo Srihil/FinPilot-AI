@@ -375,8 +375,8 @@ function StockTxnEntriesEditor({
           <tr className="bg-slate-50 border-b text-xs text-slate-500 uppercase tracking-wide">
             <th className="px-2 py-2 text-left">Stock Item</th>
             <th className="px-2 py-2 text-right w-20">Qty</th>
-            <th className="px-2 py-2 text-left w-24">Unit</th>
-            <th className="px-2 py-2 text-right w-24">Rate (₹)</th>
+            <th className="px-2 py-2 text-left w-36">Unit</th>
+            <th className="px-2 py-2 text-right w-28">Rate (₹)</th>
             <th className="px-2 py-2 w-7" />
           </tr>
         </thead>

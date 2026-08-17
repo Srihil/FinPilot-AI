@@ -241,28 +241,35 @@ class DemoEntityAgent:
         # ── Step 1: Custom voucher type check ────────────────────────────
         custom_type = self._extract_custom_type(text)
         if custom_type:
-            # Extract amount
-            amount_m = re.search(r'[₹]?\s*([\d,]+)', text)
-            amount = amount_m.group(1).replace(',', '') if amount_m else "0"
-            # Extract party (after "for")
-            party_m = re.search(r'for\s+([A-Za-z\s&]+?)(?:\s+for|\s+₹|\s+\d|$)', text, re.IGNORECASE)
-            party = party_m.group(1).strip() if party_m else ""
+            amount_m = re.search(r'[₹]\s*([\d,]+(?:\.\d+)?)', text)
+            if not amount_m:
+                amount_m = re.search(r'\b(\d{4,}(?:,\d{3})*(?:\.\d+)?)\b', text)
+            amount   = amount_m.group(1).replace(',', '') if amount_m else "0"
+            party_m  = re.search(r'\bfor\s+(.+?)(?=\s+[₹\d]|\s+on\s+\d|\s+from\b|$)', text, re.IGNORECASE)
+            party    = party_m.group(1).strip() if party_m else ""
+            date_val = self._extract_date(text)
+            cv_missing = [] if date_val else ["date"]
+            cv_missing.append("Please verify all extracted fields")
             return {
                 "entity_type": "custom_voucher",
                 "data": {
                     "voucher_type_name": custom_type,
                     "party_ledger": party,
                     "amount": amount,
+                    "date": date_val,
                     "account_ledger": "Cash",
                     "narration": text[:80],
                 },
                 "confidence": 0.5,
-                "missing_fields": ["date", "Please verify all extracted fields"],
+                "missing_fields": cv_missing,
             }
 
         # ── Step 2: Stock transaction types (check before generic keywords) ─
+        # "₹" in text means it's a financial transfer (contra), not a stock movement
         if any(w in text_lower for w in ["stock journal", "transfer stock", "move stock", "godown transfer"]) or \
-           ("transfer" in text_lower and " from " in text_lower and " to " in text_lower):
+           ("transfer" in text_lower and " from " in text_lower and " to " in text_lower
+            and "contra" not in text_lower and "bank transfer" not in text_lower
+            and "cash transfer" not in text_lower and "₹" not in text):
             entity_type = "stock_journal"
         elif any(w in text_lower for w in ["physical stock", "stock count", "stock taking", "stock verification"]):
             entity_type = "physical_stock"
@@ -280,7 +287,8 @@ class DemoEntityAgent:
             entity_type = "receipt"
         elif "receipt" in text_lower and "advance" not in text_lower:
             entity_type = "receipt"
-        elif any(w in text_lower for w in ["paid to", "money paid"]):
+        elif any(w in text_lower for w in ["paid to", "money paid"]) or \
+             ("paid" in text_lower and " to " in text_lower):
             entity_type = "payment"
         elif "payment" in text_lower and "petty" not in text_lower and "salary" not in text_lower:
             entity_type = "payment"
@@ -292,6 +300,12 @@ class DemoEntityAgent:
             entity_type = "debit_note"
         elif any(w in text_lower for w in ["contra", "bank transfer", "cash transfer"]):
             entity_type = "contra"
+        # Specific voucher phrases must come BEFORE master-entity keywords so that
+        # "Purchase bill from Ramesh Suppliers" doesn't hit "supplier → vendor" first.
+        elif any(w in text_lower for w in ["sales invoice"]):
+            entity_type = "sales_invoice"
+        elif any(w in text_lower for w in ["purchase bill"]):
+            entity_type = "purchase_bill"
         elif any(w in text_lower for w in ["customer", "client", "buyer", "debtor"]):
             entity_type = "customer"
         elif any(w in text_lower for w in ["vendor", "supplier", "creditor"]):
@@ -308,9 +322,9 @@ class DemoEntityAgent:
             entity_type = "group"
         elif any(w in text_lower for w in ["ledger", "account"]):
             entity_type = "ledger"
-        elif any(w in text_lower for w in ["sales invoice", "sale", "invoice"]):
+        elif any(w in text_lower for w in ["invoice", "sale"]):
             entity_type = "sales_invoice"
-        elif any(w in text_lower for w in ["purchase bill", "purchase", "bill"]):
+        elif any(w in text_lower for w in ["purchase", "bill"]):
             entity_type = "purchase_bill"
         elif any(w in text_lower for w in ["expense", "cost", "spent"]):
             entity_type = "expense"
@@ -367,6 +381,8 @@ class DemoEntityAgent:
             if entity_type == "stock_journal":
                 base["from_godown"] = godown_from
                 base["to_godown"]   = godown_to
+            elif entity_type == "physical_stock":
+                base["from_godown"] = godown_at or godown_from
             elif entity_type in ("delivery_note", "receipt_note", "rejection_in", "rejection_out"):
                 base["party_name"]  = party
                 base["from_godown"] = godown_from or godown_at
@@ -377,6 +393,99 @@ class DemoEntityAgent:
                 "entity_type": entity_type,
                 "data": base,
                 "confidence": 0.45,
+                "missing_fields": missing,
+            }
+
+        # ── Standard voucher field extraction ─────────────────────────────────
+        _STD_VOUCHER_TYPES = {
+            "sales_invoice", "purchase_bill", "receipt", "payment",
+            "journal", "credit_note", "debit_note", "contra",
+        }
+        if entity_type in _STD_VOUCHER_TYPES:
+            date_val = self._extract_date(text)
+            amount_m = re.search(r'[₹]\s*([\d,]+(?:\.\d+)?)', text)
+            amount   = amount_m.group(1).replace(',', '') if amount_m else "0"
+            missing: list = [] if date_val else ["date"]
+            data: dict = {}
+
+            if entity_type == "sales_invoice":
+                pm    = re.search(r'\bfor\s+(.+?)(?=\s+[₹\d]|\s+on\s+\d|\s+from\b|$)', text, re.IGNORECASE)
+                party = pm.group(1).strip() if pm else ""
+                data  = {"customer_name": party, "amount": amount, "date": date_val,
+                         "sales_ledger": "Sales", "narration": ""}
+                if not party:     missing.append("customer_name")
+                if amount == "0": missing.append("amount")
+
+            elif entity_type == "purchase_bill":
+                pm    = re.search(r'\bfrom\s+(.+?)(?=\s+[₹\d]|\s+on\s+\d|\s+to\b|$)', text, re.IGNORECASE)
+                party = pm.group(1).strip() if pm else ""
+                data  = {"vendor_name": party, "amount": amount, "date": date_val,
+                         "purchase_ledger": "Purchases", "narration": ""}
+                if not party:     missing.append("vendor_name")
+                if amount == "0": missing.append("amount")
+
+            elif entity_type == "receipt":
+                pm     = re.search(r'\bfrom\s+(.+?)(?=\s+[₹\d]|\s+in\b|\s+on\s+\d|$)', text, re.IGNORECASE)
+                acct_m = re.search(r'\bin\s+(.+?)(?=\s+on\b|\s+dated\b|$)', text, re.IGNORECASE)
+                party  = pm.group(1).strip()     if pm     else ""
+                acct   = acct_m.group(1).strip() if acct_m else "Cash"
+                data   = {"party_ledger": party, "account_ledger": acct, "amount": amount,
+                          "date": date_val, "narration": ""}
+                if not party:     missing.append("party_ledger")
+                if amount == "0": missing.append("amount")
+
+            elif entity_type == "payment":
+                pm     = re.search(r'\bto\s+(.+?)(?=\s+[₹\d]|\s+from\b|\s+on\s+\d|$)', text, re.IGNORECASE)
+                acct_m = re.search(r'\bfrom\s+(.+?)(?=\s+on\b|\s+dated\b|$)', text, re.IGNORECASE)
+                party  = pm.group(1).strip()     if pm     else ""
+                acct   = acct_m.group(1).strip() if acct_m else "Cash"
+                data   = {"party_ledger": party, "account_ledger": acct, "amount": amount,
+                          "date": date_val, "narration": ""}
+                if not party:     missing.append("party_ledger")
+                if amount == "0": missing.append("amount")
+
+            elif entity_type == "journal":
+                dr_m = re.search(r'\b(?:debit|dr\.?)\s+(.+?)(?=\s+(?:credit|cr\.?)\b)', text, re.IGNORECASE)
+                cr_m = re.search(r'\b(?:credit|cr\.?)\s+(.+?)(?=\s+[₹\d]|\s+on\s+\d|$)', text, re.IGNORECASE)
+                dr   = dr_m.group(1).strip() if dr_m else ""
+                cr   = cr_m.group(1).strip() if cr_m else ""
+                data = {"dr_ledger": dr, "cr_ledger": cr, "amount": amount,
+                        "date": date_val, "narration": ""}
+                if not dr:        missing.append("dr_ledger")
+                if not cr:        missing.append("cr_ledger")
+                if amount == "0": missing.append("amount")
+
+            elif entity_type == "credit_note":
+                pm    = re.search(r'\bfor\s+(.+?)(?=\s+[₹\d]|\s+on\s+\d|\s+from\b|$)', text, re.IGNORECASE)
+                party = pm.group(1).strip() if pm else ""
+                data  = {"party_ledger": party, "amount": amount, "date": date_val,
+                         "sales_ledger": "Sales", "narration": ""}
+                if not party:     missing.append("party_ledger")
+                if amount == "0": missing.append("amount")
+
+            elif entity_type == "debit_note":
+                pm    = re.search(r'\bfor\s+(.+?)(?=\s+[₹\d]|\s+on\s+\d|\s+from\b|$)', text, re.IGNORECASE)
+                party = pm.group(1).strip() if pm else ""
+                data  = {"party_ledger": party, "amount": amount, "date": date_val,
+                         "purchase_ledger": "Purchases", "narration": ""}
+                if not party:     missing.append("party_ledger")
+                if amount == "0": missing.append("amount")
+
+            elif entity_type == "contra":
+                from_m    = re.search(r'\bfrom\s+(.+?)(?=\s+to\b)', text, re.IGNORECASE)
+                to_m      = re.search(r'\bto\s+(.+?)(?=\s+on\b|\s+dated\b|$)', text, re.IGNORECASE)
+                from_acct = from_m.group(1).strip() if from_m else "Cash"
+                to_acct   = to_m.group(1).strip()   if to_m   else "Bank"
+                data = {"from_account": from_acct, "to_account": to_acct, "amount": amount,
+                        "date": date_val, "narration": ""}
+                if amount == "0": missing.append("amount")
+
+            if not missing:
+                missing = ["Please verify all extracted fields"]
+            return {
+                "entity_type": entity_type,
+                "data": data,
+                "confidence": 0.55,
                 "missing_fields": missing,
             }
 

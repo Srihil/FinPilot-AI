@@ -377,12 +377,20 @@ def _detect_custom_voucher_type(text: str, company_id, db) -> dict | None:
     date_m = re.search(r'(\d{4}-\d{2}-\d{2})', text)
     date_val = date_m.group(1) if date_m else ""
     if not date_val:
-        # Natural language: "15 August 2026" / "1 September 2026"
-        nat_m = re.search(r'(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})', text, re.IGNORECASE)
+        # Natural language: "15 August 2026" / "1 Sept 2026" / "1 September 2026"
+        nat_m = re.search(
+            r'(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December'
+            r'|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+(\d{4})',
+            text, re.IGNORECASE,
+        )
         if nat_m:
-            months = {"january":"01","february":"02","march":"03","april":"04","may":"05","june":"06",
-                      "july":"07","august":"08","september":"09","october":"10","november":"11","december":"12"}
-            date_val = f"{nat_m.group(3)}-{months[nat_m.group(2).lower()]}-{nat_m.group(1).zfill(2)}"
+            months = {
+                "january":"01","february":"02","march":"03","april":"04","may":"05","june":"06",
+                "july":"07","august":"08","september":"09","october":"10","november":"11","december":"12",
+                "jan":"01","feb":"02","mar":"03","apr":"04","jun":"06","jul":"07","aug":"08",
+                "sep":"09","sept":"09","oct":"10","nov":"11","dec":"12",
+            }
+            date_val = f"{nat_m.group(3)}-{months.get(nat_m.group(2).lower(),'00')}-{nat_m.group(1).zfill(2)}"
 
     # Extract party — text after "for" but before "for ₹" / amount
     party = ""

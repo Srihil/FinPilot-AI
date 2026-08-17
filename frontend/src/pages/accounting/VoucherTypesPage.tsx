@@ -5,7 +5,7 @@ import {
   ShoppingCart, ArrowDownLeft, ArrowUpRight, CreditCard,
   Banknote, BookOpen, ArrowLeftRight, Package, Truck,
   ClipboardList, Users, RotateCcw, FileText, Wrench,
-  AlertCircle,
+  AlertCircle, CheckCircle2, XCircle,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -27,6 +27,7 @@ interface VoucherTypeDef {
   category: string;
   icon: React.ElementType;
   color: string;
+  mutedColor: string;
   badge: string;
 }
 
@@ -35,149 +36,224 @@ const TALLY_VOUCHER_TYPES: VoucherTypeDef[] = [
   {
     name: 'Sales', shortcut: 'F8', category: 'Sales',
     description: 'Record a sale to a customer. Increases receivables.',
-    icon: ShoppingCart, color: 'bg-green-50 border-green-200', badge: 'bg-green-100 text-green-700',
+    icon: ShoppingCart,
+    color: 'bg-green-50 border-green-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-green-100 text-green-700',
   },
   {
     name: 'Sales Order', category: 'Sales',
     description: 'Customer order confirmation before goods are dispatched.',
-    icon: ClipboardList, color: 'bg-green-50 border-green-200', badge: 'bg-green-100 text-green-700',
+    icon: ClipboardList,
+    color: 'bg-green-50 border-green-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-green-100 text-green-700',
   },
   {
     name: 'Credit Note', shortcut: 'Ctrl+F8', category: 'Sales',
     description: 'Sales return — reverse a sale when customer returns goods.',
-    icon: ArrowDownLeft, color: 'bg-green-50 border-green-200', badge: 'bg-green-100 text-green-700',
+    icon: ArrowDownLeft,
+    color: 'bg-green-50 border-green-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-green-100 text-green-700',
   },
   {
     name: 'Delivery Note', category: 'Sales',
     description: 'Record goods dispatched to customer before invoicing.',
-    icon: Truck, color: 'bg-green-50 border-green-200', badge: 'bg-green-100 text-green-700',
+    icon: Truck,
+    color: 'bg-green-50 border-green-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-green-100 text-green-700',
   },
   // ── Purchase ──
   {
     name: 'Purchase', shortcut: 'F9', category: 'Purchase',
     description: 'Record a purchase from a supplier. Increases payables.',
-    icon: ArrowDownLeft, color: 'bg-orange-50 border-orange-200', badge: 'bg-orange-100 text-orange-700',
+    icon: ArrowDownLeft,
+    color: 'bg-orange-50 border-orange-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-orange-100 text-orange-700',
   },
   {
     name: 'Purchase Order', category: 'Purchase',
     description: 'Order placed with supplier before goods are received.',
-    icon: ClipboardList, color: 'bg-orange-50 border-orange-200', badge: 'bg-orange-100 text-orange-700',
+    icon: ClipboardList,
+    color: 'bg-orange-50 border-orange-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-orange-100 text-orange-700',
   },
   {
     name: 'Debit Note', shortcut: 'Ctrl+F9', category: 'Purchase',
     description: 'Purchase return — reverse a purchase when goods are returned to supplier.',
-    icon: ArrowUpRight, color: 'bg-orange-50 border-orange-200', badge: 'bg-orange-100 text-orange-700',
+    icon: ArrowUpRight,
+    color: 'bg-orange-50 border-orange-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-orange-100 text-orange-700',
   },
   {
     name: 'Receipt Note', category: 'Purchase',
     description: 'Record goods received from supplier before bill is entered.',
-    icon: Package, color: 'bg-orange-50 border-orange-200', badge: 'bg-orange-100 text-orange-700',
+    icon: Package,
+    color: 'bg-orange-50 border-orange-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-orange-100 text-orange-700',
   },
   // ── Banking ──
   {
     name: 'Receipt', shortcut: 'F6', category: 'Banking',
     description: 'Money received from customer into bank or cash account.',
-    icon: Banknote, color: 'bg-blue-50 border-blue-200', badge: 'bg-blue-100 text-blue-700',
+    icon: Banknote,
+    color: 'bg-blue-50 border-blue-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-blue-100 text-blue-700',
   },
   {
     name: 'Payment', shortcut: 'F5', category: 'Banking',
     description: 'Money paid out — to supplier, employee, or for expenses.',
-    icon: CreditCard, color: 'bg-blue-50 border-blue-200', badge: 'bg-blue-100 text-blue-700',
+    icon: CreditCard,
+    color: 'bg-blue-50 border-blue-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-blue-100 text-blue-700',
   },
   {
     name: 'Contra', shortcut: 'F4', category: 'Banking',
     description: 'Transfer between your own cash and bank accounts.',
-    icon: ArrowLeftRight, color: 'bg-blue-50 border-blue-200', badge: 'bg-blue-100 text-blue-700',
+    icon: ArrowLeftRight,
+    color: 'bg-blue-50 border-blue-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-blue-100 text-blue-700',
   },
   // ── Journal ──
   {
     name: 'Journal', shortcut: 'F7', category: 'Journal',
     description: 'Internal adjustment between ledgers — no cash movement.',
-    icon: BookOpen, color: 'bg-purple-50 border-purple-200', badge: 'bg-purple-100 text-purple-700',
+    icon: BookOpen,
+    color: 'bg-purple-50 border-purple-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-purple-100 text-purple-700',
   },
   {
     name: 'Reversing Journal', category: 'Journal',
     description: 'Auto-reverses on a future date — used for provisional entries.',
-    icon: RotateCcw, color: 'bg-purple-50 border-purple-200', badge: 'bg-purple-100 text-purple-700',
+    icon: RotateCcw,
+    color: 'bg-purple-50 border-purple-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-purple-100 text-purple-700',
   },
   {
     name: 'Memorandum', category: 'Journal',
     description: 'Non-accounting entry for reference — does not affect books.',
-    icon: FileText, color: 'bg-purple-50 border-purple-200', badge: 'bg-purple-100 text-purple-700',
+    icon: FileText,
+    color: 'bg-purple-50 border-purple-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-purple-100 text-purple-700',
   },
   // ── Inventory ──
   {
     name: 'Stock Journal', category: 'Inventory',
     description: 'Move stock between godowns or record manufacturing consumption.',
-    icon: Package, color: 'bg-teal-50 border-teal-200', badge: 'bg-teal-100 text-teal-700',
+    icon: Package,
+    color: 'bg-teal-50 border-teal-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-teal-100 text-teal-700',
   },
   {
     name: 'Physical Stock', category: 'Inventory',
     description: 'Record actual physical stock count to correct book stock.',
-    icon: Package, color: 'bg-teal-50 border-teal-200', badge: 'bg-teal-100 text-teal-700',
+    icon: Package,
+    color: 'bg-teal-50 border-teal-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-teal-100 text-teal-700',
   },
   {
     name: 'Material In', category: 'Inventory',
     description: 'Record raw material received for job work processing.',
-    icon: ArrowDownLeft, color: 'bg-teal-50 border-teal-200', badge: 'bg-teal-100 text-teal-700',
+    icon: ArrowDownLeft,
+    color: 'bg-teal-50 border-teal-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-teal-100 text-teal-700',
   },
   {
     name: 'Material Out', category: 'Inventory',
     description: 'Record material sent out for job work or processing.',
-    icon: ArrowUpRight, color: 'bg-teal-50 border-teal-200', badge: 'bg-teal-100 text-teal-700',
+    icon: ArrowUpRight,
+    color: 'bg-teal-50 border-teal-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-teal-100 text-teal-700',
   },
   {
     name: 'Rejections In', category: 'Inventory',
     description: 'Record goods rejected and returned by customer.',
-    icon: ArrowDownLeft, color: 'bg-teal-50 border-teal-200', badge: 'bg-teal-100 text-teal-700',
+    icon: ArrowDownLeft,
+    color: 'bg-teal-50 border-teal-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-teal-100 text-teal-700',
   },
   {
     name: 'Rejections Out', category: 'Inventory',
     description: 'Record goods rejected and returned to supplier.',
-    icon: ArrowUpRight, color: 'bg-teal-50 border-teal-200', badge: 'bg-teal-100 text-teal-700',
+    icon: ArrowUpRight,
+    color: 'bg-teal-50 border-teal-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-teal-100 text-teal-700',
   },
   // ── Job Work ──
   {
     name: 'Job Work In Order', category: 'Job Work',
     description: 'Order received from principal for job work to be done.',
-    icon: Wrench, color: 'bg-yellow-50 border-yellow-200', badge: 'bg-yellow-100 text-yellow-700',
+    icon: Wrench,
+    color: 'bg-yellow-50 border-yellow-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-yellow-100 text-yellow-700',
   },
   {
     name: 'Job Work Out Order', category: 'Job Work',
     description: 'Order placed with sub-contractor for job work.',
-    icon: Wrench, color: 'bg-yellow-50 border-yellow-200', badge: 'bg-yellow-100 text-yellow-700',
+    icon: Wrench,
+    color: 'bg-yellow-50 border-yellow-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-yellow-100 text-yellow-700',
   },
   // ── HR ──
   {
     name: 'Attendance', category: 'HR & Payroll',
     description: 'Record employee attendance and leave for payroll processing.',
-    icon: Users, color: 'bg-pink-50 border-pink-200', badge: 'bg-pink-100 text-pink-700',
+    icon: Users,
+    color: 'bg-pink-50 border-pink-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-pink-100 text-pink-700',
   },
   {
     name: 'Payroll', category: 'HR & Payroll',
     description: 'Process employee salary and wages payment.',
-    icon: Users, color: 'bg-pink-50 border-pink-200', badge: 'bg-pink-100 text-pink-700',
+    icon: Users,
+    color: 'bg-pink-50 border-pink-200',
+    mutedColor: 'bg-slate-50 border-slate-200',
+    badge: 'bg-pink-100 text-pink-700',
   },
 ];
 
 const CATEGORIES = ['Sales', 'Purchase', 'Banking', 'Journal', 'Inventory', 'Job Work', 'HR & Payroll'];
 
 const CATEGORY_META: Record<string, { color: string; label: string }> = {
-  'Sales':       { color: 'bg-green-100 text-green-800',  label: '💰 Sales' },
-  'Purchase':    { color: 'bg-orange-100 text-orange-800', label: '🛒 Purchase' },
-  'Banking':     { color: 'bg-blue-100 text-blue-800',    label: '🏦 Banking' },
-  'Journal':     { color: 'bg-purple-100 text-purple-800', label: '📒 Journal' },
-  'Inventory':   { color: 'bg-teal-100 text-teal-800',    label: '📦 Inventory' },
-  'Job Work':    { color: 'bg-yellow-100 text-yellow-800', label: '🔧 Job Work' },
-  'HR & Payroll':{ color: 'bg-pink-100 text-pink-800',    label: '👥 HR & Payroll' },
+  'Sales':        { color: 'bg-green-100 text-green-800',   label: '💰 Sales' },
+  'Purchase':     { color: 'bg-orange-100 text-orange-800', label: '🛒 Purchase' },
+  'Banking':      { color: 'bg-blue-100 text-blue-800',     label: '🏦 Banking' },
+  'Journal':      { color: 'bg-purple-100 text-purple-800', label: '📒 Journal' },
+  'Inventory':    { color: 'bg-teal-100 text-teal-800',     label: '📦 Inventory' },
+  'Job Work':     { color: 'bg-yellow-100 text-yellow-800', label: '🔧 Job Work' },
+  'HR & Payroll': { color: 'bg-pink-100 text-pink-800',     label: '👥 HR & Payroll' },
 };
 
 const BASE_TYPES = TALLY_VOUCHER_TYPES.map(t => t.name);
+
+type SyncFilter = 'all' | 'synced' | 'not-synced';
 
 export default function VoucherTypesPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [syncFilter, setSyncFilter] = useState<SyncFilter>('all');
   const [showCreate, setShowCreate] = useState(false);
   const [deleteItem, setDeleteItem] = useState<{ id: string; name: string } | null>(null);
   const [formName, setFormName] = useState('');
@@ -207,14 +283,10 @@ export default function VoucherTypesPage() {
   const deleteMut = useMutation({
     mutationFn: () => managementApi.deleteVoucherType(deleteItem!.id),
     onSuccess: (res: { status: string; message: string }) => {
-      if (res.status === 'pending') {
-        toast({
-          title: 'Delete sent to TallyPrime',
-          description: res.message,
-        });
-      } else {
-        toast({ title: 'Deleted', description: res.message });
-      }
+      toast({
+        title: res.status === 'pending' ? 'Delete sent to TallyPrime' : 'Deleted',
+        description: res.message,
+      });
       qc.invalidateQueries({ queryKey: ['voucher-types'] });
       setDeleteItem(null);
     },
@@ -223,21 +295,32 @@ export default function VoucherTypesPage() {
     },
   });
 
-  // Build a map of synced types from DB
+  // Build a map of synced types from DB (key = lowercase name)
   const syncedMap = new Map<string, VoucherTypeItem>();
   (data?.items || []).forEach(item => syncedMap.set(item.name.toLowerCase(), item));
 
-  // Custom types (created in FinPilot, not standard TallyPrime types)
+  // Custom types (not in the 24 standard names)
   const customTypes = (data?.items || []).filter(
     item => !BASE_TYPES.some(b => b.toLowerCase() === item.name.toLowerCase())
   );
 
-  // Filter standard types
+  // Counts for stats bar
+  const syncedStandardCount = syncedMap.size - customTypes.length;
+  const notSyncedCount = 24 - Math.max(0, syncedStandardCount);
+  const syncPct = Math.round((syncedStandardCount / 24) * 100);
+
+  // Filter standard types by search + category + sync state
   const filtered = TALLY_VOUCHER_TYPES.filter(vt => {
-    const matchesSearch = !search || vt.name.toLowerCase().includes(search.toLowerCase()) ||
+    const matchesSearch = !search ||
+      vt.name.toLowerCase().includes(search.toLowerCase()) ||
       vt.description.toLowerCase().includes(search.toLowerCase());
     const matchesCategory = !activeCategory || vt.category === activeCategory;
-    return matchesSearch && matchesCategory;
+    const isSynced = syncedMap.has(vt.name.toLowerCase());
+    const matchesSync =
+      syncFilter === 'all' ||
+      (syncFilter === 'synced' && isSynced) ||
+      (syncFilter === 'not-synced' && !isSynced);
+    return matchesSearch && matchesCategory && matchesSync;
   });
 
   const grouped = CATEGORIES.reduce<Record<string, VoucherTypeDef[]>>((acc, cat) => {
@@ -248,6 +331,7 @@ export default function VoucherTypesPage() {
 
   return (
     <div className="p-6 space-y-6">
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -271,25 +355,62 @@ export default function VoucherTypesPage() {
 
       {/* Stats bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl border p-4 text-center">
+        <div className="bg-white rounded-xl border p-4">
           <p className="text-2xl font-bold text-slate-900">24</p>
           <p className="text-xs text-slate-500 mt-0.5">TallyPrime Types</p>
         </div>
-        <div className="bg-white rounded-xl border p-4 text-center">
-          <p className="text-2xl font-bold text-indigo-600">{syncedMap.size}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Synced to FinPilot</p>
+        <div
+          className="bg-white rounded-xl border p-4 cursor-pointer hover:border-emerald-300 transition-colors"
+          onClick={() => setSyncFilter(syncFilter === 'synced' ? 'all' : 'synced')}
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+            <p className="text-2xl font-bold text-emerald-600">{syncedStandardCount}</p>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">Synced</p>
         </div>
-        <div className="bg-white rounded-xl border p-4 text-center">
-          <p className="text-2xl font-bold text-green-600">{customTypes.length}</p>
+        <div
+          className="bg-white rounded-xl border p-4 cursor-pointer hover:border-red-300 transition-colors"
+          onClick={() => setSyncFilter(syncFilter === 'not-synced' ? 'all' : 'not-synced')}
+        >
+          <div className="flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <p className="text-2xl font-bold text-red-500">{notSyncedCount}</p>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">Not Synced</p>
+        </div>
+        <div className="bg-white rounded-xl border p-4">
+          <p className="text-2xl font-bold text-indigo-600">{customTypes.length}</p>
           <p className="text-xs text-slate-500 mt-0.5">Custom Types</p>
-        </div>
-        <div className="bg-white rounded-xl border p-4 text-center">
-          <p className="text-2xl font-bold text-slate-700">7</p>
-          <p className="text-xs text-slate-500 mt-0.5">Categories</p>
         </div>
       </div>
 
-      {/* Search + Category filter */}
+      {/* Sync progress bar */}
+      {!isLoading && (
+        <div className="bg-white rounded-xl border p-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium text-slate-700">Sync coverage</p>
+            <p className="text-sm font-semibold text-slate-900">
+              {syncedStandardCount} / 24 types synced
+              <span className="ml-2 text-xs font-normal text-slate-400">({syncPct}%)</span>
+            </p>
+          </div>
+          <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+            <div
+              className="h-2.5 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-500"
+              style={{ width: `${syncPct}%` }}
+            />
+          </div>
+          {notSyncedCount > 0 && (
+            <p className="text-xs text-slate-400 mt-2">
+              {notSyncedCount} type{notSyncedCount !== 1 ? 's' : ''} not yet synced from TallyPrime.
+              Run a full sync from <strong>Tally → Sync Center</strong> to import them.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Search + Category filter + Sync filter */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
@@ -301,15 +422,42 @@ export default function VoucherTypesPage() {
           />
         </div>
         <div className="flex flex-wrap gap-1.5">
+          {/* Sync filter chips */}
           <button
-            onClick={() => setActiveCategory(null)}
+            onClick={() => setSyncFilter('all')}
             className={cn(
               'px-3 py-1.5 rounded-full text-xs font-medium transition-all',
-              !activeCategory ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              syncFilter === 'all'
+                ? 'bg-slate-800 text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             )}
           >
             All
           </button>
+          <button
+            onClick={() => setSyncFilter(syncFilter === 'synced' ? 'all' : 'synced')}
+            className={cn(
+              'px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1',
+              syncFilter === 'synced'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+            )}
+          >
+            <CheckCircle2 className="w-3 h-3" /> Synced
+          </button>
+          <button
+            onClick={() => setSyncFilter(syncFilter === 'not-synced' ? 'all' : 'not-synced')}
+            className={cn(
+              'px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1',
+              syncFilter === 'not-synced'
+                ? 'bg-red-500 text-white'
+                : 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+            )}
+          >
+            <XCircle className="w-3 h-3" /> Not Synced
+          </button>
+          <div className="w-px bg-slate-200 mx-0.5 self-stretch" />
+          {/* Category filter chips */}
           {CATEGORIES.map(cat => (
             <button
               key={cat}
@@ -327,8 +475,8 @@ export default function VoucherTypesPage() {
         </div>
       </div>
 
-      {/* Sync notice if none synced */}
-      {!isLoading && syncedMap.size === 0 && (
+      {/* Sync notice if nothing synced */}
+      {!isLoading && syncedStandardCount === 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
           <div>
@@ -350,59 +498,103 @@ export default function VoucherTypesPage() {
         <div className="text-center py-10 text-red-500">Failed to load. Please refresh.</div>
       ) : (
         <div className="space-y-8">
-          {Object.entries(grouped).map(([category, types]) => (
-            <div key={category}>
-              {/* Category header */}
-              <div className="flex items-center gap-3 mb-4">
-                <span className={cn('px-3 py-1 rounded-full text-xs font-semibold', CATEGORY_META[category]?.color)}>
-                  {CATEGORY_META[category]?.label || category}
-                </span>
-                <div className="flex-1 h-px bg-slate-100" />
-                <span className="text-xs text-slate-400">{types.length} type{types.length !== 1 ? 's' : ''}</span>
-              </div>
+          {Object.entries(grouped).map(([category, types]) => {
+            const syncedInCat  = types.filter(vt => syncedMap.has(vt.name.toLowerCase())).length;
+            const totalInCat   = TALLY_VOUCHER_TYPES.filter(vt => vt.category === category).length;
+            return (
+              <div key={category}>
+                {/* Category header */}
+                <div className="flex items-center gap-3 mb-4">
+                  <span className={cn('px-3 py-1 rounded-full text-xs font-semibold', CATEGORY_META[category]?.color)}>
+                    {CATEGORY_META[category]?.label || category}
+                  </span>
+                  <div className="flex-1 h-px bg-slate-100" />
+                  {/* Per-category sync count (only when not filtering by sync state) */}
+                  {syncFilter === 'all' && (
+                    <span className={cn(
+                      'text-xs font-medium px-2 py-0.5 rounded-full',
+                      syncedInCat === totalInCat
+                        ? 'bg-emerald-50 text-emerald-600'
+                        : syncedInCat === 0
+                          ? 'bg-red-50 text-red-500'
+                          : 'bg-amber-50 text-amber-600'
+                    )}>
+                      {syncedInCat}/{totalInCat} synced
+                    </span>
+                  )}
+                  <span className="text-xs text-slate-400">{types.length} type{types.length !== 1 ? 's' : ''}</span>
+                </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {types.map(vt => {
-                  const Icon = vt.icon;
-                  const synced = syncedMap.get(vt.name.toLowerCase());
-                  return (
-                    <div
-                      key={vt.name}
-                      className={cn(
-                        'rounded-xl border p-4 space-y-3 transition-all hover:shadow-md hover:-translate-y-0.5',
-                        vt.color
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <div className={cn('p-1.5 rounded-lg', vt.badge.replace('text-', 'bg-').split(' ')[0] + '/20')}>
-                            <Icon className={cn('w-4 h-4', vt.badge.split(' ')[1])} />
-                          </div>
-                          <div>
-                            <p className="font-semibold text-slate-900 text-sm leading-tight">{vt.name}</p>
-                            {vt.shortcut && (
-                              <span className="text-xs font-mono text-slate-400">{vt.shortcut}</span>
-                            )}
-                          </div>
-                        </div>
-                        {synced ? (
-                          <SyncBadge status={synced.tally_sync_status} source={synced.source} />
-                        ) : (
-                          <span className="text-xs bg-white/70 text-slate-400 px-1.5 py-0.5 rounded border border-slate-200">
-                            Not synced
-                          </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                  {types.map(vt => {
+                    const Icon = vt.icon;
+                    const synced = syncedMap.get(vt.name.toLowerCase());
+                    return (
+                      <div
+                        key={vt.name}
+                        className={cn(
+                          'rounded-xl border p-4 space-y-3 transition-all hover:shadow-md hover:-translate-y-0.5',
+                          synced ? vt.color : vt.mutedColor,
+                          !synced && 'opacity-70',
                         )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <div className={cn(
+                              'p-1.5 rounded-lg',
+                              synced
+                                ? (vt.badge.replace('text-', 'bg-').split(' ')[0] + '/20')
+                                : 'bg-slate-200/50'
+                            )}>
+                              <Icon className={cn(
+                                'w-4 h-4',
+                                synced ? vt.badge.split(' ')[1] : 'text-slate-400'
+                              )} />
+                            </div>
+                            <div>
+                              <p className={cn(
+                                'font-semibold text-sm leading-tight',
+                                synced ? 'text-slate-900' : 'text-slate-500'
+                              )}>
+                                {vt.name}
+                              </p>
+                              {vt.shortcut && (
+                                <span className="text-xs font-mono text-slate-400">{vt.shortcut}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Sync status badge */}
+                          {synced ? (
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                                <CheckCircle2 className="w-3 h-3" /> Synced
+                              </span>
+                              <SyncBadge status={synced.tally_sync_status} source={synced.source} />
+                            </div>
+                          ) : (
+                            <span className="flex items-center gap-1 text-xs text-slate-400 bg-white px-1.5 py-0.5 rounded-full border border-slate-200">
+                              <XCircle className="w-3 h-3 text-slate-300" /> Not synced
+                            </span>
+                          )}
+                        </div>
+
+                        <p className={cn(
+                          'text-xs leading-relaxed',
+                          synced ? 'text-slate-600' : 'text-slate-400'
+                        )}>
+                          {vt.description}
+                        </p>
                       </div>
-                      <p className="text-xs text-slate-600 leading-relaxed">{vt.description}</p>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {/* Custom types section */}
-          {customTypes.length > 0 && (
+          {customTypes.length > 0 && (syncFilter === 'all' || syncFilter === 'synced') && (
             <div>
               <div className="flex items-center gap-3 mb-4">
                 <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
@@ -446,6 +638,20 @@ export default function VoucherTypesPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Empty state when filter yields no results */}
+          {Object.keys(grouped).length === 0 && customTypes.length === 0 && (
+            <div className="text-center py-16 text-slate-400">
+              <Search className="w-8 h-8 mx-auto mb-3 opacity-40" />
+              <p className="text-sm font-medium">No voucher types match your filter</p>
+              <button
+                onClick={() => { setSearch(''); setActiveCategory(null); setSyncFilter('all'); }}
+                className="text-xs text-indigo-500 hover:underline mt-1"
+              >
+                Clear filters
+              </button>
             </div>
           )}
         </div>
@@ -510,7 +716,9 @@ export default function VoucherTypesPage() {
       {/* Delete Dialog */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="text-red-600">Delete Custom Type</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Delete Custom Type</DialogTitle>
+          </DialogHeader>
           <p className="text-sm text-slate-700">Delete <strong>{deleteItem?.name}</strong>?</p>
           <p className="text-xs text-slate-600 bg-amber-50 border border-amber-200 p-2 rounded mt-2">
             This will first delete it from <strong>TallyPrime</strong>, then remove it from FinPilot once confirmed.

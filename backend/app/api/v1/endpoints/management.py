@@ -226,7 +226,7 @@ class LedgerCreate(BaseModel):
 @router.get("/ledgers")
 def list_ledgers(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     search: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -635,7 +635,7 @@ class UnitCreate(BaseModel):
 @router.get("/units")
 def list_units(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     search: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -836,7 +836,7 @@ class GodownCreate(BaseModel):
 @router.get("/godowns")
 def list_godowns(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     search: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1959,7 +1959,7 @@ class GroupCreate(BaseModel):
 @router.get("/groups")
 def list_groups(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     search: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

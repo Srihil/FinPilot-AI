@@ -477,11 +477,13 @@ export default function AICreatePage() {
     staleTime: 60_000,
     enabled: isStockTxn || entityType === 'stock_item',
   });
+  // Ledgers are always pre-fetched — they populate dropdowns for all voucher,
+  // stock-txn, and ledger-master entity types. Fetching on mount avoids the
+  // blank-dropdown flash that happens when enabled only fires post-extraction.
   const { data: ledgersData } = useQuery({
     queryKey: ['ledgers-all'],
     queryFn: () => managementApi.ledgers({ page_size: 500 }),
-    staleTime: 60_000,
-    enabled: isStockTxn || isAccounting || isCustomVoucher || entityType === 'ledger',
+    staleTime: 300_000,
   });
   const { data: groupsData } = useQuery({
     queryKey: ['groups-all'],

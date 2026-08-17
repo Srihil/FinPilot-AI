@@ -764,11 +764,24 @@ class TallyClient:
         if not vref:
             raise TallyError("cancel_voucher: voucher_ref is required")
 
+        # TallyPrime requires a DATE in the Cancel action; omitting it causes
+        # "date 0-0-0 is Out of Range". Use the payload date if present,
+        # otherwise fall back to today (the cancel entry date, not the original).
+        from datetime import date as _date
+        raw_date = str(payload.get("date", "")).strip()
+        if raw_date and len(raw_date) == 8 and raw_date.isdigit():
+            cancel_date = raw_date
+        else:
+            cancel_date = _date.today().strftime("%Y%m%d")
+        # Use 1st of month to avoid mid-period split errors (same as create flow)
+        cancel_date = cancel_date[:6] + "01"
+
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
       <VOUCHER REMOTEID="{vref}" VCHTYPE="{voucher_type}" ACTION="Cancel">
+        <DATE>{cancel_date}</DATE>
         <VOUCHERTYPENAME>{voucher_type}</VOUCHERTYPENAME>
         <ISCANCELLED>Yes</ISCANCELLED>
       </VOUCHER>

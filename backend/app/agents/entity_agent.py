@@ -187,9 +187,14 @@ class DemoEntityAgent:
     def _extract_custom_type(cls, text: str) -> str | None:
         """Return the custom voucher type name if the text names a non-standard type."""
         import re
-        # Pattern: "Create/Make/Record/Enter a <TYPE> [for/entry/...]"
+        # Pattern: "Create/Make/Record/Enter a <TYPE> [for/entry/voucher/...]"
+        # Hyphens included so "FP-Sales", "e-Invoice" etc. are captured.
+        # NOTE: "invoice" and "bill" are NOT stop words — "GST Bill" and "sales invoice"
+        # must be captured whole; "sales invoice" is then filtered by _STANDARD_PHRASES.
         m = re.search(
-            r'(?:create|make|record|enter|add)\s+a(?:n)?\s+([A-Z][A-Za-z\s]{1,30}?)(?:\s+(?:for|of|entry|dated|on|from|to)\b|$)',
+            r'(?:create|make|record|enter|add)\s+a(?:n)?\s+'
+            r'([A-Z][A-Za-z0-9\-\s]{1,30}?)'
+            r'(?:\s+(?:for|of|entry|dated|on|from|to|voucher|payment)\b|$)',
             text, re.IGNORECASE
         )
         if m:
@@ -298,7 +303,9 @@ class DemoEntityAgent:
             entity_type = "credit_note"
         elif any(w in text_lower for w in ["debit note", "purchase return"]):
             entity_type = "debit_note"
-        elif any(w in text_lower for w in ["contra", "bank transfer", "cash transfer"]):
+        elif any(w in text_lower for w in ["contra", "bank transfer", "cash transfer"]) or \
+             ("transfer" in text_lower and '₹' in text
+              and " from " in text_lower and " to " in text_lower):
             entity_type = "contra"
         # Specific voucher phrases must come BEFORE master-entity keywords so that
         # "Purchase bill from Ramesh Suppliers" doesn't hit "supplier → vendor" first.
@@ -489,9 +496,146 @@ class DemoEntityAgent:
                 "missing_fields": missing,
             }
 
+        # ── Master entity field extraction ────────────────────────────────────
+        _MASTER_TYPES = {
+            "godown", "unit", "ledger", "group",
+            "customer", "vendor", "stock_item", "stock_group",
+        }
+        if entity_type in _MASTER_TYPES:
+            missing: list = []
+            data: dict = {}
+
+            if entity_type == "godown":
+                # "Add Godown Chennai Branch under Main Location"
+                nm = re.search(
+                    r'\b(?:godown|warehouse|location|store)\s+(?:named?\s+)?(.+?)'
+                    r'(?:\s+(?:under|parent|in)\b|$)', text, re.IGNORECASE)
+                if not nm:
+                    nm = re.search(
+                        r'\b(?:add|create|new)\s+(?:a\s+)?(.+?)\s+(?:godown|warehouse)',
+                        text, re.IGNORECASE)
+                name = nm.group(1).strip() if nm else ""
+                parent_m = re.search(
+                    r'\b(?:under|parent)\s+(.+?)(?:\s+on\b|$)', text, re.IGNORECASE)
+                parent = parent_m.group(1).strip() if parent_m else ""
+                data = {"name": name, "parent": parent}
+                if not name: missing.append("name")
+
+            elif entity_type == "unit":
+                # "Add unit Kilogram symbol Kg" / "Create unit of measure Nos"
+                nm = re.search(
+                    r'\b(?:unit|uom|measure)\s+(?:of\s+measure\s+)?(?:named?\s+)?(.+?)'
+                    r'(?:\s+(?:symbol|sym|decimal)|$)', text, re.IGNORECASE)
+                if not nm:
+                    nm = re.search(
+                        r'\b(?:add|create|new)\s+(?:a\s+)?(?:unit\s+of\s+measure|unit|uom)\s+(.+?)'
+                        r'(?:\s+(?:symbol|sym|decimal)|$)', text, re.IGNORECASE)
+                name = nm.group(1).strip() if nm else ""
+                sym_m = re.search(r'\b(?:symbol|sym)\s+([A-Za-z0-9]{1,8})\b', text, re.IGNORECASE)
+                symbol = sym_m.group(1) if sym_m else (name[:8].replace(" ", "") if name else "")
+                dec_m = re.search(r'\b(?:decimal|decimals?|places?)\s+(\d)\b', text, re.IGNORECASE)
+                decimal_places = int(dec_m.group(1)) if dec_m else 0
+                data = {"name": name, "symbol": symbol, "decimal_places": decimal_places}
+                if not name: missing.append("name")
+
+            elif entity_type == "ledger":
+                # "Add ledger HDFC Bank under Bank Accounts opening balance 5000"
+                nm = re.search(
+                    r'\b(?:ledger|account)\s+(?:named?\s+)?(.+?)'
+                    r'(?:\s+(?:under|group|opening|balance)\b|$)', text, re.IGNORECASE)
+                if not nm:
+                    nm = re.search(
+                        r'\b(?:add|create)\s+(?:a\s+)?(?:customer|vendor)?\s*ledger\s+(.+?)'
+                        r'(?:\s+(?:under|group|opening)|$)', text, re.IGNORECASE)
+                name = nm.group(1).strip() if nm else ""
+                grp_m = re.search(
+                    r'\b(?:under|group)\s+(.+?)(?:\s+(?:opening|balance)|$)', text, re.IGNORECASE)
+                group = grp_m.group(1).strip() if grp_m else "Sundry Debtors"
+                bal_m = re.search(r'\b(?:opening\s+)?balance\s+[₹]?([\d,]+)', text, re.IGNORECASE)
+                opening_balance = bal_m.group(1).replace(',', '') if bal_m else "0"
+                data = {"name": name, "group": group, "opening_balance": opening_balance}
+                if not name: missing.append("name")
+
+            elif entity_type == "group":
+                # "Add account group Electronics under Current Assets"
+                nm = re.search(
+                    r'\b(?:group)\s+(?:named?\s+)?(.+?)'
+                    r'(?:\s+(?:under|parent)\b|$)', text, re.IGNORECASE)
+                name = nm.group(1).strip() if nm else ""
+                parent_m = re.search(
+                    r'\b(?:under|parent)\s+(.+?)(?:\s+on\b|$)', text, re.IGNORECASE)
+                parent = parent_m.group(1).strip() if parent_m else ""
+                data = {"name": name, "parent": parent}
+                if not name: missing.append("name")
+
+            elif entity_type in ("customer", "vendor"):
+                # "Add customer Kumar Enterprises email k@e.com phone 9876543210 GST 27AABCU..."
+                kw = "customer|client|buyer|debtor" if entity_type == "customer" \
+                     else "vendor|supplier|creditor"
+                nm = re.search(
+                    rf'\b(?:{kw})\s+(?:named?\s+)?(.+?)'
+                    r'(?:\s+(?:email|phone|mobile|gst|gstin|address|city|state)|$)',
+                    text, re.IGNORECASE)
+                name = nm.group(1).strip() if nm else ""
+                email_m = re.search(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', text)
+                phone_m = re.search(r'\b(?:phone|mobile|mob|tel|ph)\s+(\d{10,12})', text, re.IGNORECASE)
+                if not phone_m:
+                    phone_m = re.search(r'\b(\d{10})\b', text)
+                gst_m   = re.search(r'\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z])\b', text, re.IGNORECASE)
+                data = {
+                    "name":    name,
+                    "email":   email_m.group(0)  if email_m else "",
+                    "phone":   phone_m.group(1)  if phone_m else "",
+                    "gstin":   gst_m.group(1).upper() if gst_m else "",
+                }
+                if not name: missing.append("name")
+
+            elif entity_type == "stock_item":
+                # "Add stock item Samsung Galaxy unit Nos rate 25000 opening qty 10"
+                nm = re.search(
+                    r'\b(?:stock\s+item|product|item)\s+(?:named?\s+)?(.+?)'
+                    r'(?:\s+(?:unit|rate|price|group|opening|stock)\b|$)', text, re.IGNORECASE)
+                name = nm.group(1).strip() if nm else ""
+                unit_m = re.search(r'\bunit\s+([A-Za-z]+)\b', text, re.IGNORECASE)
+                rate_m = re.search(r'\b(?:rate|price|selling|cost)\s+[₹]?([\d,]+)', text, re.IGNORECASE)
+                if not rate_m:
+                    rate_m = re.search(r'[₹]\s*([\d,]+)', text)
+                qty_m  = re.search(r'\b(?:opening\s+)?(?:qty|quantity)\s+(\d+)', text, re.IGNORECASE)
+                grp_m  = re.search(
+                    r'\b(?:group|category)\s+(.+?)(?:\s+(?:unit|rate|opening)|$)', text, re.IGNORECASE)
+                data = {
+                    "name":         name,
+                    "unit":         unit_m.group(1) if unit_m else "Nos",
+                    "rate":         rate_m.group(1).replace(',', '') if rate_m else "0",
+                    "opening_qty":  qty_m.group(1)  if qty_m  else "0",
+                    "stock_group":  grp_m.group(1).strip() if grp_m else "",
+                }
+                if not name: missing.append("name")
+
+            elif entity_type == "stock_group":
+                # "Add stock group Electronics under Primary"
+                nm = re.search(
+                    r'\b(?:stock\s+group|item\s+group)\s+(?:named?\s+)?(.+?)'
+                    r'(?:\s+(?:under|parent)\b|$)', text, re.IGNORECASE)
+                name = nm.group(1).strip() if nm else ""
+                parent_m = re.search(
+                    r'\b(?:under|parent)\s+(.+?)(?:\s+on\b|$)', text, re.IGNORECASE)
+                parent = parent_m.group(1).strip() if parent_m else "Primary"
+                data = {"name": name, "parent": parent}
+                if not name: missing.append("name")
+
+            if not missing:
+                missing = ["Please verify all extracted fields"]
+            return {
+                "entity_type": entity_type,
+                "data": data,
+                "confidence": 0.50,
+                "missing_fields": missing,
+            }
+
         return {
             "entity_type": entity_type,
-            "data": {"name": text[:50], "title": text[:50]},
+            "data": {"name": text[:50]},
             "confidence": 0.4,
             "missing_fields": ["Please verify all extracted fields"],
         }

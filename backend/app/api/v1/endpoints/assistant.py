@@ -359,16 +359,24 @@ def _detect_custom_voucher_type(text: str, company_id, db) -> dict | None:
         key=lambda v: len(v.name), reverse=True,
     )
 
+    import re
+
     matched = None
     for vt in custom_types_sorted:
-        if vt.name.lower() in text_lower:
-            matched = vt
-            break
+        if vt.name.lower() not in text_lower:
+            continue
+        # Skip if the name is used as an account/ledger (preceded by from/to/in/at/account)
+        # e.g. "Bank transfer from Petty Cash to SBI" → Petty Cash is an account, not a voucher type
+        if re.search(
+            rf'\b(?:from|to|in|at|account|ledger)\s+{re.escape(vt.name)}',
+            text, re.IGNORECASE,
+        ):
+            continue
+        matched = vt
+        break
 
     if not matched:
         return None
-
-    import re
     # Extract amount
     amount_m = re.search(r'[₹]?\s*([\d,]+(?:\.\d+)?)', text)
     amount = amount_m.group(1).replace(',', '') if amount_m else "0"

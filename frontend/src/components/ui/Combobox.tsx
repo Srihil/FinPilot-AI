@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, X } from 'lucide-react';
+import { cn } from '../../utils/cn';
 
 /**
  * Pass to <DialogContent onPointerDownOutside={preventDropdownDismissal}>
- * so Radix Dialog doesn't close when the user clicks inside a portal dropdown.
+ * so Radix Dialog does not close when the user clicks inside a Combobox portal.
  */
 export function preventDropdownDismissal(e: {
   preventDefault(): void;
@@ -17,9 +20,6 @@ export function preventDropdownDismissal(e: {
     e.preventDefault();
   }
 }
-import { createPortal } from 'react-dom';
-import { ChevronDown, X } from 'lucide-react';
-import { cn } from '../../utils/cn';
 
 interface ComboboxProps {
   options: string[];
@@ -36,14 +36,14 @@ export function Combobox({
   value,
   onChange,
   placeholder = 'Search…',
-  emptyLabel = 'No options — type a value directly',
+  emptyLabel = 'No matches',
   className,
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const portalRef = useRef<HTMLDivElement>(null);
-  const [rect, setRect] = useState<DOMRect | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   // Sync display when value changes externally
   useEffect(() => {
@@ -54,18 +54,28 @@ export function Combobox({
     !query || o.toLowerCase().includes(query.toLowerCase())
   );
 
-  const openDropdown = () => {
+  function computePos() {
     const wrap = inputRef.current?.closest('[data-combobox-wrap]');
-    if (wrap) setRect(wrap.getBoundingClientRect());
+    if (!wrap) return null;
+    const r = wrap.getBoundingClientRect();
+    const dropdownH = Math.min(filtered.length * 40 + 8, 220);
+    const spaceBelow = window.innerHeight - r.bottom - 8;
+    const top = spaceBelow >= dropdownH
+      ? r.bottom + 4
+      : r.top - dropdownH - 4;
+    return { top, left: r.left, width: r.width };
+  }
+
+  const openDropdown = () => {
+    setPos(computePos());
     setOpen(true);
   };
 
-  const select = (opt: string) => {
+  function select(opt: string) {
     onChange(opt);
     setQuery(opt);
     setOpen(false);
-    inputRef.current?.focus();
-  };
+  }
 
   const clear = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -75,24 +85,11 @@ export function Combobox({
     inputRef.current?.focus();
   };
 
-  // On blur: if the typed query is non-empty and differs from current value,
-  // accept it as a free-text value so users can type godown/party names
-  // even when the list hasn't been synced yet.
   const handleBlur = () => {
     setTimeout(() => {
-      const trimmed = query.trim();
-      if (trimmed && trimmed !== value) {
-        onChange(trimmed);
-        setQuery(trimmed);
-      } else if (!trimmed && value) {
-        // User cleared the field
-        onChange('');
-        setQuery('');
-      } else {
-        setQuery(value);
-      }
+      setQuery(value);
       setOpen(false);
-    }, 80);
+    }, 150);
   };
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -107,37 +104,23 @@ export function Combobox({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      setQuery(value);
-      setOpen(false);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (filtered.length >= 1) {
-        select(filtered[0]);
-      } else if (query.trim()) {
-        // Accept free-text on Enter when no matches
-        onChange(query.trim());
-        setOpen(false);
-      }
-    } else if (e.key === 'ArrowDown' && !open) {
-      openDropdown();
-    }
+    if (e.key === 'Escape') { setQuery(value); setOpen(false); }
+    if (e.key === 'Enter' && filtered.length >= 1) select(filtered[0]);
+    if (e.key === 'ArrowDown' && !open) openDropdown();
   };
 
   // Reposition on scroll / resize
   useEffect(() => {
     if (!open) return;
-    const update = () => {
-      const wrap = inputRef.current?.closest('[data-combobox-wrap]');
-      if (wrap) setRect(wrap.getBoundingClientRect());
-    };
+    const update = () => setPos(computePos());
     window.addEventListener('scroll', update, true);
     window.addEventListener('resize', update);
     return () => {
       window.removeEventListener('scroll', update, true);
       window.removeEventListener('resize', update);
     };
-  }, [open]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, filtered.length]);
 
   return (
     <div data-combobox-wrap className={cn('relative', className)}>
@@ -184,39 +167,33 @@ export function Combobox({
         </div>
       </div>
 
-      {open && rect && createPortal(
+      {open && pos && createPortal(
         <div
           ref={portalRef}
+          data-custom-dropdown-portal
           style={{
             position: 'fixed',
-            top: rect.bottom + 4,
-            left: rect.left,
-            width: Math.max(rect.width, 180),
+            top: pos.top,
+            left: pos.left,
+            width: Math.max(pos.width, 180),
             zIndex: 9999,
           }}
-          // Stop pointer events reaching Radix Dialog's outside-click handler
-          onPointerDown={e => e.stopPropagation()}
-          data-custom-dropdown-portal
-          className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
+          className="bg-white border border-slate-200 rounded-xl shadow-xl"
         >
-          <ul className="max-h-52 overflow-y-auto py-1">
+          <ul className="max-h-52 overflow-y-auto py-1 overscroll-contain">
             {filtered.length === 0 ? (
-              <li className="px-3 py-3 text-xs text-slate-400 text-center italic">{emptyLabel}</li>
+              <li className="px-3 py-3 text-sm text-slate-400 text-center">{emptyLabel}</li>
             ) : (
               filtered.map(opt => (
                 <li key={opt}>
                   <button
                     type="button"
-                    // onMouseDown + preventDefault: prevents input blur so the
-                    // dropdown stays open while we complete the selection.
-                    // Using onClick alone would fail because blur fires first
-                    // and closes the dropdown before click can register.
-                    onMouseDown={e => {
-                      e.preventDefault();
-                      select(opt);
-                    }}
+                    // Prevent focus loss (keeps input focused so blur handler doesn't close dropdown)
+                    onMouseDown={e => e.preventDefault()}
+                    // Use onClick (fires after mouseup) — reliable in all contexts
+                    onClick={() => select(opt)}
                     className={cn(
-                      'w-full text-left px-3 py-2 text-sm transition-colors',
+                      'w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer',
                       opt === value
                         ? 'bg-indigo-50 text-indigo-700 font-medium'
                         : 'text-slate-700 hover:bg-slate-50',

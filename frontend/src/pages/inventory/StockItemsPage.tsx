@@ -145,7 +145,7 @@ export default function StockItemsPage() {
 
   const { data: godownsData } = useQuery({
     queryKey: ['godowns-all'],
-    queryFn: () => managementApi.godowns({ page_size: 200 }),
+    queryFn: () => managementApi.godowns({ page_size: 100 }),
     staleTime: 60_000,
   });
   const godownNames = (godownsData?.items ?? []).map(g => g.name);

@@ -10,7 +10,6 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
-import { Combobox } from '../../components/ui/Combobox';
 import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
 import { cn } from '../../utils/cn';
@@ -18,6 +17,42 @@ import { formatDate, formatCurrency } from '../../utils/format';
 import apiClient from '../../api/client';
 import { managementApi } from '../../api/endpoints';
 import type { TallyGodown, TallyStockItem, TallyUnit, TallyLedger } from '../../types';
+
+// ─── Reusable native-HTML field helpers ───────────────────────────────────────
+
+const selectCls = 'w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring';
+
+function NativeSelect({ value, onChange, options, placeholder, className }: {
+  value: string; onChange: (v: string) => void;
+  options: string[]; placeholder?: string; className?: string;
+}) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)}
+      className={cn(selectCls, className)}>
+      <option value="">{placeholder ?? '— Select —'}</option>
+      {options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+// datalist = native type-to-filter input (works for large lists like stock items / ledgers)
+let _datalistId = 0;
+function DatalistInput({ value, onChange, options, placeholder, className }: {
+  value: string; onChange: (v: string) => void;
+  options: string[]; placeholder?: string; className?: string;
+}) {
+  const id = `dl-${++_datalistId}`;  // unique per render call
+  return (
+    <>
+      <input type="text" list={id} value={value} onChange={e => onChange(e.target.value)}
+        placeholder={placeholder ?? 'Type or select…'}
+        className={cn(selectCls, className)} />
+      <datalist id={id}>
+        {options.map(o => <option key={o} value={o} />)}
+      </datalist>
+    </>
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -224,11 +259,12 @@ export default function StockTransactionsPage() {
   const [formNarration, setFormNarration]   = useState('');
   const [entries, setEntries]               = useState<EntryRow[]>([{ ...BLANK_ENTRY }]);
 
-  // Master data
-  const { data: godownsData }    = useQuery({ queryKey: ['godowns-all'],    queryFn: () => managementApi.godowns({ page_size: 200 }),    staleTime: 60_000 });
+  // Master data — page_size must respect backend le= caps:
+  // godowns le=100, ledgers le=100, units le=100, stock-items le=500
+  const { data: godownsData }    = useQuery({ queryKey: ['godowns-all'],    queryFn: () => managementApi.godowns({ page_size: 100 }),    staleTime: 60_000 });
   const { data: stockItemsData } = useQuery({ queryKey: ['stock-items-all'], queryFn: () => managementApi.stockItems({ page_size: 500 }), staleTime: 60_000 });
   const { data: unitsData }      = useQuery({ queryKey: ['units-all'],      queryFn: () => managementApi.units({ page_size: 100 }),      staleTime: 60_000 });
-  const { data: ledgersData }    = useQuery({ queryKey: ['ledgers-all'],    queryFn: () => managementApi.ledgers({ page_size: 500 }),    staleTime: 60_000 });
+  const { data: ledgersData }    = useQuery({ queryKey: ['ledgers-all'],    queryFn: () => managementApi.ledgers({ page_size: 100 }),    staleTime: 60_000 });
 
   const godownNames    = useMemo(() => (godownsData?.items    ?? [] as TallyGodown[]).map(g => g.name),  [godownsData]);
   const stockItemNames = useMemo(() => (stockItemsData?.items ?? [] as TallyStockItem[]).map(i => i.name), [stockItemsData]);
@@ -517,19 +553,31 @@ export default function StockTransactionsPage() {
             {showParty && (
               <div>
                 <Label>Party (Customer / Supplier)</Label>
-                <Combobox options={ledgerNames} value={formParty} onChange={setFormParty} placeholder="Search ledgers…" className="mt-1" />
+                <DatalistInput
+                  value={formParty} onChange={setFormParty}
+                  options={ledgerNames} placeholder="Type or select party…"
+                  className="mt-1"
+                />
               </div>
             )}
 
             <div className={cn('grid gap-3', showToGodown ? 'grid-cols-2' : 'grid-cols-1')}>
               <div>
                 <Label>{fromLabel}</Label>
-                <Combobox options={godownNames} value={formFromGodown} onChange={setFormFromGodown} placeholder="Select godown…" className="mt-1" />
+                <NativeSelect
+                  value={formFromGodown} onChange={setFormFromGodown}
+                  options={godownNames} placeholder="— Select godown —"
+                  className="mt-1"
+                />
               </div>
               {showToGodown && (
                 <div>
                   <Label>To Godown</Label>
-                  <Combobox options={godownNames} value={formToGodown} onChange={setFormToGodown} placeholder="Select destination…" className="mt-1" />
+                  <NativeSelect
+                    value={formToGodown} onChange={setFormToGodown}
+                    options={godownNames} placeholder="— Select destination —"
+                    className="mt-1"
+                  />
                 </div>
               )}
             </div>
@@ -549,7 +597,7 @@ export default function StockTransactionsPage() {
                     <tr className="bg-slate-50 border-b text-xs text-slate-500 uppercase tracking-wide">
                       <th className="px-3 py-2 text-left">Stock Item</th>
                       <th className="px-3 py-2 text-right w-24">Qty</th>
-                      <th className="px-3 py-2 text-left w-28">Unit</th>
+                      <th className="px-3 py-2 text-left w-32">Unit</th>
                       <th className="px-3 py-2 text-right w-28">Rate (₹)</th>
                       <th className="px-3 py-2 w-8" />
                     </tr>
@@ -558,16 +606,30 @@ export default function StockTransactionsPage() {
                     {entries.map((entry, idx) => (
                       <tr key={idx} className="border-b last:border-0">
                         <td className="px-2 py-1.5">
-                          <Combobox options={stockItemNames} value={entry.stock_item_name} onChange={v => handleEntryItem(idx, v)} placeholder="Search items…" />
+                          <DatalistInput
+                            value={entry.stock_item_name}
+                            onChange={v => handleEntryItem(idx, v)}
+                            options={stockItemNames}
+                            placeholder="Type or select item…"
+                          />
                         </td>
                         <td className="px-2 py-1.5">
-                          <Input type="number" min="0" value={entry.quantity} onChange={e => handleEntryField(idx, 'quantity', e.target.value)} placeholder="0" className="text-right" />
+                          <Input type="number" min="0" value={entry.quantity}
+                            onChange={e => handleEntryField(idx, 'quantity', e.target.value)}
+                            placeholder="0" className="text-right" />
                         </td>
                         <td className="px-2 py-1.5">
-                          <Combobox options={unitNames} value={entry.unit} onChange={v => handleEntryField(idx, 'unit', v)} placeholder="Unit…" />
+                          <NativeSelect
+                            value={entry.unit}
+                            onChange={v => handleEntryField(idx, 'unit', v)}
+                            options={unitNames}
+                            placeholder="— Unit —"
+                          />
                         </td>
                         <td className="px-2 py-1.5">
-                          <Input type="number" min="0" value={entry.rate} onChange={e => handleEntryField(idx, 'rate', e.target.value)} placeholder="0" className="text-right" />
+                          <Input type="number" min="0" value={entry.rate}
+                            onChange={e => handleEntryField(idx, 'rate', e.target.value)}
+                            placeholder="0" className="text-right" />
                         </td>
                         <td className="px-2 py-1.5 text-center">
                           <button onClick={() => setEntries(prev => prev.length === 1 ? prev : prev.filter((_, i) => i !== idx))}

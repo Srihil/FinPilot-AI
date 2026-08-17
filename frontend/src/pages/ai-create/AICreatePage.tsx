@@ -437,7 +437,7 @@ export default function AICreatePage() {
   // Master data — only fetched when showing a stock txn preview
   const { data: godownsData } = useQuery({
     queryKey: ['godowns-all'],
-    queryFn: () => managementApi.godowns({ page_size: 200 }),
+    queryFn: () => managementApi.godowns({ page_size: 100 }),
     staleTime: 60_000,
     enabled: isStockTxn,
   });
@@ -455,7 +455,7 @@ export default function AICreatePage() {
   });
   const { data: ledgersData } = useQuery({
     queryKey: ['ledgers-all'],
-    queryFn: () => managementApi.ledgers({ page_size: 500 }),
+    queryFn: () => managementApi.ledgers({ page_size: 100 }),
     staleTime: 60_000,
     enabled: isStockTxn,
   });

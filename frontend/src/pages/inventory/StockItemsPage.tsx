@@ -49,12 +49,15 @@ function countItems(node: GroupNode): number {
 function buildHierarchy(groups: TallyStockGroup[], items: TallyStockItem[]) {
   const byName = new Map<string, GroupNode>();
   for (const g of groups) {
-    byName.set(g.name.toLowerCase(), { ...g, children: [], depth: 0, items: [] });
+    // First occurrence wins — subsequent duplicates with same name are ignored
+    if (!byName.has(g.name.toLowerCase())) {
+      byName.set(g.name.toLowerCase(), { ...g, children: [], depth: 0, items: [] });
+    }
   }
   const roots: GroupNode[] = [];
-  for (const g of groups) {
-    const node = byName.get(g.name.toLowerCase())!;
-    const pk = (g.parent || '').toLowerCase();
+  // Iterate the deduplicated map values, not the original groups array
+  for (const node of byName.values()) {
+    const pk = (node.parent || '').toLowerCase();
     const parent = pk ? byName.get(pk) : null;
     if (parent) { node.depth = parent.depth + 1; parent.children.push(node); }
     else roots.push(node);

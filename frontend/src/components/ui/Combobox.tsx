@@ -172,6 +172,10 @@ export function Combobox({
             width: rect.width,
             zIndex: 9999,
           }}
+          // Stop pointer events from bubbling to Radix Dialog's outside-click
+          // dismissal handler — the portal is outside the dialog DOM but clicks
+          // here should NOT close the dialog.
+          onPointerDown={e => e.stopPropagation()}
           className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
         >
           <ul className="max-h-52 overflow-y-auto py-1">

@@ -9,7 +9,7 @@ Deduplication strategy:
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.models.customer import Customer
 from app.models.vendor import Vendor
@@ -60,11 +60,19 @@ def _prune_deleted(
     if not tally_keys_present:
         return 0
 
+    # Deactivate synced records that are either:
+    # 1. No longer present in TallyPrime (tally_key not in the fresh set), OR
+    # 2. Have a NULL tally_key — these are stale duplicates from before tally_key
+    #    was introduced. NULL NOT IN (...) evaluates to NULL in SQL (not TRUE),
+    #    so without this explicit OR clause they would never be pruned.
     removed = db.query(model).filter(
         model.company_id == company_id,
         model.is_active == True,
         model.tally_sync_status == "synced",
-        ~model.tally_key.in_(tally_keys_present),
+        or_(
+            model.tally_key == None,
+            ~model.tally_key.in_(tally_keys_present),
+        ),
     ).update({"is_active": False}, synchronize_session=False)
 
     return removed or 0

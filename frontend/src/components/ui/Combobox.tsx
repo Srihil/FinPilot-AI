@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { cn } from '../../utils/cn';
@@ -44,6 +44,8 @@ export function Combobox({
   const inputRef = useRef<HTMLInputElement>(null);
   const portalRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  // Keep a stable ref to the current filtered options so native listeners can read them
+  const filteredRef = useRef<string[]>([]);
 
   // Sync display when value changes externally
   useEffect(() => {
@@ -53,23 +55,24 @@ export function Combobox({
   const filtered = options.filter(o =>
     !query || o.toLowerCase().includes(query.toLowerCase())
   );
+  filteredRef.current = filtered;
 
   function computePos() {
     const wrap = inputRef.current?.closest('[data-combobox-wrap]');
     if (!wrap) return null;
     const r = wrap.getBoundingClientRect();
-    const dropdownH = Math.min(filtered.length * 40 + 8, 220);
+    // Estimate dropdown height to decide whether to flip above
+    const estH = Math.min(filtered.length * 38 + 12, 220);
     const spaceBelow = window.innerHeight - r.bottom - 8;
-    const top = spaceBelow >= dropdownH
-      ? r.bottom + 4
-      : r.top - dropdownH - 4;
-    return { top, left: r.left, width: r.width };
+    const top = spaceBelow >= estH ? r.bottom + 4 : r.top - estH - 4;
+    return { top: Math.max(4, top), left: r.left, width: r.width };
   }
 
-  const openDropdown = () => {
+  const openDropdown = useCallback(() => {
     setPos(computePos());
     setOpen(true);
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function select(opt: string) {
     onChange(opt);
@@ -85,11 +88,12 @@ export function Combobox({
     inputRef.current?.focus();
   };
 
+  // Blur: restore display value and close after a short delay
   const handleBlur = () => {
     setTimeout(() => {
       setQuery(value);
       setOpen(false);
-    }, 150);
+    }, 200);
   };
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -105,7 +109,7 @@ export function Combobox({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { setQuery(value); setOpen(false); }
-    if (e.key === 'Enter' && filtered.length >= 1) select(filtered[0]);
+    if (e.key === 'Enter' && filteredRef.current.length >= 1) select(filteredRef.current[0]);
     if (e.key === 'ArrowDown' && !open) openDropdown();
   };
 
@@ -120,7 +124,36 @@ export function Combobox({
       window.removeEventListener('resize', update);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, filtered.length]);
+  }, [open]);
+
+  // ── Native DOM click listener on the portal ─────────────────────────────────
+  // React's synthetic event system can fail to capture clicks from portals that
+  // are rendered outside the React root DOM node (e.g. when inside a Radix Dialog
+  // which has its own portal/stacking context). Using a native addEventListener
+  // directly on the portal div guarantees click events are captured regardless
+  // of React's event delegation model.
+  useEffect(() => {
+    if (!open || !portalRef.current) return;
+    const portal = portalRef.current;
+
+    const handleNativeClick = (e: MouseEvent) => {
+      // Find which option was clicked (the button or any descendant)
+      const btn = (e.target as Element).closest('[data-option-value]') as HTMLElement | null;
+      if (btn) {
+        const optValue = btn.getAttribute('data-option-value');
+        if (optValue !== null) {
+          e.stopPropagation();
+          select(optValue);
+          inputRef.current?.focus();
+        }
+      }
+    };
+
+    // Use capture phase so we get the event even if something tries to stop it
+    portal.addEventListener('click', handleNativeClick, { capture: true });
+    return () => portal.removeEventListener('click', handleNativeClick, { capture: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   return (
     <div data-combobox-wrap className={cn('relative', className)}>
@@ -176,24 +209,31 @@ export function Combobox({
             top: pos.top,
             left: pos.left,
             width: Math.max(pos.width, 180),
-            zIndex: 9999,
+            zIndex: 99999,
+            pointerEvents: 'auto',
           }}
-          className="bg-white border border-slate-200 rounded-xl shadow-xl"
+          // Prevent mousedown from reaching the Radix Dialog's dismissal handler
+          onMouseDown={e => e.stopPropagation()}
+          className="bg-white border border-slate-200 rounded-xl shadow-2xl"
         >
-          <ul className="max-h-52 overflow-y-auto py-1 overscroll-contain">
+          <ul
+            className="max-h-52 overflow-y-auto py-1"
+            // Prevent wheel scroll from reaching the dialog behind the dropdown
+            onWheel={e => e.stopPropagation()}
+          >
             {filtered.length === 0 ? (
               <li className="px-3 py-3 text-sm text-slate-400 text-center">{emptyLabel}</li>
             ) : (
               filtered.map(opt => (
                 <li key={opt}>
+                  {/* data-option-value is read by the native click listener above */}
                   <button
                     type="button"
-                    // Prevent focus loss (keeps input focused so blur handler doesn't close dropdown)
+                    data-option-value={opt}
+                    // Prevent the input from blurring when this button is pressed
                     onMouseDown={e => e.preventDefault()}
-                    // Use onClick (fires after mouseup) — reliable in all contexts
-                    onClick={() => select(opt)}
                     className={cn(
-                      'w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer',
+                      'w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer select-none',
                       opt === value
                         ? 'bg-indigo-50 text-indigo-700 font-medium'
                         : 'text-slate-700 hover:bg-slate-50',

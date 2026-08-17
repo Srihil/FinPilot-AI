@@ -118,9 +118,10 @@ function interpretError(error: string | null | undefined, operation: string): st
   const e = error.toLowerCase();
 
   if (e.includes('voucher date is missing') || e.includes('retry split') || (e.includes('date') && e.includes('missing'))) {
-    return 'TallyPrime rejected the date — it is outside your company\'s currently active entry period. ' +
-      'In TallyPrime, press F2 to check which period is open. ' +
-      'Use a date within that active period (e.g. 01-09-2026 if your period starts September 2026).';
+    return 'TallyPrime rejected the date — it is likely before your company\'s split date. ' +
+      'Open TallyPrime Gateway and check the "Current Date" field (top-right). ' +
+      'Your PC date and TallyPrime\'s date may differ. Use the date shown in TallyPrime Gateway ' +
+      '(e.g. if it shows 1-Sep-2026, enter 2026-09-01 in the form).';
   }
   if (e.includes('bad unit name')) {
     return 'TallyPrime rejected the unit symbol — it must be a short abbreviation with no spaces (e.g. "Nos", "Kgs", "Pcs"). Open TallyPrime → Inventory Masters → Units of Measure, create the unit manually, then retry.';

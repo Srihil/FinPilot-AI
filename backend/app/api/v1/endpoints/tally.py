@@ -91,15 +91,13 @@ def _translate_tally_error(error: str) -> str:
     # outside the company's active entry sub-period (e.g. books are split into
     # April–Aug and Sep–Mar periods; only the active sub-period accepts new entries).
     if "voucher date is missing" in e or ("date" in e and "missing" in e) or "retry split" in e:
-        import re as _re
-        m = _re.search(r"'([^']+)'\s+voucher", error, _re.IGNORECASE)
-        vtype = m.group(1) if m else "inventory"
         return (
-            f"TallyPrime rejected the date for the {vtype} voucher — the date is outside "
-            f"your company's currently active entry period. "
-            f"In TallyPrime, go to Gateway of Tally → F2: Period and check which period "
-            f"is currently open. Use a date within that active period (e.g. if your current "
-            f"period starts 1-Sep-2026, use 01-09-2026 or later)."
+            "TallyPrime rejected the voucher date. This usually means the date you entered "
+            "is before your company's split date. In TallyPrime's Gateway screen, look at "
+            "'Current Date' — that is the minimum date you can use. Your PC's system date "
+            "and TallyPrime's current date may be different; always use the date shown in "
+            "TallyPrime Gateway, not your PC clock. For example, if Gateway shows "
+            "'1-Sep-2026', enter 01-09-2026 in the form."
         )
     if "cannot be deleted" in e:
         return (

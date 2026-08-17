@@ -218,7 +218,7 @@ export default function StockTransactionsPage() {
 
   // Form state
   const [formType, setFormType]             = useState('STOCK_JOURNAL');
-  const [formDate, setFormDate]             = useState(() => new Date().toISOString().slice(0, 10));
+  const [formDate, setFormDate]             = useState('');
   const [formParty, setFormParty]           = useState('');
   const [formFromGodown, setFormFromGodown] = useState('');
   const [formToGodown, setFormToGodown]     = useState('');
@@ -291,7 +291,7 @@ export default function StockTransactionsPage() {
   });
 
   function resetForm() {
-    setFormType('STOCK_JOURNAL'); setFormDate(new Date().toISOString().slice(0, 10)); setFormParty('');
+    setFormType('STOCK_JOURNAL'); setFormDate(''); setFormParty('');
     setFormFromGodown(''); setFormToGodown(''); setFormNarration('');
     setEntries([{ ...BLANK_ENTRY }]);
   }
@@ -513,7 +513,9 @@ export default function StockTransactionsPage() {
               <div>
                 <Label>Date</Label>
                 <Input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="mt-1" />
-                <p className="text-xs text-slate-400 mt-1">Must be within your TallyPrime active period (press F2 in TallyPrime to check).</p>
+                <p className="text-xs text-amber-600 mt-1 font-medium">
+                  Use the <strong>Current Date</strong> shown in TallyPrime's Gateway (not your PC date). If your company was split, use the split date or later.
+                </p>
               </div>
             </div>
 

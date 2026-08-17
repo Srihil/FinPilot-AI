@@ -250,7 +250,7 @@ export default function StockItemsPage() {
     setFormAdjGodown('');
     setFormAdjQty(item.opening_qty ? String(item.opening_qty) : '');
     setFormAdjRate(item.rate ? String(item.rate) : '');
-    setFormAdjDate(new Date().toISOString().slice(0, 10));
+    setFormAdjDate('');
     setAdjustItem(item);
   }
 
@@ -588,8 +588,8 @@ export default function StockItemsPage() {
                 onChange={e => setFormAdjDate(e.target.value)}
                 className="mt-1"
               />
-              <p className="text-xs text-slate-400 mt-1">
-                Must be within your TallyPrime active period — press <strong>F2</strong> in TallyPrime to check.
+              <p className="text-xs text-amber-600 mt-1 font-medium">
+                Use TallyPrime's <strong>Current Date</strong> (shown in Gateway of Tally) — not your PC's date. If the company was split, use the split date or later.
               </p>
             </div>
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">

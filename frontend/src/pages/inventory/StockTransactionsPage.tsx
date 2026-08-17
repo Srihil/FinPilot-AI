@@ -11,7 +11,7 @@ import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { SyncBadge } from '../../components/ui/SyncBadge';
-import { NativeSelect } from '../../components/ui/NativeSelect';
+import { Combobox, preventDropdownDismissal } from '../../components/ui/Combobox';
 import { toast } from '../../components/ui/use-toast';
 import { cn } from '../../utils/cn';
 import { formatDate, formatCurrency } from '../../utils/format';
@@ -498,7 +498,7 @@ export default function StockTransactionsPage() {
 
       {/* ── Create Dialog ──────────────────────────────────────────────────── */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl" onPointerDownOutside={preventDropdownDismissal}>
           <DialogHeader><DialogTitle>New Stock Transaction</DialogTitle></DialogHeader>
           <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
 
@@ -513,16 +513,16 @@ export default function StockTransactionsPage() {
               <div>
                 <Label>Date</Label>
                 <Input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="mt-1" />
+                <p className="text-xs text-slate-400 mt-1">Must be within your TallyPrime active period (press F2 in TallyPrime to check).</p>
               </div>
             </div>
 
             {showParty && (
               <div>
                 <Label>Party (Customer / Supplier)</Label>
-                <NativeSelect
-                  value={formParty} onChange={setFormParty}
-                  options={ledgerNames} placeholder="— Select party —"
-                  className="mt-1"
+                <Combobox
+                  options={ledgerNames} value={formParty} onChange={setFormParty}
+                  placeholder="Select party…" className="mt-1"
                 />
               </div>
             )}
@@ -530,19 +530,17 @@ export default function StockTransactionsPage() {
             <div className={cn('grid gap-3', showToGodown ? 'grid-cols-2' : 'grid-cols-1')}>
               <div>
                 <Label>{fromLabel}</Label>
-                <NativeSelect
-                  value={formFromGodown} onChange={setFormFromGodown}
-                  options={godownNames} placeholder="— Select godown —"
-                  className="mt-1"
+                <Combobox
+                  options={godownNames} value={formFromGodown} onChange={setFormFromGodown}
+                  placeholder="Select godown…" className="mt-1"
                 />
               </div>
               {showToGodown && (
                 <div>
                   <Label>To Godown</Label>
-                  <NativeSelect
-                    value={formToGodown} onChange={setFormToGodown}
-                    options={godownNames} placeholder="— Select destination —"
-                    className="mt-1"
+                  <Combobox
+                    options={godownNames} value={formToGodown} onChange={setFormToGodown}
+                    placeholder="Select destination…" className="mt-1"
                   />
                 </div>
               )}
@@ -572,11 +570,10 @@ export default function StockTransactionsPage() {
                     {entries.map((entry, idx) => (
                       <tr key={idx} className="border-b last:border-0">
                         <td className="px-2 py-1.5">
-                          <NativeSelect
-                            value={entry.stock_item_name}
+                          <Combobox
+                            options={stockItemNames} value={entry.stock_item_name}
                             onChange={v => handleEntryItem(idx, v)}
-                            options={stockItemNames}
-                            placeholder="— Select item —"
+                            placeholder="Select item…"
                           />
                         </td>
                         <td className="px-2 py-1.5">
@@ -585,11 +582,10 @@ export default function StockTransactionsPage() {
                             placeholder="0" className="text-right" />
                         </td>
                         <td className="px-2 py-1.5">
-                          <NativeSelect
-                            value={entry.unit}
+                          <Combobox
+                            options={unitNames} value={entry.unit}
                             onChange={v => handleEntryField(idx, 'unit', v)}
-                            options={unitNames}
-                            placeholder="— Unit —"
+                            placeholder="Unit…"
                           />
                         </td>
                         <td className="px-2 py-1.5">

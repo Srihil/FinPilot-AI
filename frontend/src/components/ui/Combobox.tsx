@@ -1,4 +1,22 @@
 import { useState, useRef, useEffect } from 'react';
+
+/**
+ * Pass to <DialogContent onPointerDownOutside={preventDropdownDismissal}>
+ * so Radix Dialog doesn't close when the user clicks inside a portal dropdown.
+ */
+export function preventDropdownDismissal(e: {
+  preventDefault(): void;
+  detail?: { originalEvent?: { target?: EventTarget | null } };
+  target?: EventTarget | null;
+}) {
+  const target = (
+    (e.detail as { originalEvent?: { target?: Element | null } } | undefined)?.originalEvent?.target ??
+    (e as { target?: Element | null }).target
+  ) as Element | null;
+  if (target?.closest?.('[data-custom-dropdown-portal]')) {
+    e.preventDefault();
+  }
+}
 import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { cn } from '../../utils/cn';

@@ -87,6 +87,20 @@ MAX_RETRY = 3
 def _translate_tally_error(error: str) -> str:
     """Convert raw TallyPrime error messages into user-friendly explanations."""
     e = error.lower()
+    # "Voucher date is missing … retry Split" — TallyPrime rejects dates that fall
+    # outside the company's active entry sub-period (e.g. books are split into
+    # April–Aug and Sep–Mar periods; only the active sub-period accepts new entries).
+    if "voucher date is missing" in e or ("date" in e and "missing" in e) or "retry split" in e:
+        import re as _re
+        m = _re.search(r"'([^']+)'\s+voucher", error, _re.IGNORECASE)
+        vtype = m.group(1) if m else "inventory"
+        return (
+            f"TallyPrime rejected the date for the {vtype} voucher — the date is outside "
+            f"your company's currently active entry period. "
+            f"In TallyPrime, go to Gateway of Tally → F2: Period and check which period "
+            f"is currently open. Use a date within that active period (e.g. if your current "
+            f"period starts 1-Sep-2026, use 01-09-2026 or later)."
+        )
     if "cannot be deleted" in e:
         return (
             "TallyPrime refused: this record has vouchers or transactions linked to it. "

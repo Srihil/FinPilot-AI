@@ -14,7 +14,7 @@ import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
 import { managementApi } from '../../api/endpoints';
 import { cn } from '../../utils/cn';
-import { Combobox } from '../../components/ui/Combobox';
+import { Combobox, preventDropdownDismissal } from '../../components/ui/Combobox';
 import type { TallyStockGroup } from '../../types';
 
 // ─── Tree helpers ─────────────────────────────────────────────────────────────
@@ -314,7 +314,7 @@ export default function StockGroupsPage() {
 
       {/* Create dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md" onPointerDownOutside={preventDropdownDismissal}>
           <DialogHeader><DialogTitle>New Stock Group</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
@@ -350,7 +350,7 @@ export default function StockGroupsPage() {
 
       {/* Edit dialog */}
       <Dialog open={!!editItem} onOpenChange={() => setEditItem(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md" onPointerDownOutside={preventDropdownDismissal}>
           <DialogHeader><DialogTitle>Edit Stock Group</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>

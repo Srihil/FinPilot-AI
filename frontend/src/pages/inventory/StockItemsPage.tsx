@@ -13,7 +13,7 @@ import { Skeleton } from '../../components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
-import { NativeSelect } from '../../components/ui/NativeSelect';
+import { Combobox, preventDropdownDismissal } from '../../components/ui/Combobox';
 import { managementApi } from '../../api/endpoints';
 import apiClient from '../../api/client';
 
@@ -458,12 +458,12 @@ export default function StockItemsPage() {
 
       {/* Create dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-md"><DialogHeader><DialogTitle>New Stock Item</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-md" onPointerDownOutside={preventDropdownDismissal}><DialogHeader><DialogTitle>New Stock Item</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div><Label>Name *</Label><Input value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Laptop" className="mt-1" /></div>
             <div>
               <Label>Stock Group</Label>
-              <NativeSelect options={groupOpts} value={formGroup} onChange={setFormGroup} placeholder="— No group —" className="mt-1" />
+              <Combobox options={groupOpts} value={formGroup} onChange={setFormGroup} placeholder="Search groups…" clearLabel="— No group" className="mt-1" />
             </div>
             <div>
               <Label>Unit</Label>
@@ -490,12 +490,12 @@ export default function StockItemsPage() {
 
       {/* Edit dialog */}
       <Dialog open={!!editItem} onOpenChange={() => setEditItem(null)}>
-        <DialogContent className="max-w-md"><DialogHeader><DialogTitle>Edit Stock Item</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-md" onPointerDownOutside={preventDropdownDismissal}><DialogHeader><DialogTitle>Edit Stock Item</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div><Label>Name</Label><Input value={formName} onChange={e => setFormName(e.target.value)} className="mt-1" /></div>
             <div>
               <Label>Stock Group</Label>
-              <NativeSelect options={groupOpts} value={formGroup} onChange={setFormGroup} placeholder="— No group —" className="mt-1" />
+              <Combobox options={groupOpts} value={formGroup} onChange={setFormGroup} placeholder="Search groups…" clearLabel="— No group" className="mt-1" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -528,7 +528,7 @@ export default function StockItemsPage() {
 
       {/* Adjust Qty dialog */}
       <Dialog open={!!adjustItem} onOpenChange={() => setAdjustItem(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md" onPointerDownOutside={preventDropdownDismissal}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
@@ -572,11 +572,11 @@ export default function StockItemsPage() {
             </div>
             <div>
               <Label>Godown</Label>
-              <NativeSelect
+              <Combobox
                 options={godownNames}
                 value={formAdjGodown}
                 onChange={setFormAdjGodown}
-                placeholder="— Select godown —"
+                placeholder="Select godown…"
                 className="mt-1"
               />
             </div>
@@ -588,6 +588,9 @@ export default function StockItemsPage() {
                 onChange={e => setFormAdjDate(e.target.value)}
                 className="mt-1"
               />
+              <p className="text-xs text-slate-400 mt-1">
+                Must be within your TallyPrime active period — press <strong>F2</strong> in TallyPrime to check.
+              </p>
             </div>
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
               This creates a <strong>Physical Stock</strong> voucher in TallyPrime which sets the stock count to the quantity you enter above. The Qty column here updates automatically after the next sync.

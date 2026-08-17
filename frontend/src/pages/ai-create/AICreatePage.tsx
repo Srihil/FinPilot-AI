@@ -11,7 +11,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { toast } from '../../components/ui/use-toast';
-import { NativeSelect } from '../../components/ui/NativeSelect';
+import { Combobox } from '../../components/ui/Combobox';
 import type { TallyGodown, TallyStockItem, TallyUnit, TallyLedger } from '../../types';
 
 // ─── Quick chips ─────────────────────────────────────────────────────────────
@@ -117,6 +117,11 @@ function interpretError(error: string | null | undefined, operation: string): st
   if (!error) return '';
   const e = error.toLowerCase();
 
+  if (e.includes('voucher date is missing') || e.includes('retry split') || (e.includes('date') && e.includes('missing'))) {
+    return 'TallyPrime rejected the date — it is outside your company\'s currently active entry period. ' +
+      'In TallyPrime, press F2 to check which period is open. ' +
+      'Use a date within that active period (e.g. 01-09-2026 if your period starts September 2026).';
+  }
   if (e.includes('bad unit name')) {
     return 'TallyPrime rejected the unit symbol — it must be a short abbreviation with no spaces (e.g. "Nos", "Kgs", "Pcs"). Open TallyPrime → Inventory Masters → Units of Measure, create the unit manually, then retry.';
   }
@@ -384,8 +389,8 @@ function StockTxnEntriesEditor({
           {rows.map((row, idx) => (
             <tr key={idx} className="border-b last:border-0">
               <td className="px-1.5 py-1">
-                <NativeSelect options={stockItemNames} value={String(row.stock_item_name || '')}
-                  onChange={v => handleItem(idx, v)} placeholder="— Select item —" />
+                <Combobox options={stockItemNames} value={String(row.stock_item_name || '')}
+                  onChange={v => handleItem(idx, v)} placeholder="Select item…" />
               </td>
               <td className="px-1.5 py-1">
                 <Input type="number" min="0" value={String(row.quantity || '')}
@@ -393,8 +398,8 @@ function StockTxnEntriesEditor({
                   placeholder="0" className="text-right text-xs" />
               </td>
               <td className="px-1.5 py-1">
-                <NativeSelect options={unitNames} value={String(row.unit || '')}
-                  onChange={v => setField(idx, 'unit', v)} placeholder="— Unit —" />
+                <Combobox options={unitNames} value={String(row.unit || '')}
+                  onChange={v => setField(idx, 'unit', v)} placeholder="Unit…" />
               </td>
               <td className="px-1.5 py-1">
                 <Input type="number" min="0" value={String(row.rate || '')}
@@ -678,11 +683,11 @@ export default function AICreatePage() {
                     return (
                       <div key={key} className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">{fieldLabel(key)}</Label>
-                        <NativeSelect
+                        <Combobox
                           options={godownNames}
                           value={String(val || '')}
                           onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
-                          placeholder="— Select godown —"
+                          placeholder="Select godown…"
                         />
                       </div>
                     );
@@ -692,11 +697,11 @@ export default function AICreatePage() {
                     return (
                       <div key={key} className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">{fieldLabel(key)}</Label>
-                        <NativeSelect
+                        <Combobox
                           options={ledgerNames}
                           value={String(val || '')}
                           onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
-                          placeholder="— Select party —"
+                          placeholder="Select party…"
                         />
                       </div>
                     );

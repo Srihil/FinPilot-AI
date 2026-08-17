@@ -12,7 +12,7 @@ import { Skeleton } from '../../components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
-import { Combobox } from '../../components/ui/Combobox';
+import { Combobox, preventDropdownDismissal } from '../../components/ui/Combobox';
 import { managementApi } from '../../api/endpoints';
 import { cn } from '../../utils/cn';
 import type { StockCategory } from '../../types';
@@ -326,7 +326,7 @@ export default function StockCategoriesPage() {
 
       {/* Create dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md" onPointerDownOutside={preventDropdownDismissal}>
           <DialogHeader><DialogTitle>New Stock Category</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
@@ -370,7 +370,7 @@ export default function StockCategoriesPage() {
 
       {/* Edit dialog */}
       <Dialog open={!!editItem} onOpenChange={() => setEditItem(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md" onPointerDownOutside={preventDropdownDismissal}>
           <DialogHeader><DialogTitle>Edit Category</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>

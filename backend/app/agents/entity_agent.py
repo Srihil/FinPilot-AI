@@ -198,6 +198,42 @@ class DemoEntityAgent:
                 return candidate
         return None
 
+    @staticmethod
+    def _extract_date(text: str) -> str:
+        """Extract date from natural language text, returns YYYY-MM-DD or empty string."""
+        import re
+        _MONTH_MAP = {
+            "january": "01", "february": "02", "march": "03", "april": "04",
+            "may": "05", "june": "06", "july": "07", "august": "08",
+            "september": "09", "october": "10", "november": "11", "december": "12",
+            "jan": "01", "feb": "02", "mar": "03", "apr": "04",
+            "jun": "06", "jul": "07", "aug": "08",
+            "sep": "09", "sept": "09", "oct": "10", "nov": "11", "dec": "12",
+        }
+        # ISO: 2026-09-01
+        m = re.search(r'(\d{4}-\d{2}-\d{2})', text)
+        if m:
+            return m.group(1)
+        # Natural: "1 Sept 2026" / "15 September 2026"
+        m = re.search(
+            r'\b(\d{1,2})\s+('
+            r'january|february|march|april|may|june|july|august|september|october|november|december'
+            r'|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec'
+            r')\s+(\d{4})\b',
+            text, re.IGNORECASE,
+        )
+        if m:
+            day = m.group(1).zfill(2)
+            mon = _MONTH_MAP.get(m.group(2).lower(), "")
+            year = m.group(3)
+            if mon:
+                return f"{year}-{mon}-{day}"
+        # DD/MM/YYYY or DD-MM-YYYY
+        m = re.search(r'\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b', text)
+        if m:
+            return f"{m.group(3)}-{m.group(2).zfill(2)}-{m.group(1).zfill(2)}"
+        return ""
+
     def extract(self, text: str) -> dict:
         import re
         text_lower = text.lower()
@@ -225,7 +261,8 @@ class DemoEntityAgent:
             }
 
         # ── Step 2: Stock transaction types (check before generic keywords) ─
-        if any(w in text_lower for w in ["stock journal", "transfer stock", "move stock", "godown transfer"]):
+        if any(w in text_lower for w in ["stock journal", "transfer stock", "move stock", "godown transfer"]) or \
+           ("transfer" in text_lower and " from " in text_lower and " to " in text_lower):
             entity_type = "stock_journal"
         elif any(w in text_lower for w in ["physical stock", "stock count", "stock taking", "stock verification"]):
             entity_type = "physical_stock"
@@ -321,8 +358,9 @@ class DemoEntityAgent:
             # For physical_stock the entry godown is "at X"
             entry_godown = godown_at if entity_type == "physical_stock" else ""
 
+            date_val = self._extract_date(text)
             base = {
-                "date": "",
+                "date": date_val,
                 "narration": text[:80],
                 "entries": [{"stock_item_name": item, "quantity": qty, "unit": "", "rate": 0, "godown": entry_godown}],
             }
@@ -332,11 +370,14 @@ class DemoEntityAgent:
             elif entity_type in ("delivery_note", "receipt_note", "rejection_in", "rejection_out"):
                 base["party_name"]  = party
                 base["from_godown"] = godown_from or godown_at
+            missing = ["unit (must match TallyPrime item unit exactly, e.g. Units / Cartons / Nos)"]
+            if not date_val:
+                missing.append("date")
             return {
                 "entity_type": entity_type,
                 "data": base,
                 "confidence": 0.45,
-                "missing_fields": ["unit (must match TallyPrime item unit exactly, e.g. Units / Cartons / Nos)", "date"],
+                "missing_fields": missing,
             }
 
         return {

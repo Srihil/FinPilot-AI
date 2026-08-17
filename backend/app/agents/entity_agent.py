@@ -80,24 +80,53 @@ CUSTOMERS & VENDORS:
 - vendor: name (required), email, phone, address, city, state, gstin, notes
 
 STOCK TRANSACTIONS (inventory movement — NEVER treat as custom_voucher):
+
+CRITICAL QUANTITY EXTRACTION RULE:
+When the user writes "N ItemName" (e.g. "5 Bed", "3 Laptop", "10 Chair"), the NUMBER is the
+quantity and the REMAINING WORD(S) is the stock_item_name. NEVER include the number in stock_item_name.
+  "5 Bed at Chennai"   → quantity: 5,  stock_item_name: "Bed"
+  "3 Laptop from Main" → quantity: 3,  stock_item_name: "Laptop"
+  "10 Office Chair"    → quantity: 10, stock_item_name: "Office Chair"
+
+GODOWN EXTRACTION RULE:
+  "at Chennai"   → from_godown: "Chennai"  (for receipt_note / delivery_note / physical_stock)
+  "from X to Y"  → from_godown: "X", to_godown: "Y"  (for stock_journal)
+
+Fields:
 - stock_journal: from_godown (required), to_godown (required), date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
+    entries: [{stock_item_name (JUST the name, NO quantity prefix), quantity (number), unit ("" if not stated), rate (0 if not stated), godown ("")}]
     USE WHEN: transferring stock between godowns/warehouses
-- physical_stock: date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
+- physical_stock: from_godown (the godown to count, e.g. "at Chennai" → "Chennai"), date (YYYY-MM-DD), narration,
+    entries: [{stock_item_name, quantity, unit ("" if not stated), rate (0 if not stated), godown ("")}]
     USE WHEN: recording physical stock count or verification
-- delivery_note: party_name (required, customer name), from_godown, date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
+- delivery_note: party_name (required, customer name), from_godown ("at X" → "X"), date (YYYY-MM-DD), narration,
+    entries: [{stock_item_name, quantity, unit ("" if not stated), rate (0 if not stated), godown ("")}]
     USE WHEN: delivering goods OUT to customer
-- receipt_note: party_name (required, vendor/supplier name), from_godown, date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
+- receipt_note: party_name (required, vendor/supplier name), from_godown ("at X" → "X"), date (YYYY-MM-DD), narration,
+    entries: [{stock_item_name, quantity, unit ("" if not stated), rate (0 if not stated), godown ("")}]
     USE WHEN: receiving goods IN from supplier
 - rejection_in: party_name (required, customer name), from_godown, date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
+    entries: [{stock_item_name, quantity, unit ("" if not stated), rate (0 if not stated), godown ("")}]
     USE WHEN: customer returns goods back to you
 - rejection_out: party_name (required, vendor name), from_godown, date (YYYY-MM-DD), narration,
-    entries (list: [{stock_item_name, quantity, unit (leave "" if not stated), rate (0 if not stated), godown (leave "" to use top-level godown)}])
+    entries: [{stock_item_name, quantity, unit ("" if not stated), rate (0 if not stated), godown ("")}]
     USE WHEN: you return goods back to supplier
+
+Stock transaction EXAMPLES (study carefully):
+  "Receipt Note from Kapoor Suppliers 5 Bed at Chennai on 1 Sept 2026"
+    → entity_type: "receipt_note", party_name: "Kapoor Suppliers",
+      from_godown: "Chennai", date: "2026-09-01",
+      entries: [{"stock_item_name": "Bed", "quantity": 5, "unit": "", "rate": 0, "godown": ""}]
+
+  "Transfer 3 Laptop from Main Location to Chennai on 1 Sept 2026"
+    → entity_type: "stock_journal", from_godown: "Main Location", to_godown: "Chennai",
+      date: "2026-09-01",
+      entries: [{"stock_item_name": "Laptop", "quantity": 3, "unit": "", "rate": 0, "godown": ""}]
+
+  "Delivery Note for ABC Traders 10 Chair at Main Location on 15 Aug 2026"
+    → entity_type: "delivery_note", party_name: "ABC Traders", from_godown: "Main Location",
+      date: "2026-08-15",
+      entries: [{"stock_item_name": "Chair", "quantity": 10, "unit": "", "rate": 0, "godown": ""}]
 
 Stock transaction keyword routing:
   "stock journal", "transfer stock", "move stock between godown" → stock_journal
@@ -258,12 +287,21 @@ class DemoEntityAgent:
             qty_m = _re.search(r'(\d+(?:\.\d+)?)', text)
             qty = float(qty_m.group(1)) if qty_m else 1.0
 
-            # Extract item name — pattern: "<number> <ItemName> from/to/at/on"
-            # handles "Transfer 3 Laptop from..." "deliver 2 Samsung Galaxy to..."
+            # Extract item name — pattern: "<number> <ItemName>" stopping before stop-words.
+            # Uses lookahead so stop-word is NOT consumed into the item name.
+            # Handles: "5 Bed at Chennai", "3 Laptop from Main", "1 Phone returned to X"
             item_m = _re.search(
-                r'\b\d+(?:\.\d+)?\s+([A-Z][A-Za-z0-9][A-Za-z0-9\s]{0,40}?)(?:\s+(?:from|to|at|on|in|dated)\b)',
-                text, _re.IGNORECASE
+                r'\b\d+(?:\.\d+)?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})'
+                r'(?=\s+(?:returned?|sent|dispatched?|at|from|to|on|in|dated|for|of)\b)',
+                text
             )
+            if not item_m:
+                # Case-insensitive fallback: stops at common prepositions only
+                item_m = _re.search(
+                    r'\b\d+(?:\.\d+)?\s+([A-Z][A-Za-z0-9]{1,20}(?:\s+[A-Z][A-Za-z0-9]{1,20}){0,2})'
+                    r'(?=\s+(?:at|from|to|on)\b)',
+                    text, _re.IGNORECASE
+                )
             if not item_m:
                 item_m = _re.search(r'(?:of|item|stock|goods?)\s+([A-Za-z][A-Za-z0-9\s\-]{1,40}?)(?:\s+from|\s+to|\s+at|$)', text, _re.IGNORECASE)
             item = item_m.group(1).strip() if item_m else ""

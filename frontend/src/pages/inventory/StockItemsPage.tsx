@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Package, Plus, Search, Loader2, AlertCircle, Pencil, Trash2,
   FolderOpen, FolderClosed, Folder, Layers,
-  ChevronRight, ChevronDown,
+  ChevronRight, ChevronDown, SlidersHorizontal,
 } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -15,6 +15,11 @@ import { SyncBadge } from '../../components/ui/SyncBadge';
 import { toast } from '../../components/ui/use-toast';
 import { Combobox } from '../../components/ui/Combobox';
 import { managementApi } from '../../api/endpoints';
+import apiClient from '../../api/client';
+
+const stockTxnApi = {
+  create: (d: object) => apiClient.post('/api/inventory/stock-transactions', d).then(r => r.data),
+};
 import { formatCurrency } from '../../utils/format';
 import { cn } from '../../utils/cn';
 import type { TallyStockItem, TallyUnit, TallyStockGroup } from '../../types';
@@ -111,6 +116,13 @@ export default function StockItemsPage() {
   const [formRate, setFormRate] = useState('');
   const [formQty, setFormQty] = useState('');
 
+  // Adjust Qty state
+  const [adjustItem, setAdjustItem] = useState<TallyStockItem | null>(null);
+  const [formAdjGodown, setFormAdjGodown] = useState('');
+  const [formAdjQty, setFormAdjQty] = useState('');
+  const [formAdjRate, setFormAdjRate] = useState('');
+  const [formAdjDate, setFormAdjDate] = useState('');
+
   const { data: itemsData, isLoading, isError } = useQuery({
     queryKey: ['stock-items-tree'],
     queryFn: () => managementApi.stockItems({ page_size: 500 }),
@@ -127,6 +139,13 @@ export default function StockItemsPage() {
     queryFn: () => managementApi.stockGroups({ page_size: 500 }),
     staleTime: 60_000,
   });
+
+  const { data: godownsData } = useQuery({
+    queryKey: ['godowns-all'],
+    queryFn: () => managementApi.godowns({ page_size: 200 }),
+    staleTime: 60_000,
+  });
+  const godownNames = (godownsData?.items ?? []).map(g => g.name);
 
   const allItems: TallyStockItem[] = itemsData?.items ?? [];
   const allGroups: TallyStockGroup[] = groupsData?.items ?? [];
@@ -201,6 +220,36 @@ export default function StockItemsPage() {
     onError: (e: { response?: { data?: { detail?: string } } }) =>
       toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' }),
   });
+
+  const adjustMut = useMutation({
+    mutationFn: () => stockTxnApi.create({
+      transaction_type: 'PHYSICAL_STOCK',
+      transaction_date: formAdjDate || undefined,
+      from_godown: formAdjGodown || undefined,
+      narration: `Physical stock adjustment — ${adjustItem!.name}`,
+      entries: [{
+        stock_item_name: adjustItem!.name,
+        quantity: parseFloat(formAdjQty) || 0,
+        unit: adjustItem!.unit || '',
+        rate: parseFloat(formAdjRate) || adjustItem!.rate || 0,
+      }],
+    }),
+    onSuccess: () => {
+      toast({ title: 'Physical Stock created', description: 'Queued for TallyPrime sync. Qty will update after sync.' });
+      qc.invalidateQueries({ queryKey: ['stock-transactions'] });
+      setAdjustItem(null);
+    },
+    onError: (e: { response?: { data?: { detail?: string } } }) =>
+      toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' }),
+  });
+
+  function openAdjust(item: TallyStockItem) {
+    setFormAdjGodown('');
+    setFormAdjQty(item.opening_qty ? String(item.opening_qty) : '');
+    setFormAdjRate(item.rate ? String(item.rate) : '');
+    setFormAdjDate('');
+    setAdjustItem(item);
+  }
 
   function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); setFormQty(''); }
   function openEdit(item: TallyStockItem) {
@@ -333,6 +382,7 @@ export default function StockItemsPage() {
                         <td className="px-4 py-2.5 text-center"><SyncBadge status={item.tally_sync_status} source={item.source} /></td>
                         <td className="px-4 py-2.5 text-right">
                           <div className={cn('flex items-center justify-end gap-1', 'opacity-0 group-hover:opacity-100 transition-opacity')}>
+                            <button onClick={() => openAdjust(item)} title="Adjust Qty" className="p-1.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
                             <button onClick={() => openEdit(item)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700"><Pencil className="w-3.5 h-3.5" /></button>
                             <button onClick={() => setDeleteItem(item)} className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
                           </div>
@@ -468,6 +518,86 @@ export default function StockItemsPage() {
             <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
             <Button onClick={() => updateMut.mutate()} disabled={updateMut.isPending}>
               {updateMut.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Adjust Qty dialog */}
+      <Dialog open={!!adjustItem} onOpenChange={() => setAdjustItem(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+              Adjust Quantity — {adjustItem?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-indigo-50 border border-indigo-100">
+              <Package className="w-4 h-4 text-indigo-500 shrink-0" />
+              <div className="text-sm">
+                <span className="font-semibold text-indigo-800">{adjustItem?.name}</span>
+                <span className="text-indigo-500 ml-2 text-xs">
+                  Current: {adjustItem?.opening_qty ?? 0} {adjustItem?.unit || ''}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>New Quantity *</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={formAdjQty}
+                  onChange={e => setFormAdjQty(e.target.value)}
+                  placeholder="0"
+                  className="mt-1"
+                />
+                <p className="text-xs text-slate-400 mt-1">Target quantity after adjustment</p>
+              </div>
+              <div>
+                <Label>Rate (₹)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={formAdjRate}
+                  onChange={e => setFormAdjRate(e.target.value)}
+                  placeholder="0"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Godown</Label>
+              <Combobox
+                options={godownNames}
+                value={formAdjGodown}
+                onChange={setFormAdjGodown}
+                placeholder="Select godown…"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Date</Label>
+              <Input
+                type="date"
+                value={formAdjDate}
+                onChange={e => setFormAdjDate(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+              This creates a <strong>Physical Stock</strong> voucher in TallyPrime which sets the stock count to the quantity you enter above. The Qty column here updates automatically after the next sync.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdjustItem(null)}>Cancel</Button>
+            <Button
+              onClick={() => adjustMut.mutate()}
+              disabled={adjustMut.isPending || !formAdjQty}
+            >
+              {adjustMut.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Adjust &amp; Sync to Tally
             </Button>
           </DialogFooter>
         </DialogContent>

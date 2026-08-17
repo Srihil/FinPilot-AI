@@ -1,16 +1,18 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Wand2, Zap, Loader2, CheckCircle, AlertCircle, RefreshCw,
-  Activity, X, Clock, CheckCircle2, XCircle, RotateCcw, ChevronRight,
+  Activity, X, Clock, CheckCircle2, XCircle, RotateCcw, ChevronRight, Plus, Trash2,
 } from 'lucide-react';
-import { aiCreateApi, tallyApi, type TallyJobItem } from '../../api/endpoints';
+import { aiCreateApi, tallyApi, managementApi, type TallyJobItem } from '../../api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { toast } from '../../components/ui/use-toast';
+import { Combobox } from '../../components/ui/Combobox';
+import type { TallyGodown, TallyStockItem, TallyUnit, TallyLedger } from '../../types';
 
 // ─── Quick chips ─────────────────────────────────────────────────────────────
 
@@ -313,6 +315,113 @@ function fieldLabel(key: string): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+const STOCK_TXN_TYPES = new Set([
+  'stock_journal', 'physical_stock', 'delivery_note', 'receipt_note', 'rejection_in', 'rejection_out',
+]);
+
+const GODOWN_FIELDS = new Set(['from_godown', 'to_godown', 'godown']);
+const PARTY_FIELDS  = new Set(['party_name', 'party_ledger']);
+
+// ─── StockTxnEntriesEditor ────────────────────────────────────────────────────
+
+interface StockEntry {
+  stock_item_name: string;
+  quantity: number | string;
+  unit: string;
+  rate: number | string;
+  godown: string;
+}
+
+function StockTxnEntriesEditor({
+  entries,
+  onChange,
+  stockItemNames,
+  unitNames,
+  godownNames,
+  stockItemMap,
+}: {
+  entries: StockEntry[];
+  onChange: (entries: StockEntry[]) => void;
+  stockItemNames: string[];
+  unitNames: string[];
+  godownNames: string[];
+  stockItemMap: Map<string, { unit: string; rate: number }>;
+}) {
+  const rows: StockEntry[] = entries.length > 0 ? entries : [{ stock_item_name: '', quantity: '', unit: '', rate: 0, godown: '' }];
+
+  function setField(idx: number, field: keyof StockEntry, value: string | number) {
+    const next = rows.map((r, i) => i === idx ? { ...r, [field]: value } : r);
+    onChange(next);
+  }
+
+  function handleItem(idx: number, name: string) {
+    const lookup = stockItemMap.get(name.toLowerCase());
+    const next = rows.map((r, i) => i === idx ? {
+      ...r,
+      stock_item_name: name,
+      unit: lookup?.unit || r.unit,
+      rate: lookup && lookup.rate > 0 ? lookup.rate : r.rate,
+    } : r);
+    onChange(next);
+  }
+
+  function addRow() { onChange([...rows, { stock_item_name: '', quantity: '', unit: '', rate: 0, godown: '' }]); }
+  function removeRow(idx: number) { onChange(rows.length === 1 ? rows : rows.filter((_, i) => i !== idx)); }
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-slate-50 border-b text-xs text-slate-500 uppercase tracking-wide">
+            <th className="px-2 py-2 text-left">Stock Item</th>
+            <th className="px-2 py-2 text-right w-20">Qty</th>
+            <th className="px-2 py-2 text-left w-24">Unit</th>
+            <th className="px-2 py-2 text-right w-24">Rate (₹)</th>
+            <th className="px-2 py-2 w-7" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr key={idx} className="border-b last:border-0">
+              <td className="px-1.5 py-1">
+                <Combobox options={stockItemNames} value={String(row.stock_item_name || '')}
+                  onChange={v => handleItem(idx, v)} placeholder="Search items…" />
+              </td>
+              <td className="px-1.5 py-1">
+                <Input type="number" min="0" value={String(row.quantity || '')}
+                  onChange={e => setField(idx, 'quantity', e.target.value)}
+                  placeholder="0" className="text-right text-xs" />
+              </td>
+              <td className="px-1.5 py-1">
+                <Combobox options={unitNames} value={String(row.unit || '')}
+                  onChange={v => setField(idx, 'unit', v)} placeholder="Unit…" />
+              </td>
+              <td className="px-1.5 py-1">
+                <Input type="number" min="0" value={String(row.rate || '')}
+                  onChange={e => setField(idx, 'rate', e.target.value)}
+                  placeholder="0" className="text-right text-xs" />
+              </td>
+              <td className="px-1 py-1 text-center">
+                <button onClick={() => removeRow(idx)}
+                  className="p-1 rounded hover:bg-red-50 text-slate-300 hover:text-red-500"
+                  disabled={rows.length === 1}>
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="px-3 py-2 border-t bg-slate-50">
+        <button onClick={addRow}
+          className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium">
+          <Plus className="w-3 h-3" /> Add Item
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AICreatePage() {
@@ -322,6 +431,46 @@ export default function AICreatePage() {
   const [editableData, setEditableData] = useState<Record<string, unknown>>({});
   const [created, setCreated] = useState<CreationResult | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const isStockTxn = extraction ? STOCK_TXN_TYPES.has(extraction.entity_type) : false;
+
+  // Master data — only fetched when showing a stock txn preview
+  const { data: godownsData } = useQuery({
+    queryKey: ['godowns-all'],
+    queryFn: () => managementApi.godowns({ page_size: 200 }),
+    staleTime: 60_000,
+    enabled: isStockTxn,
+  });
+  const { data: stockItemsData } = useQuery({
+    queryKey: ['stock-items-all'],
+    queryFn: () => managementApi.stockItems({ page_size: 500 }),
+    staleTime: 60_000,
+    enabled: isStockTxn,
+  });
+  const { data: unitsData } = useQuery({
+    queryKey: ['units-all'],
+    queryFn: () => managementApi.units({ page_size: 100 }),
+    staleTime: 60_000,
+    enabled: isStockTxn,
+  });
+  const { data: ledgersData } = useQuery({
+    queryKey: ['ledgers-all'],
+    queryFn: () => managementApi.ledgers({ page_size: 500 }),
+    staleTime: 60_000,
+    enabled: isStockTxn,
+  });
+
+  const godownNames  = useMemo(() => (godownsData?.items  ?? [] as TallyGodown[]).map(g => g.name),  [godownsData]);
+  const stockItemNames = useMemo(() => (stockItemsData?.items ?? [] as TallyStockItem[]).map(i => i.name), [stockItemsData]);
+  const unitNames    = useMemo(() => (unitsData?.items    ?? [] as TallyUnit[]).map(u => u.name),    [unitsData]);
+  const ledgerNames  = useMemo(() => (ledgersData?.items  ?? [] as TallyLedger[]).map(l => l.name),  [ledgersData]);
+  const stockItemMap = useMemo(() => {
+    const m = new Map<string, { unit: string; rate: number }>();
+    for (const item of (stockItemsData?.items ?? [] as TallyStockItem[])) {
+      m.set(item.name.toLowerCase(), { unit: item.unit || '', rate: item.rate || 0 });
+    }
+    return m;
+  }, [stockItemsData]);
 
   // ── Tally activity polling ────────────────────────────────────────────────
   const { data: activityData, isLoading: activityLoading } = useQuery({
@@ -506,6 +655,55 @@ export default function AICreatePage() {
           <CardContent className="space-y-4">
             <div className="grid gap-3">
               {Object.entries(editableData).map(([key, val]) => {
+                // ── Stock transaction: specialized rendering ───────────────
+                if (isStockTxn) {
+                  // Entries → table editor
+                  if (key === 'entries') {
+                    return (
+                      <div key={key} className="space-y-1">
+                        <Label className="text-xs font-medium text-slate-600">Stock Items (Entries)</Label>
+                        <StockTxnEntriesEditor
+                          entries={Array.isArray(val) ? (val as StockEntry[]) : []}
+                          onChange={rows => setEditableData(prev => ({ ...prev, entries: rows }))}
+                          stockItemNames={stockItemNames}
+                          unitNames={unitNames}
+                          godownNames={godownNames}
+                          stockItemMap={stockItemMap}
+                        />
+                      </div>
+                    );
+                  }
+                  // Godown fields → Combobox
+                  if (GODOWN_FIELDS.has(key)) {
+                    return (
+                      <div key={key} className="space-y-1">
+                        <Label className="text-xs font-medium text-slate-600">{fieldLabel(key)}</Label>
+                        <Combobox
+                          options={godownNames}
+                          value={String(val || '')}
+                          onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
+                          placeholder="Select godown…"
+                        />
+                      </div>
+                    );
+                  }
+                  // Party fields → Combobox with ledgers
+                  if (PARTY_FIELDS.has(key)) {
+                    return (
+                      <div key={key} className="space-y-1">
+                        <Label className="text-xs font-medium text-slate-600">{fieldLabel(key)}</Label>
+                        <Combobox
+                          options={ledgerNames}
+                          value={String(val || '')}
+                          onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
+                          placeholder="Search ledgers…"
+                        />
+                      </div>
+                    );
+                  }
+                }
+
+                // ── Default: plain input / textarea ───────────────────────
                 const isComplex = Array.isArray(val) || (typeof val === 'object' && val !== null);
                 const displayVal = isComplex ? JSON.stringify(val) : (val != null ? String(val) : '');
                 return (

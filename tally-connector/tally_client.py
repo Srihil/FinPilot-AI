@@ -1339,13 +1339,19 @@ class TallyClient:
         created    = root.find(".//CREATED")
         altered    = root.find(".//ALTERED")
         exceptions = root.find(".//EXCEPTIONS")
+        lineerror  = root.find(".//LINEERROR")
         cr = int(created.text)    if created    is not None and created.text    else 0
         al = int(altered.text)    if altered    is not None and altered.text    else 0
         ex = int(exceptions.text) if exceptions is not None and exceptions.text else 0
+        if lineerror is not None and lineerror.text:
+            raise TallyError(f"TallyPrime error: {lineerror.text.strip()}")
         if cr == 0 and al == 0 and ex > 0:
             raise TallyError(
                 "TallyPrime: inventory voucher not created (exception). "
-                "Verify the voucher type is active and godown tracking is enabled."
+                "Check that: (1) the godown name exists in TallyPrime, "
+                "(2) the stock item name is exact, "
+                "(3) the unit matches the item's unit in TallyPrime, "
+                "(4) the voucher type is active and godown tracking is enabled."
             )
         return {"created": cr, "altered": al}
 
@@ -1361,7 +1367,12 @@ class TallyClient:
         narration   = payload.get("narration", "")
         from_godown = (payload.get("from_godown") or "").strip() or "Main Location"
         to_godown   = (payload.get("to_godown") or "").strip() or "Main Location"
-        entries     = payload.get("entries") or []
+        entries     = [e for e in (payload.get("entries") or []) if e.get("stock_item_name")]
+        if not entries:
+            raise TallyError(
+                "Stock Journal: at least one stock item entry is required. "
+                "Add the stock item name and quantity before creating."
+            )
         fy_start, fy_end = self._fy_dates(date)
 
         out_blocks = []  # source — goods leaving
@@ -1424,7 +1435,12 @@ class TallyClient:
         date       = self._require_date(payload, "Physical Stock")
         txn_number = payload.get("transaction_number") or self._vch_id()
         narration  = payload.get("narration", "")
-        entries    = payload.get("entries") or []
+        entries    = [e for e in (payload.get("entries") or []) if e.get("stock_item_name")]
+        if not entries:
+            raise TallyError(
+                "Physical Stock: at least one stock item entry is required. "
+                "Add the stock item name and quantity before creating."
+            )
         fy_start, fy_end = self._fy_dates(date)
 
         entry_blocks = []
@@ -1467,7 +1483,12 @@ class TallyClient:
         txn_number  = payload.get("transaction_number") or self._vch_id()
         narration   = payload.get("narration", "")
         party       = payload.get("party_name", "")
-        entries     = payload.get("entries") or []
+        entries     = [e for e in (payload.get("entries") or []) if e.get("stock_item_name")]
+        if not entries:
+            raise TallyError(
+                f"{vchtype}: at least one stock item entry is required. "
+                "Add the stock item name and quantity before creating."
+            )
         from_godown = (payload.get("from_godown") or "").strip()
         fy_start, fy_end = self._fy_dates(date)
 

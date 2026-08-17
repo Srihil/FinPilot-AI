@@ -313,6 +313,13 @@ class DemoEntityAgent:
             entity_type = "sales_invoice"
         elif any(w in text_lower for w in ["purchase bill"]):
             entity_type = "purchase_bill"
+        # "ledger" before "customer/debtor" — "Sundry Debtors" contains "debtor"
+        # and would incorrectly route "Add ledger X under Sundry Debtors" to customer.
+        elif any(w in text_lower for w in ["ledger"]):
+            entity_type = "ledger"
+        # "account group" / "add group" / "create group" before "account" (ledger fallback)
+        elif any(w in text_lower for w in ["account group", "add group", "create group", "new group"]):
+            entity_type = "group"
         elif any(w in text_lower for w in ["customer", "client", "buyer", "debtor"]):
             entity_type = "customer"
         elif any(w in text_lower for w in ["vendor", "supplier", "creditor"]):
@@ -325,10 +332,10 @@ class DemoEntityAgent:
             entity_type = "unit"
         elif any(w in text_lower for w in ["godown", "warehouse", "location"]):
             entity_type = "godown"
-        elif any(w in text_lower for w in ["account group"]):
-            entity_type = "group"
-        elif any(w in text_lower for w in ["ledger", "account"]):
+        elif any(w in text_lower for w in ["account"]):
             entity_type = "ledger"
+        elif any(w in text_lower for w in ["group"]):
+            entity_type = "group"
         elif any(w in text_lower for w in ["invoice", "sale"]):
             entity_type = "sales_invoice"
         elif any(w in text_lower for w in ["purchase", "bill"]):

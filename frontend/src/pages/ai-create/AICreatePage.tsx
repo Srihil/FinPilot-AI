@@ -4,7 +4,7 @@ import {
   Wand2, Zap, Loader2, CheckCircle, AlertCircle, RefreshCw,
   Activity, X, Clock, CheckCircle2, XCircle, RotateCcw, ChevronRight, Plus, Trash2,
 } from 'lucide-react';
-import { aiCreateApi, tallyApi, managementApi, type TallyJobItem } from '../../api/endpoints';
+import { aiCreateApi, tallyApi, managementApi, groupsApi, type TallyJobItem } from '../../api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -12,7 +12,7 @@ import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { toast } from '../../components/ui/use-toast';
 import { Combobox } from '../../components/ui/Combobox';
-import type { TallyGodown, TallyStockItem, TallyUnit, TallyLedger } from '../../types';
+import type { TallyGodown, TallyStockItem, TallyUnit, TallyLedger, TallyGroup, TallyStockGroup, VoucherTypeItem } from '../../types';
 
 // ─── Quick chips ─────────────────────────────────────────────────────────────
 
@@ -328,6 +328,21 @@ const STOCK_TXN_TYPES = new Set([
 const GODOWN_FIELDS = new Set(['from_godown', 'to_godown', 'godown']);
 const PARTY_FIELDS  = new Set(['party_name', 'party_ledger']);
 
+// Accounting voucher types that need ledger dropdowns
+const ACCOUNTING_TYPES = new Set([
+  'sales_invoice', 'purchase_bill', 'receipt', 'payment', 'journal',
+  'credit_note', 'debit_note', 'contra',
+]);
+
+// All fields that should show a ledger Combobox (accounting + custom vouchers)
+const LEDGER_FIELDS = new Set([
+  'customer_name', 'vendor_name',
+  'party_ledger', 'account_ledger',
+  'sales_ledger', 'purchase_ledger',
+  'dr_ledger', 'cr_ledger',
+  'from_account', 'to_account',
+]);
+
 // ─── StockTxnEntriesEditor ────────────────────────────────────────────────────
 
 interface StockEntry {
@@ -438,14 +453,17 @@ export default function AICreatePage() {
   const [created, setCreated] = useState<CreationResult | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const isStockTxn = extraction ? STOCK_TXN_TYPES.has(extraction.entity_type) : false;
+  const isStockTxn     = extraction ? STOCK_TXN_TYPES.has(extraction.entity_type) : false;
+  const isAccounting   = extraction ? ACCOUNTING_TYPES.has(extraction.entity_type) : false;
+  const isCustomVoucher = extraction?.entity_type === 'custom_voucher';
+  const entityType     = extraction?.entity_type ?? '';
 
-  // Master data — only fetched when showing a stock txn preview
+  // ── Master data queries — enabled only when relevant to the current entity ──
   const { data: godownsData } = useQuery({
     queryKey: ['godowns-all'],
     queryFn: () => managementApi.godowns({ page_size: 100 }),
     staleTime: 60_000,
-    enabled: isStockTxn,
+    enabled: isStockTxn || entityType === 'godown',
   });
   const { data: stockItemsData } = useQuery({
     queryKey: ['stock-items-all'],
@@ -457,19 +475,41 @@ export default function AICreatePage() {
     queryKey: ['units-all'],
     queryFn: () => managementApi.units({ page_size: 100 }),
     staleTime: 60_000,
-    enabled: isStockTxn,
+    enabled: isStockTxn || entityType === 'stock_item',
   });
   const { data: ledgersData } = useQuery({
     queryKey: ['ledgers-all'],
-    queryFn: () => managementApi.ledgers({ page_size: 100 }),
+    queryFn: () => managementApi.ledgers({ page_size: 500 }),
     staleTime: 60_000,
-    enabled: isStockTxn,
+    enabled: isStockTxn || isAccounting || isCustomVoucher || entityType === 'ledger',
+  });
+  const { data: groupsData } = useQuery({
+    queryKey: ['groups-all'],
+    queryFn: () => groupsApi.list({ page_size: 200 }),
+    staleTime: 60_000,
+    enabled: entityType === 'ledger' || entityType === 'group',
+  });
+  const { data: stockGroupsData } = useQuery({
+    queryKey: ['stock-groups-all'],
+    queryFn: () => managementApi.stockGroups({ page_size: 200 }),
+    staleTime: 60_000,
+    enabled: entityType === 'stock_item' || entityType === 'stock_group',
+  });
+  const { data: voucherTypesData } = useQuery({
+    queryKey: ['voucher-types-all'],
+    queryFn: () => managementApi.voucherTypes({ page_size: 100 }),
+    staleTime: 60_000,
+    enabled: isCustomVoucher,
   });
 
-  const godownNames  = useMemo(() => (godownsData?.items  ?? [] as TallyGodown[]).map(g => g.name),  [godownsData]);
-  const stockItemNames = useMemo(() => (stockItemsData?.items ?? [] as TallyStockItem[]).map(i => i.name), [stockItemsData]);
-  const unitNames    = useMemo(() => (unitsData?.items    ?? [] as TallyUnit[]).map(u => u.name),    [unitsData]);
-  const ledgerNames  = useMemo(() => (ledgersData?.items  ?? [] as TallyLedger[]).map(l => l.name),  [ledgersData]);
+  const godownNames      = useMemo(() => (godownsData?.items    ?? [] as TallyGodown[]).map(g => g.name),    [godownsData]);
+  const stockItemNames   = useMemo(() => (stockItemsData?.items ?? [] as TallyStockItem[]).map(i => i.name), [stockItemsData]);
+  const unitNames        = useMemo(() => (unitsData?.items      ?? [] as TallyUnit[]).map(u => u.name),      [unitsData]);
+  const ledgerNames      = useMemo(() => (ledgersData?.items    ?? [] as TallyLedger[]).map(l => l.name),    [ledgersData]);
+  const groupNames       = useMemo(() => (groupsData?.items     ?? [] as TallyGroup[]).map(g => g.name),     [groupsData]);
+  const stockGroupNames  = useMemo(() => (stockGroupsData?.items ?? [] as TallyStockGroup[]).map(g => g.name), [stockGroupsData]);
+  const voucherTypeNames = useMemo(() => (voucherTypesData?.items ?? [] as VoucherTypeItem[]).map(v => v.name), [voucherTypesData]);
+
   const stockItemMap = useMemo(() => {
     const m = new Map<string, { unit: string; rate: number }>();
     for (const item of (stockItemsData?.items ?? [] as TallyStockItem[])) {
@@ -707,6 +747,126 @@ export default function AICreatePage() {
                       </div>
                     );
                   }
+                }
+
+                // ── Accounting vouchers + custom voucher: ledger Combobox ──
+                if (LEDGER_FIELDS.has(key)) {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">{fieldLabel(key)}</Label>
+                      <Combobox
+                        options={ledgerNames}
+                        value={String(val || '')}
+                        onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
+                        placeholder="Select ledger…"
+                      />
+                    </div>
+                  );
+                }
+
+                // ── Custom voucher: voucher type name Combobox ────────────
+                if (entityType === 'custom_voucher' && key === 'voucher_type_name') {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Voucher Type Name</Label>
+                      <Combobox
+                        options={voucherTypeNames}
+                        value={String(val || '')}
+                        onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
+                        placeholder="Select custom type…"
+                      />
+                    </div>
+                  );
+                }
+
+                // ── Ledger master: group → account group Combobox ─────────
+                if (entityType === 'ledger' && key === 'group') {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Account Group</Label>
+                      <Combobox
+                        options={groupNames}
+                        value={String(val || '')}
+                        onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
+                        placeholder="Select group…"
+                      />
+                    </div>
+                  );
+                }
+
+                // ── Account group master: parent → account group Combobox ─
+                if (entityType === 'group' && key === 'parent') {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Parent Group</Label>
+                      <Combobox
+                        options={groupNames}
+                        value={String(val || '')}
+                        onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
+                        placeholder="Select parent group…"
+                      />
+                    </div>
+                  );
+                }
+
+                // ── Stock item: unit Combobox ─────────────────────────────
+                if (entityType === 'stock_item' && key === 'unit') {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Unit</Label>
+                      <Combobox
+                        options={unitNames}
+                        value={String(val || '')}
+                        onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
+                        placeholder="Select unit…"
+                      />
+                    </div>
+                  );
+                }
+
+                // ── Stock item: stock group Combobox ──────────────────────
+                if (entityType === 'stock_item' && key === 'stock_group') {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Stock Group</Label>
+                      <Combobox
+                        options={stockGroupNames}
+                        value={String(val || '')}
+                        onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
+                        placeholder="Select stock group…"
+                      />
+                    </div>
+                  );
+                }
+
+                // ── Stock group: parent → stock group Combobox ────────────
+                if (entityType === 'stock_group' && key === 'parent') {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Parent Stock Group</Label>
+                      <Combobox
+                        options={stockGroupNames}
+                        value={String(val || '')}
+                        onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
+                        placeholder="Select parent group…"
+                      />
+                    </div>
+                  );
+                }
+
+                // ── Godown: parent → godown Combobox ─────────────────────
+                if (entityType === 'godown' && key === 'parent') {
+                  return (
+                    <div key={key} className="space-y-1">
+                      <Label className="text-xs font-medium text-slate-600">Parent Godown</Label>
+                      <Combobox
+                        options={godownNames}
+                        value={String(val || '')}
+                        onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
+                        placeholder="Select parent godown…"
+                      />
+                    </div>
+                  );
                 }
 
                 // ── Default: plain input / textarea ───────────────────────

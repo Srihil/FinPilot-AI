@@ -11,7 +11,7 @@ import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { SyncBadge } from '../../components/ui/SyncBadge';
-import { SearchableSelect, preventDropdownDismissal } from '../../components/ui/SearchableSelect';
+import { NativeSelect } from '../../components/ui/NativeSelect';
 import { toast } from '../../components/ui/use-toast';
 import { cn } from '../../utils/cn';
 import { formatDate, formatCurrency } from '../../utils/format';
@@ -19,41 +19,6 @@ import apiClient from '../../api/client';
 import { managementApi } from '../../api/endpoints';
 import type { TallyGodown, TallyStockItem, TallyUnit, TallyLedger } from '../../types';
 
-// ─── Reusable native-HTML field helpers ───────────────────────────────────────
-
-const selectCls = 'w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring';
-
-function NativeSelect({ value, onChange, options, placeholder, className }: {
-  value: string; onChange: (v: string) => void;
-  options: string[]; placeholder?: string; className?: string;
-}) {
-  return (
-    <select value={value} onChange={e => onChange(e.target.value)}
-      className={cn(selectCls, className)}>
-      <option value="">{placeholder ?? '— Select —'}</option>
-      {options.map(o => <option key={o} value={o}>{o}</option>)}
-    </select>
-  );
-}
-
-// datalist = native type-to-filter input (works for large lists like stock items / ledgers)
-let _datalistId = 0;
-function DatalistInput({ value, onChange, options, placeholder, className }: {
-  value: string; onChange: (v: string) => void;
-  options: string[]; placeholder?: string; className?: string;
-}) {
-  const id = `dl-${++_datalistId}`;  // unique per render call
-  return (
-    <>
-      <input type="text" list={id} value={value} onChange={e => onChange(e.target.value)}
-        placeholder={placeholder ?? 'Type or select…'}
-        className={cn(selectCls, className)} />
-      <datalist id={id}>
-        {options.map(o => <option key={o} value={o} />)}
-      </datalist>
-    </>
-  );
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -533,10 +498,7 @@ export default function StockTransactionsPage() {
 
       {/* ── Create Dialog ──────────────────────────────────────────────────── */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent
-          className="max-w-2xl"
-          onPointerDownOutside={preventDropdownDismissal}
-        >
+        <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>New Stock Transaction</DialogTitle></DialogHeader>
           <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
 
@@ -557,7 +519,7 @@ export default function StockTransactionsPage() {
             {showParty && (
               <div>
                 <Label>Party (Customer / Supplier)</Label>
-                <SearchableSelect
+                <NativeSelect
                   value={formParty} onChange={setFormParty}
                   options={ledgerNames} placeholder="— Select party —"
                   className="mt-1"
@@ -568,7 +530,7 @@ export default function StockTransactionsPage() {
             <div className={cn('grid gap-3', showToGodown ? 'grid-cols-2' : 'grid-cols-1')}>
               <div>
                 <Label>{fromLabel}</Label>
-                <SearchableSelect
+                <NativeSelect
                   value={formFromGodown} onChange={setFormFromGodown}
                   options={godownNames} placeholder="— Select godown —"
                   className="mt-1"
@@ -577,7 +539,7 @@ export default function StockTransactionsPage() {
               {showToGodown && (
                 <div>
                   <Label>To Godown</Label>
-                  <SearchableSelect
+                  <NativeSelect
                     value={formToGodown} onChange={setFormToGodown}
                     options={godownNames} placeholder="— Select destination —"
                     className="mt-1"
@@ -610,7 +572,7 @@ export default function StockTransactionsPage() {
                     {entries.map((entry, idx) => (
                       <tr key={idx} className="border-b last:border-0">
                         <td className="px-2 py-1.5">
-                          <SearchableSelect
+                          <NativeSelect
                             value={entry.stock_item_name}
                             onChange={v => handleEntryItem(idx, v)}
                             options={stockItemNames}
@@ -623,7 +585,7 @@ export default function StockTransactionsPage() {
                             placeholder="0" className="text-right" />
                         </td>
                         <td className="px-2 py-1.5">
-                          <SearchableSelect
+                          <NativeSelect
                             value={entry.unit}
                             onChange={v => handleEntryField(idx, 'unit', v)}
                             options={unitNames}

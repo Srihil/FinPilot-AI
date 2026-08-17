@@ -11,7 +11,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { toast } from '../../components/ui/use-toast';
-import { SearchableSelect } from '../../components/ui/SearchableSelect';
+import { NativeSelect } from '../../components/ui/NativeSelect';
 import type { TallyGodown, TallyStockItem, TallyUnit, TallyLedger } from '../../types';
 
 // ─── Quick chips ─────────────────────────────────────────────────────────────
@@ -384,7 +384,7 @@ function StockTxnEntriesEditor({
           {rows.map((row, idx) => (
             <tr key={idx} className="border-b last:border-0">
               <td className="px-1.5 py-1">
-                <SearchableSelect options={stockItemNames} value={String(row.stock_item_name || '')}
+                <NativeSelect options={stockItemNames} value={String(row.stock_item_name || '')}
                   onChange={v => handleItem(idx, v)} placeholder="— Select item —" />
               </td>
               <td className="px-1.5 py-1">
@@ -393,7 +393,7 @@ function StockTxnEntriesEditor({
                   placeholder="0" className="text-right text-xs" />
               </td>
               <td className="px-1.5 py-1">
-                <SearchableSelect options={unitNames} value={String(row.unit || '')}
+                <NativeSelect options={unitNames} value={String(row.unit || '')}
                   onChange={v => setField(idx, 'unit', v)} placeholder="— Unit —" />
               </td>
               <td className="px-1.5 py-1">
@@ -678,7 +678,7 @@ export default function AICreatePage() {
                     return (
                       <div key={key} className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">{fieldLabel(key)}</Label>
-                        <SearchableSelect
+                        <NativeSelect
                           options={godownNames}
                           value={String(val || '')}
                           onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}
@@ -692,7 +692,7 @@ export default function AICreatePage() {
                     return (
                       <div key={key} className="space-y-1">
                         <Label className="text-xs font-medium text-slate-600">{fieldLabel(key)}</Label>
-                        <SearchableSelect
+                        <NativeSelect
                           options={ledgerNames}
                           value={String(val || '')}
                           onChange={v => setEditableData(prev => ({ ...prev, [key]: v }))}

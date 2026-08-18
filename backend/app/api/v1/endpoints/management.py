@@ -1441,6 +1441,7 @@ def _queue_tally_cancel_voucher(
     voucher_ref: str,
     voucher_type: str,
     entity_type: str,
+    voucher_date: str = "",
 ) -> bool:
     """Queue a CANCEL_VOUCHER job. Returns True if queued, False if no active connector."""
     connector = db.query(TallyConnector).filter(
@@ -1457,8 +1458,9 @@ def _queue_tally_cancel_voucher(
         operation=TallyJobOperation.CANCEL_VOUCHER,
         payload={
             "voucher_ref": voucher_ref,
-            "voucher_type": voucher_type,  # "Sales" | "Purchase"
-            "entity_type": entity_type,    # "invoice" | "expense"
+            "voucher_type": voucher_type,
+            "entity_type": entity_type,
+            "date": voucher_date,          # passed to connector so cancel XML has a valid date
         },
         idempotency_key=ikey,
     ))
@@ -1508,9 +1510,15 @@ def delete_voucher(
 
         if voucher_status in ("synced", "delete_failed") and voucher_ref:
             # Tally-confirmed-first: queue cancel job, keep record visible until Tally confirms
+            inv_date = ""
+            if record.invoice_date:
+                try:
+                    inv_date = record.invoice_date.strftime("%Y%m%d")
+                except Exception:
+                    pass
             record.tally_sync_status = "delete_pending"
             db.flush()
-            queued = _queue_tally_cancel_voucher(db, cid, voucher_ref, voucher_type_tally, "invoice")
+            queued = _queue_tally_cancel_voucher(db, cid, voucher_ref, voucher_type_tally, "invoice", inv_date)
             db.commit()
             audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
                               entity_type="invoice", entity_id=record.id,
@@ -1561,9 +1569,15 @@ def delete_voucher(
         voucher_ref = getattr(record, "tally_voucher_ref", None)
 
         if voucher_status in ("synced", "delete_failed") and voucher_ref:
+            exp_date = ""
+            if record.expense_date:
+                try:
+                    exp_date = record.expense_date.strftime("%Y%m%d")
+                except Exception:
+                    pass
             record.tally_sync_status = "delete_pending"
             db.flush()
-            queued = _queue_tally_cancel_voucher(db, cid, voucher_ref, "Purchase", "expense")
+            queued = _queue_tally_cancel_voucher(db, cid, voucher_ref, "Purchase", "expense", exp_date)
             db.commit()
             audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
                               entity_type="expense", entity_id=record.id,

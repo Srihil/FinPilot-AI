@@ -330,6 +330,10 @@ export const tallyApi = {
     const response = await apiClient.get('/api/tally/activity', { params: { limit } });
     return response.data;
   },
+  retryJob: async (jobId: string): Promise<{ id: string; status: string; message: string }> => {
+    const response = await apiClient.post(`/api/tally/jobs/${jobId}/retry`);
+    return response.data;
+  },
 };
 
 // ─── Management ──────────────────────────────────────────────────────────────

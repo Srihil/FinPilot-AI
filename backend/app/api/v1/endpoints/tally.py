@@ -539,6 +539,30 @@ def create_tally_job(
 
 # ─── User-facing: get single job status ─────────────────────────────────────
 
+@router.post("/jobs/{job_id}/retry")
+def retry_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Reset a FAILED job back to PENDING so the connector retries it."""
+    job = db.query(TallyIntegrationJob).filter(
+        TallyIntegrationJob.id == uuid.UUID(job_id),
+        TallyIntegrationJob.company_id == current_user.company_id,
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status.value != "FAILED":
+        raise HTTPException(status_code=400, detail=f"Job is {job.status.value}, not FAILED — cannot retry")
+    job.status = JobStatus.PENDING
+    job.retry_count = 0
+    job.error_message = None
+    job.claimed_at = None
+    job.completed_at = None
+    db.commit()
+    return {"id": str(job.id), "status": "PENDING", "message": "Job reset to PENDING — connector will retry shortly"}
+
+
 @router.get("/jobs/{job_id}")
 def get_job_status(
     job_id: str,

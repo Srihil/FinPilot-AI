@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Wand2, Zap, Loader2, CheckCircle, AlertCircle, RefreshCw,
@@ -178,7 +178,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function JobCard({ job }: { job: TallyJobItem }) {
+function JobCard({ job, onRetry }: { job: TallyJobItem; onRetry?: (id: string) => void }) {
   const opLabel = OP_LABELS[job.operation] ?? job.operation.replace(/_/g, ' ');
   const smart = interpretError(job.error_message, job.operation);
   const isActive = job.status === 'PENDING' || job.status === 'CLAIMED' || job.status === 'RETRYING';
@@ -210,6 +210,16 @@ function JobCard({ job }: { job: TallyJobItem }) {
         </div>
       )}
 
+      {job.status === 'FAILED' && onRetry && (
+        <button
+          onClick={() => onRetry(job.id)}
+          className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800
+            bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5 transition-colors w-full justify-center"
+        >
+          <RotateCcw className="w-3 h-3" /> Retry Job
+        </button>
+      )}
+
       {job.status === 'SUCCESS' && (
         <p className="text-xs text-emerald-700 font-medium flex items-center gap-1">
           <CheckCircle2 className="w-3.5 h-3.5" />
@@ -225,11 +235,13 @@ function ActivityDrawer({
   onClose,
   jobs,
   isLoading,
+  onRetry,
 }: {
   open: boolean;
   onClose: () => void;
   jobs: TallyJobItem[];
   isLoading: boolean;
+  onRetry: (id: string) => void;
 }) {
   return (
     <>
@@ -287,7 +299,7 @@ function ActivityDrawer({
               </div>
             </div>
           ) : (
-            jobs.map(job => <JobCard key={job.id} job={job} />)
+            jobs.map(job => <JobCard key={job.id} job={job} onRetry={onRetry} />)
           )}
         </div>
 
@@ -540,6 +552,19 @@ export default function AICreatePage() {
     pendingCount > 0 ? 'bg-amber-400 animate-pulse' :
     jobs.some(j => j.status === 'SUCCESS') ? 'bg-emerald-400' :
     'bg-slate-300';
+
+  // ── Retry failed job ──────────────────────────────────────────────────────
+  const retryMutation = useMutation({
+    mutationFn: (jobId: string) => tallyApi.retryJob(jobId),
+    onSuccess: () => {
+      toast({ title: 'Job queued for retry', description: 'The connector will retry the operation shortly.', variant: 'success' });
+      qc.invalidateQueries({ queryKey: ['tally-activity'] });
+    },
+    onError: () => {
+      toast({ title: 'Retry failed', description: 'Could not reset the job. Please try again.', variant: 'destructive' });
+    },
+  });
+  const handleRetry = useCallback((jobId: string) => retryMutation.mutate(jobId), [retryMutation]);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const extractMutation = useMutation({
@@ -1009,6 +1034,7 @@ export default function AICreatePage() {
         onClose={() => setDrawerOpen(false)}
         jobs={jobs}
         isLoading={activityLoading}
+        onRetry={handleRetry}
       />
     </div>
   );

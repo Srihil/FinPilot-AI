@@ -205,14 +205,23 @@ class TallyClient:
 
     def _get_daybook_remoteid_map(self) -> dict:
         """Fetch the Day Book for TallyPrime's current active period and return a map
-        of (vchnum, vchtype_lower) -> FP-xxx REMOTEID for FinPilot-created vouchers.
+        of (vchnum, vchtype_lower) -> FinPilot REMOTEID for all FinPilot-created vouchers.
 
-        Day Book is period-limited (ignores explicit date ranges) but it is the only
-        TallyPrime export that returns the actual FP-xxx REMOTEID stored on vouchers.
-        The TDL Collection approach only returns the internal SENDERID/GUID as REMOTEID,
-        which cannot be used for deletion.
+        Day Book is the only TallyPrime export that returns the actual REMOTEID stored on
+        vouchers. The TDL Collection only returns the internal SENDERID/GUID as REMOTEID,
+        which TallyPrime does not accept for deletion.
+
+        FinPilot REMOTEID prefixes:
+          FP-  accounting vouchers (Receipt, Payment, Sales, Purchase, Journal, Contra, etc.)
+          SJ-  Stock Journal
+          PS-  Physical Stock
+          DN-  Delivery Note
+          RN-  Receipt Note
+          RI-  Rejections In
+          RO-  Rejections Out
         """
         import re as _re
+        _FP_PREFIXES = ("FP-", "SJ-", "PS-", "DN-", "RN-", "RI-", "RO-")
         xml = """<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>Day Book</ID></HEADER>
   <BODY><DESC><STATICVARIABLES>
@@ -235,7 +244,7 @@ class TallyClient:
             rid   = rid_m.group(1) if rid_m else ""
             vtype = (vtype_m.group(1) if vtype_m else "").lower().strip()
             vnum  = (vnum_m.group(1) if vnum_m else "").strip()
-            if rid.startswith("FP-") and vnum and vtype:
+            if rid.startswith(_FP_PREFIXES) and vnum and vtype:
                 remoteid_map[(vnum, vtype)] = rid
         return remoteid_map
 
@@ -830,6 +839,13 @@ class TallyClient:
         try:
             raw = self._post_xml(xml)
             root = self._parse_response(raw)
+
+            # Day Book is the only source of SJ-/PS-/DN-/RN-/RI-/RO- REMOTEIDs.
+            # The TDL Collection returns TallyPrime's internal SENDERID/GUID which
+            # cannot be used for deletion. We match by (vch_no, vchtype_lower) and
+            # replace the sequential VOUCHERNUMBER with the deletable REMOTEID.
+            daybook_map = self._get_daybook_remoteid_map()
+
             txns = []
 
             for v in root.findall(".//VOUCHER"):
@@ -848,6 +864,13 @@ class TallyClient:
                 vch_no    = (vchno_el.text or "").strip() if vchno_el is not None else ""
                 narration = (narr_el.text or "").strip()  if narr_el  is not None else ""
                 party     = (party_el.text or "").strip() if party_el is not None else ""
+
+                # Prefer the actual FinPilot REMOTEID (SJ-/PS-/etc.) from Day Book
+                # over the sequential VOUCHERNUMBER TallyPrime assigns ("7", "8"…).
+                # The REMOTEID is what must be sent back to TallyPrime for deletion.
+                fp_remoteid = daybook_map.get((vch_no, vtype_raw.lower()), "")
+                if fp_remoteid:
+                    vch_no = fp_remoteid
 
                 entries = []
                 from_godown = ""

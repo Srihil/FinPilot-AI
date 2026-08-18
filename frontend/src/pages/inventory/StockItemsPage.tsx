@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Package, Plus, Search, Loader2, AlertCircle, Pencil, Trash2,
-  FolderOpen, FolderClosed, Folder, Layers,
+  FolderOpen, FolderClosed, Folder,
   ChevronRight, ChevronDown, SlidersHorizontal,
 } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
@@ -32,11 +32,26 @@ interface GroupNode extends TallyStockGroup {
   items: TallyStockItem[];
 }
 
+// `continues[i]` = true when ancestor at nesting level i still has more siblings
+// after the current subtree → draw │ at that column; false → draw space.
+// The last element is whether THIS node itself has more siblings → ├─ vs └─.
 type Row =
-  | { kind: 'group';   node: GroupNode }
-  | { kind: 'item';    item: TallyStockItem; depth: number }
-  | { kind: 'ug-hdr'; colId: string; count: number }
-  | { kind: 'ug-item'; item: TallyStockItem; depth: number };
+  | { kind: 'group'; node: GroupNode; continues: boolean[] }
+  | { kind: 'item';  item: TallyStockItem; continues: boolean[] };
+
+// ─── Tree connector prefix ────────────────────────────────────────────────────
+
+function TreePrefix({ continues }: { continues: boolean[] }) {
+  if (continues.length === 0) return null;
+  const ancestors = continues.slice(0, -1);
+  const isLast    = !continues[continues.length - 1];
+  return (
+    <span className="font-mono text-slate-300 select-none whitespace-pre text-sm leading-none">
+      {ancestors.map((c, i) => <span key={i}>{c ? '│  ' : '   '}</span>)}
+      <span>{isLast ? '└─ ' : '├─ '}</span>
+    </span>
+  );
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,27 +62,30 @@ function countItems(node: GroupNode): number {
 }
 
 function buildHierarchy(groups: TallyStockGroup[], items: TallyStockItem[]) {
+  // Build map: normalised name → node
   const byName = new Map<string, GroupNode>();
+  const normalise = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
   for (const g of groups) {
-    // First occurrence wins — subsequent duplicates with same name are ignored
-    if (!byName.has(g.name.toLowerCase())) {
-      byName.set(g.name.toLowerCase(), { ...g, children: [], depth: 0, items: [] });
-    }
+    const key = normalise(g.name);
+    if (!byName.has(key))
+      byName.set(key, { ...g, children: [], depth: 0, items: [] });
   }
+
   const roots: GroupNode[] = [];
-  // Iterate the deduplicated map values, not the original groups array
   for (const node of byName.values()) {
-    const pk = (node.parent || '').toLowerCase();
+    const pk = node.parent ? normalise(node.parent) : '';
     const parent = pk ? byName.get(pk) : null;
     if (parent) { node.depth = parent.depth + 1; parent.children.push(node); }
     else roots.push(node);
   }
 
-  const ugItems: TallyStockItem[] = [];
+  // Match items to groups; unmatched items go to rootItems (shown at root, not "Ungrouped")
+  const rootItems: TallyStockItem[] = [];
   for (const item of items) {
-    const gNode = item.stock_group ? byName.get(item.stock_group.toLowerCase()) : null;
+    const key = item.stock_group ? normalise(item.stock_group) : '';
+    const gNode = key ? byName.get(key) : null;
     if (gNode) gNode.items.push(item);
-    else ugItems.push(item);
+    else rootItems.push(item);
   }
 
   const sort = (ns: GroupNode[]) => {
@@ -75,29 +93,49 @@ function buildHierarchy(groups: TallyStockGroup[], items: TallyStockItem[]) {
     ns.forEach(n => { sort(n.children); n.items.sort((a, b) => a.name.localeCompare(b.name)); });
   };
   sort(roots);
-  ugItems.sort((a, b) => a.name.localeCompare(b.name));
+  rootItems.sort((a, b) => a.name.localeCompare(b.name));
 
-  return { roots, ugItems };
+  return { roots, rootItems };
 }
 
-function flattenToRows(roots: GroupNode[], ugItems: TallyStockItem[], collapsed: Set<string>): Row[] {
+function flattenToRows(
+  roots: GroupNode[],
+  rootItems: TallyStockItem[],
+  collapsed: Set<string>,
+): Row[] {
   const rows: Row[] = [];
 
-  const walkGroup = (node: GroupNode) => {
+  const walkGroup = (node: GroupNode, parentContinues: boolean[]) => {
     const cId = `g:${node.id}`;
-    rows.push({ kind: 'group', node });
+    rows.push({ kind: 'group', node, continues: parentContinues });
     if (collapsed.has(cId)) return;
-    for (const child of node.children) walkGroup(child);
-    for (const item of node.items) rows.push({ kind: 'item', item, depth: node.depth + 1 });
+
+    // Interleave sub-groups and items, groups first then items
+    const subGroups = node.children;
+    const nodeItems = node.items;
+    const total = subGroups.length + nodeItems.length;
+    let idx = 0;
+    for (const child of subGroups) {
+      const isLast = idx === total - 1;
+      walkGroup(child, [...parentContinues, !isLast]);
+      idx++;
+    }
+    for (const item of nodeItems) {
+      const isLast = idx === total - 1;
+      rows.push({ kind: 'item', item, continues: [...parentContinues, !isLast] });
+      idx++;
+    }
   };
 
-  for (const root of roots) walkGroup(root);
-
-  if (ugItems.length > 0) {
-    const ugId = '__ug__';
-    rows.push({ kind: 'ug-hdr', colId: ugId, count: ugItems.length });
-    if (!collapsed.has(ugId))
-      for (const item of ugItems) rows.push({ kind: 'ug-item', item, depth: 1 });
+  // Root-level: all root groups + unmatched items shown together
+  const rootEntries: Array<{ type: 'group'; node: GroupNode } | { type: 'item'; item: TallyStockItem }> = [
+    ...roots.map(n => ({ type: 'group' as const, node: n })),
+    ...rootItems.map(i => ({ type: 'item' as const, item: i })),
+  ];
+  // Root items have no tree prefix (continues = [])
+  for (const entry of rootEntries) {
+    if (entry.type === 'group') walkGroup(entry.node, []);
+    else rows.push({ kind: 'item', item: entry.item, continues: [] });
   }
 
   return rows;
@@ -162,14 +200,14 @@ export default function StockItemsPage() {
     );
   }, [allItems, search]);
 
-  const { roots, ugItems } = useMemo(
+  const { roots, rootItems } = useMemo(
     () => buildHierarchy(allGroups, filteredItems),
     [allGroups, filteredItems]
   );
 
   const rows = useMemo(
-    () => flattenToRows(roots, ugItems, search ? new Set() : collapsed),
-    [roots, ugItems, collapsed, search]
+    () => flattenToRows(roots, rootItems, search ? new Set() : collapsed),
+    [roots, rootItems, collapsed, search]
   );
 
   const toggle = (id: string) => setCollapsed(prev => {
@@ -180,7 +218,6 @@ export default function StockItemsPage() {
     const ids = new Set<string>();
     const walk = (ns: GroupNode[]) => { for (const n of ns) { ids.add(`g:${n.id}`); walk(n.children); } };
     walk(roots);
-    if (ugItems.length > 0) ids.add('__ug__');
     setCollapsed(ids);
   };
 
@@ -202,7 +239,7 @@ export default function StockItemsPage() {
   const updateMut = useMutation({
     mutationFn: () => managementApi.updateStockItem(editItem!.id, {
       name: formName || undefined, stock_group: formGroup || undefined,
-      unit: formUnit || undefined, rate: formRate ? parseFloat(formRate) : undefined,
+      unit: formUnit || undefined, rate: formRate.trim() !== '' ? parseFloat(formRate) : undefined,
     }),
     onSuccess: () => {
       toast({ title: 'Updated' });
@@ -257,7 +294,9 @@ export default function StockItemsPage() {
   function resetForm() { setFormName(''); setFormGroup(''); setFormUnit(''); setFormRate(''); setFormQty(''); }
   function openEdit(item: TallyStockItem) {
     setFormName(item.name); setFormGroup(item.stock_group || '');
-    setFormUnit(item.unit || ''); setFormRate(item.rate ? String(item.rate) : '');
+    setFormUnit(item.unit || '');
+    // Use explicit null/undefined check so rate=0 is preserved as '0', not ''
+    setFormRate(item.rate != null ? String(item.rate) : '');
     setEditItem(item);
   }
 
@@ -327,119 +366,78 @@ export default function StockItemsPage() {
               </thead>
               <tbody>
                 {rows.map((row, i) => {
-                  // ── Stock group row
+                  // ── Group row ──────────────────────────────────────────────
                   if (row.kind === 'group') {
                     const n = row.node;
                     const cId = `g:${n.id}`;
                     const isCol = collapsed.has(cId);
                     const hasChildren = n.children.length + n.items.length > 0;
                     const ic = countItems(n);
+                    const isRoot = row.continues.length === 0;
                     return (
-                      <tr key={cId} className="border-b bg-amber-50/50 hover:bg-amber-50">
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-1.5" style={{ paddingLeft: n.depth * 20 }}>
-                            {n.depth > 0 && <span className="text-slate-300 select-none text-sm">└</span>}
+                      <tr key={`${cId}-${i}`} className={cn('border-b', isRoot ? 'bg-amber-50/60' : 'hover:bg-amber-50/40')}>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center">
+                            <TreePrefix continues={row.continues} />
                             {hasChildren ? (
-                              <button onClick={() => toggle(cId)} className="p-0.5 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-100">
+                              <button
+                                onClick={() => toggle(cId)}
+                                className="p-0.5 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-100 shrink-0"
+                              >
                                 {isCol ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                               </button>
-                            ) : <span className="w-5" />}
+                            ) : <span className="w-5 shrink-0" />}
                             {hasChildren
-                              ? (isCol ? <FolderClosed className="w-4 h-4 text-amber-500 shrink-0" /> : <FolderOpen className="w-4 h-4 text-amber-400 shrink-0" />)
-                              : <Folder className="w-4 h-4 text-slate-300 shrink-0" />}
-                            <span className="font-semibold text-slate-800 ml-0.5">{n.name}</span>
-                            {n.parent && <span className="text-slate-400 text-xs ml-1">· {n.parent}</span>}
-                            {ic > 0 && <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{ic}</span>}
+                              ? (isCol
+                                ? <FolderClosed className="w-4 h-4 text-amber-500 shrink-0 ml-0.5" />
+                                : <FolderOpen className="w-4 h-4 text-amber-400 shrink-0 ml-0.5" />)
+                              : <Folder className="w-4 h-4 text-slate-300 shrink-0 ml-0.5" />}
+                            <span className={cn('ml-1.5 text-slate-800', isRoot ? 'font-bold' : 'font-semibold text-sm')}>{n.name}</span>
+                            {ic > 0 && (
+                              <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold shrink-0">
+                                {ic}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td /><td /><td />
-                        <td className="px-4 py-2.5 text-center"><SyncBadge status={n.tally_sync_status} source={n.source} /></td>
+                        <td className="px-4 py-2 text-center">
+                          <SyncBadge status={n.tally_sync_status} source={n.source} />
+                        </td>
                         <td />
                       </tr>
                     );
                   }
 
-                  // ── Stock item under a group
+                  // ── Item row ───────────────────────────────────────────────
                   if (row.kind === 'item') {
                     const item = row.item;
+                    const isRoot = row.continues.length === 0;
                     return (
-                      <tr key={`item-${item.id}`} className="border-b hover:bg-slate-50 group">
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-2" style={{ paddingLeft: row.depth * 20 }}>
-                            <span className="text-slate-300 select-none text-sm">└</span>
-                            <Package className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                            <span className="font-medium text-slate-800">{item.name}</span>
+                      <tr key={`item-${item.id}-${i}`} className="border-b hover:bg-slate-50/80 group">
+                        <td className="px-3 py-2">
+                          <div className="flex items-center">
+                            <TreePrefix continues={row.continues} />
+                            <Package className={cn('w-3.5 h-3.5 shrink-0', isRoot ? 'text-slate-400' : 'text-indigo-400')} />
+                            <span className="ml-1.5 font-medium text-slate-800 text-sm">{item.name}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 text-xs">
+                        <td className="px-4 py-2 text-xs">
                           {item.unit
                             ? <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">{item.unit}</span>
                             : <span className="text-slate-300">—</span>}
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-right text-slate-600">
+                        <td className="px-4 py-2 text-xs text-right text-slate-600">
                           {item.rate ? formatCurrency(item.rate) : <span className="text-slate-300">—</span>}
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-right font-medium text-indigo-700">
+                        <td className="px-4 py-2 text-xs text-right font-medium text-indigo-700">
                           {item.opening_qty ? `${item.opening_qty} ${item.unit || ''}`.trim() : <span className="text-slate-300">—</span>}
                         </td>
-                        <td className="px-4 py-2.5 text-center"><SyncBadge status={item.tally_sync_status} source={item.source} /></td>
-                        <td className="px-4 py-2.5 text-right">
-                          <div className={cn('flex items-center justify-end gap-1', 'opacity-0 group-hover:opacity-100 transition-opacity')}>
-                            <button onClick={() => openAdjust(item)} title="Adjust Qty" className="p-1.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => openEdit(item)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700"><Pencil className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => setDeleteItem(item)} className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
-                          </div>
+                        <td className="px-4 py-2 text-center">
+                          <SyncBadge status={item.tally_sync_status} source={item.source} />
                         </td>
-                      </tr>
-                    );
-                  }
-
-                  // ── Ungrouped header
-                  if (row.kind === 'ug-hdr') {
-                    const isCol = collapsed.has(row.colId);
-                    return (
-                      <tr key="ug-hdr" className="border-b bg-slate-100/70">
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-1.5">
-                            <button onClick={() => toggle(row.colId)} className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200">
-                              {isCol ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                            </button>
-                            <Layers className="w-4 h-4 text-slate-400 shrink-0" />
-                            <span className="font-medium text-slate-500 italic">Ungrouped</span>
-                            <span className="ml-1 text-xs bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded-full">{row.count}</span>
-                          </div>
-                        </td>
-                        <td /><td /><td /><td />
-                      </tr>
-                    );
-                  }
-
-                  // ── Ungrouped item
-                  if (row.kind === 'ug-item') {
-                    const item = row.item;
-                    return (
-                      <tr key={`ugitem-${item.id}`} className="border-b hover:bg-slate-50 group">
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-2" style={{ paddingLeft: row.depth * 20 }}>
-                            <span className="text-slate-300 select-none text-sm">└</span>
-                            <Package className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                            <span className="font-medium text-slate-800">{item.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2.5 text-xs">
-                          {item.unit
-                            ? <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">{item.unit}</span>
-                            : <span className="text-slate-300">—</span>}
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-right text-slate-600">
-                          {item.rate ? formatCurrency(item.rate) : <span className="text-slate-300">—</span>}
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-right font-medium text-indigo-700">
-                          {item.opening_qty ? `${item.opening_qty} ${item.unit || ''}`.trim() : <span className="text-slate-300">—</span>}
-                        </td>
-                        <td className="px-4 py-2.5 text-center"><SyncBadge status={item.tally_sync_status} source={item.source} /></td>
-                        <td className="px-4 py-2.5 text-right">
-                          <div className={cn('flex items-center justify-end gap-1', 'opacity-0 group-hover:opacity-100 transition-opacity')}>
+                        <td className="px-3 py-2 text-right">
+                          <div className={cn('flex items-center justify-end gap-0.5', 'opacity-0 group-hover:opacity-100 transition-opacity')}>
                             <button onClick={() => openAdjust(item)} title="Adjust Qty" className="p-1.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
                             <button onClick={() => openEdit(item)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700"><Pencil className="w-3.5 h-3.5" /></button>
                             <button onClick={() => setDeleteItem(item)} className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>

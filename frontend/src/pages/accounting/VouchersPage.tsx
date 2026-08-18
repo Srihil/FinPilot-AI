@@ -94,16 +94,40 @@ function statusColor(status: string) {
   return map[status] || 'bg-slate-100 text-slate-600';
 }
 
+// ─── Extended voucher type (extra fields from API) ────────────────────────────
+
+type VoucherItemExt = VoucherItem & {
+  party_ledger?: string | null;
+  account_ledger?: string | null;
+  dr_ledger?: string | null;
+  cr_ledger?: string | null;
+  from_account?: string | null;
+  to_account?: string | null;
+};
+
+// ─── Field label ──────────────────────────────────────────────────────────────
+
+function DetailField({ label, value }: { label: string; value?: string | null }) {
+  if (!value) return null;
+  return (
+    <div>
+      <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">{label}</p>
+      <p className="font-medium text-slate-800">{value}</p>
+    </div>
+  );
+}
+
 // ─── Expanded row detail ──────────────────────────────────────────────────────
 
-function VoucherDetail({ v }: { v: VoucherItem }) {
+function VoucherDetail({ v }: { v: VoucherItemExt }) {
+  const vt = v.voucher_type;
+
   return (
     <div className="bg-slate-50 border-t border-slate-100 px-6 py-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-        <div>
-          <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Narration / Title</p>
-          <p className="font-medium text-slate-800">{v.title || v.party_name || '—'}</p>
-        </div>
+
+        {/* Always shown */}
+        <DetailField label="Narration / Title" value={v.title || undefined} />
         <div>
           <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Date</p>
           <p className="text-slate-700">{v.date ? formatDate(v.date) : '—'}</p>
@@ -112,16 +136,35 @@ function VoucherDetail({ v }: { v: VoucherItem }) {
           <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Amount</p>
           <p className="font-semibold text-slate-900">{formatCurrency(v.amount)}</p>
         </div>
-        <div>
-          <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Record Type</p>
-          <p className="text-slate-700 capitalize">{v.entity_type}</p>
-        </div>
-        {v.party_name && (
-          <div>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Party</p>
-            <p className="font-medium text-slate-800">{v.party_name}</p>
-          </div>
+
+        {/* Type-specific ledger fields */}
+        {vt === 'CONTRA' ? (
+          <>
+            <DetailField label="From Account" value={v.from_account} />
+            <DetailField label="To Account"   value={v.to_account} />
+          </>
+        ) : vt === 'JOURNAL' ? (
+          <>
+            <DetailField label="Dr Ledger" value={v.dr_ledger} />
+            <DetailField label="Cr Ledger" value={v.cr_ledger} />
+          </>
+        ) : vt === 'RECEIPT' || vt === 'PAYMENT' ? (
+          <>
+            <DetailField label="Party"           value={v.party_ledger || v.party_name} />
+            <DetailField label="Account (Bank/Cash)" value={v.account_ledger} />
+          </>
+        ) : vt === 'SALES' || vt === 'CREDIT_NOTE' ? (
+          <>
+            <DetailField label="Customer" value={v.party_name} />
+          </>
+        ) : vt === 'PURCHASE' || vt === 'DEBIT_NOTE' ? (
+          <>
+            <DetailField label="Vendor / Supplier" value={v.party_name} />
+          </>
+        ) : (
+          <DetailField label="Party" value={v.party_name} />
         )}
+
         {v.paid_amount != null && v.paid_amount > 0 && (
           <div>
             <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Paid</p>
@@ -245,17 +288,19 @@ export default function VouchersPage() {
   }
 
   function openEdit(v: VoucherItem) {
+    const vx = v as VoucherItemExt;
     setEditItem(v);
-    const rawDate = v.date?.slice(0, 10) ?? '';
-    setEditDate(rawDate);
+    setEditDate(v.date?.slice(0, 10) ?? '');
     setEditAmount(String(v.amount));
-    setEditNarration(v.title ?? v.party_name ?? '');
-    setEditPartyLedger(v.party_name ?? '');
-    setEditAccountLedger('Cash');
+    setEditNarration(v.title ?? '');
+    setEditPartyLedger(vx.party_ledger ?? v.party_name ?? '');
+    setEditAccountLedger(vx.account_ledger ?? 'Cash');
     setEditSalesLedger('Sales');
     setEditPurchaseLedger('Purchases');
-    setEditDrLedger(''); setEditCrLedger('');
-    setEditFromAccount(''); setEditToAccount('');
+    setEditDrLedger(vx.dr_ledger ?? '');
+    setEditCrLedger(vx.cr_ledger ?? '');
+    setEditFromAccount(vx.from_account ?? '');
+    setEditToAccount(vx.to_account ?? '');
   }
 
   function toggleExpand(id: string) {

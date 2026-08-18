@@ -171,6 +171,7 @@ def update_stock_category(
     ).first()
     if not cat:
         raise HTTPException(status_code=404, detail="Stock category not found")
+    old_name = cat.name
     if data.name is not None:
         cat.name = data.name.strip()
     if data.parent is not None:
@@ -178,6 +179,24 @@ def update_stock_category(
     if data.description is not None:
         cat.description = data.description
     cat.updated_at = datetime.now(timezone.utc)
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if connector and getattr(cat, "tally_sync_status", None) in ("synced", "pending", "failed"):
+        from datetime import timezone as _tz
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id, connector_id=connector.id,
+            created_by=current_user.id,
+            operation=TallyJobOperation.CREATE_STOCK_CATEGORY,
+            payload={"name": cat.name, "old_name": old_name, "parent": cat.parent or "", "is_update": True},
+            idempotency_key=f"alter_stock_cat::{cat.id}::{datetime.now(timezone.utc).timestamp()}",
+        )
+        db.add(job)
+        if hasattr(cat, "tally_sync_status"):
+            cat.tally_sync_status = "pending"
+
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
                       entity_type="stock_category", entity_id=cat.id,

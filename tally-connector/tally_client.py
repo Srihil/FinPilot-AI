@@ -1222,6 +1222,8 @@ class TallyClient:
 
     def create_ledger(self, payload: dict) -> dict:
         name = payload.get("name", "")
+        # For ALTER: use old_name to identify the record; new name goes in body
+        id_name = payload.get("old_name") or name
         group = payload.get("group", "Sundry Debtors")
         opening_balance = payload.get("opening_balance", "0")
 
@@ -1236,7 +1238,7 @@ class TallyClient:
     <DESC/>
     <DATA>
       <TALLYMESSAGE xmlns:UDF="TallyUDF">
-        <LEDGER NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
+        <LEDGER NAME="{id_name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
           <NAME>{name}</NAME>
           <PARENT>{group}</PARENT>
           <OPENINGBALANCE>{opening_balance}</OPENINGBALANCE>
@@ -1253,7 +1255,8 @@ class TallyClient:
     # ── Write: Create stock item ──────────────────────────────────────────────
 
     def create_stock_item(self, payload: dict) -> dict:
-        name  = payload.get("name", "")
+        name    = payload.get("name", "")
+        id_name = payload.get("old_name") or name
         unit  = (payload.get("unit") or "").strip()
         group = (payload.get("stock_group") or "").strip()
         rate  = float(payload.get("rate", 0) or 0)
@@ -1283,7 +1286,7 @@ class TallyClient:
     <DESC/>
     <DATA>
       <TALLYMESSAGE xmlns:UDF="TallyUDF">
-        <STOCKITEM NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
+        <STOCKITEM NAME="{id_name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
           <NAME>{name}</NAME>
           {parent_xml}
           {unit_xml}
@@ -1300,6 +1303,7 @@ class TallyClient:
 
     def create_stock_category(self, payload: dict) -> dict:
         name = payload.get("name", "")
+        id_name = payload.get("old_name") or name
         raw_parent = (payload.get("parent") or "").strip()
         use_parent = raw_parent and raw_parent.lower() != "primary"
         parent_xml = f"<PARENT>{raw_parent}</PARENT>" if use_parent else ""
@@ -1307,7 +1311,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <STOCKCATEGORY NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
+      <STOCKCATEGORY NAME="{id_name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
         <NAME>{name}</NAME>
         {parent_xml}
       </STOCKCATEGORY>
@@ -1323,13 +1327,14 @@ class TallyClient:
 
     def create_group(self, payload: dict) -> dict:
         """Create an account Group (e.g., under 'Current Assets')."""
-        name   = payload.get("name", "")
-        parent = payload.get("parent", "Capital Account")
+        name    = payload.get("name", "")
+        id_name = payload.get("old_name") or name
+        parent  = payload.get("parent", "Capital Account")
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <GROUP NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
+      <GROUP NAME="{id_name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
         <NAME>{name}</NAME>
         <PARENT>{parent}</PARENT>
       </GROUP>
@@ -1344,10 +1349,8 @@ class TallyClient:
     # ── Write: Inventory Masters ──────────────────────────────────────────────
 
     def create_stock_group(self, payload: dict) -> dict:
-        name   = payload.get("name", "")
-        # "Primary" is TallyPrime's implicit root — it cannot be referenced by name
-        # in all editions (fails in EDU and some Silver builds). Omit the <PARENT>
-        # tag entirely for root-level groups so Tally places them at the top level.
+        name    = payload.get("name", "")
+        id_name = payload.get("old_name") or name
         raw_parent = (payload.get("parent") or "").strip()
         use_parent = raw_parent and raw_parent.lower() != "primary"
         parent_xml = f"<PARENT>{raw_parent}</PARENT>" if use_parent else ""
@@ -1355,7 +1358,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <STOCKGROUP NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
+      <STOCKGROUP NAME="{id_name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
         <NAME>{name}</NAME>
         {parent_xml}
       </STOCKGROUP>
@@ -1368,17 +1371,15 @@ class TallyClient:
         return {"created": int(created.text) if created is not None and created.text else 0}
 
     def create_unit(self, payload: dict) -> dict:
-        # NAME = formal/display name shown in unit list (e.g. "Numbers", "Kilograms")
-        # ORIGINALNAME = short symbol/abbreviation (e.g. "Nos", "Kg")
-        # ISSIMPLEUNIT=Yes is required — omitting it causes "BAD UNIT NAME" rejection.
         name     = payload.get("name", "").strip()
+        id_name  = payload.get("old_name") or name
         symbol   = (payload.get("symbol") or name).strip()
         decimals = payload.get("decimal_places", "0")
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <UNIT NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
+      <UNIT NAME="{id_name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
         <NAME>{name}</NAME>
         <ORIGINALNAME>{symbol}</ORIGINALNAME>
         <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
@@ -1393,10 +1394,8 @@ class TallyClient:
         return {"created": int(created.text) if created is not None and created.text else 0}
 
     def create_godown(self, payload: dict) -> dict:
-        name = payload.get("name", "")
-        # Only include <PARENT> if a real named parent is given.
-        # "Main Location" is the default root godown in some Tally builds but is
-        # not guaranteed to exist (especially in EDU). Omit it for root godowns.
+        name    = payload.get("name", "")
+        id_name = payload.get("old_name") or name
         raw_parent = (payload.get("parent") or "").strip()
         _skip = {"", "main location", "primary"}
         parent_xml = f"<PARENT>{raw_parent}</PARENT>" if raw_parent.lower() not in _skip else ""
@@ -1404,7 +1403,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <GODOWN NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
+      <GODOWN NAME="{id_name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
         <NAME>{name}</NAME>
         {parent_xml}
       </GODOWN>

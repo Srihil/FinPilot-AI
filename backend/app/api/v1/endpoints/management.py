@@ -358,6 +358,7 @@ def update_ledger(
     if not ledger:
         raise HTTPException(status_code=404, detail="Ledger not found")
 
+    old_name = ledger.name
     if data.name is not None:
         ledger.name = data.name.strip()
     if data.parent_group is not None:
@@ -374,7 +375,7 @@ def update_ledger(
         job = TallyIntegrationJob(
             company_id=current_user.company_id, connector_id=connector.id,
             created_by=current_user.id, operation=TallyJobOperation.CREATE_LEDGER,
-            payload={"name": ledger.name, "group": ledger.parent_group or "Sundry Debtors",
+            payload={"name": ledger.name, "old_name": old_name, "group": ledger.parent_group or "Sundry Debtors",
                      "opening_balance": str(ledger.opening_balance or 0), "is_update": True},
             idempotency_key=f"alter_ledger::{ledger.id}::{datetime.now(timezone.utc).timestamp()}",
         )
@@ -564,6 +565,7 @@ def update_stock_group(
     ).first()
     if not sg:
         raise HTTPException(status_code=404, detail="Stock group not found")
+    old_name = sg.name
     if data.name is not None:
         sg.name = data.name.strip()
     if data.parent is not None:
@@ -578,7 +580,7 @@ def update_stock_group(
         job = TallyIntegrationJob(
             company_id=current_user.company_id, connector_id=connector.id,
             created_by=current_user.id, operation=TallyJobOperation.CREATE_STOCK_GROUP,
-            payload={"name": sg.name, "parent": sg.parent or "", "is_update": True},
+            payload={"name": sg.name, "old_name": old_name, "parent": sg.parent or "", "is_update": True},
             idempotency_key=f"alter_stock_group::{sg.id}::{datetime.now(timezone.utc).timestamp()}",
         )
         db.add(job)
@@ -782,6 +784,7 @@ def update_unit(
     ).first()
     if not unit:
         raise HTTPException(status_code=404, detail="Unit not found")
+    old_name = unit.name
     if data.name is not None:
         unit.name = data.name.strip()
     if data.symbol is not None:
@@ -801,7 +804,7 @@ def update_unit(
         job = TallyIntegrationJob(
             company_id=current_user.company_id, connector_id=connector.id,
             created_by=current_user.id, operation=TallyJobOperation.CREATE_UNIT,
-            payload={"name": unit.name, "symbol": unit.symbol or unit.name,
+            payload={"name": unit.name, "old_name": old_name, "symbol": unit.symbol or unit.name,
                      "decimal_places": unit.decimal_places or 0, "is_update": True},
             idempotency_key=f"alter_unit::{unit.id}::{datetime.now(timezone.utc).timestamp()}",
         )
@@ -984,6 +987,7 @@ def update_godown(
     ).first()
     if not godown:
         raise HTTPException(status_code=404, detail="Godown not found")
+    old_name = godown.name
     if data.name is not None:
         godown.name = data.name.strip()
     if data.parent is not None:
@@ -998,7 +1002,7 @@ def update_godown(
         job = TallyIntegrationJob(
             company_id=current_user.company_id, connector_id=connector.id,
             created_by=current_user.id, operation=TallyJobOperation.CREATE_GODOWN,
-            payload={"name": godown.name, "parent": godown.parent or "", "is_update": True},
+            payload={"name": godown.name, "old_name": old_name, "parent": godown.parent or "", "is_update": True},
             idempotency_key=f"alter_godown::{godown.id}::{datetime.now(timezone.utc).timestamp()}",
         )
         db.add(job)
@@ -1204,6 +1208,7 @@ def update_stock_item(
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Stock item not found")
+    old_name = item.name
     if data.name is not None:
         item.name = data.name.strip()
     if data.stock_group is not None:
@@ -1223,7 +1228,7 @@ def update_stock_item(
     ).first()
     if connector and item.tally_sync_status in ("synced", "pending", "failed"):
         payload = {
-            "name": item.name, "unit": item.unit or "", "rate": str(item.rate or 0),
+            "name": item.name, "old_name": old_name, "unit": item.unit or "", "rate": str(item.rate or 0),
             "is_update": True,
         }
         if item.stock_group:
@@ -1410,6 +1415,16 @@ def list_vouchers(
             "Credit Note": "CREDIT_NOTE",
             "Debit Note": "DEBIT_NOTE",
         }
+        def _n(notes: str, key: str) -> str:
+            """Extract 'Key: value' segment from notes string."""
+            tag = f"{key}: "
+            if tag in notes:
+                try:
+                    return notes.split(tag)[1].split(" |")[0].strip()
+                except Exception:
+                    pass
+            return ""
+
         for exp in exp_q.all():
             exp_sync = getattr(exp, "tally_sync_status", None) or "local_only"
             exp_notes = getattr(exp, "notes", None) or ""
@@ -1425,14 +1440,21 @@ def list_vouchers(
             elif vt and vt not in ("", "ALL") and exp_vtype.upper() != vt.upper():
                 continue
 
-            # Extract party name from notes ("Party: ABC Traders | Type: GST Bill")
-            party_from_notes = ""
-            if "Party: " in exp_notes:
-                try:
-                    party_from_notes = exp_notes.split("Party: ")[1].split(" |")[0].strip()
-                except Exception:
-                    pass
-            display_name = party_from_notes or (exp.vendor.name if exp.vendor else None) or exp.title
+            # Parse all ledger fields from notes
+            party_l   = _n(exp_notes, "Party")
+            account_l = _n(exp_notes, "Account")
+            dr_l      = _n(exp_notes, "Dr")
+            cr_l      = _n(exp_notes, "Cr")
+            from_l    = _n(exp_notes, "From")
+            to_l      = _n(exp_notes, "To")
+
+            # Smart display_name per voucher type
+            if raw_cat == "Contra":
+                display_name = (f"{from_l} → {to_l}" if (from_l or to_l) else None) or exp.title
+            elif raw_cat == "Journal":
+                display_name = (f"Dr: {dr_l} | Cr: {cr_l}" if (dr_l or cr_l) else None) or exp.title
+            else:
+                display_name = party_l or (exp.vendor.name if exp.vendor else None) or exp.title
 
             # Custom type metadata
             custom_meta = _custom_vtype_map.get(raw_cat.upper(), {})
@@ -1451,6 +1473,13 @@ def list_vouchers(
                 "entity_type": "expense",
                 "title": exp.title,
                 "paid_amount": 0,
+                # Ledger fields parsed from notes (for edit pre-population)
+                "party_ledger":   party_l or None,
+                "account_ledger": account_l or None,
+                "dr_ledger":      dr_l or None,
+                "cr_ledger":      cr_l or None,
+                "from_account":   from_l or None,
+                "to_account":     to_l or None,
                 # Custom voucher type fields
                 "is_custom_voucher": is_custom,
                 "custom_type_name": custom_meta.get("name", raw_cat) if is_custom else None,
@@ -2862,6 +2891,7 @@ def update_group(
     ).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    old_name = group.name
     if data.name is not None:
         group.name = data.name.strip()
     if data.parent is not None:
@@ -2878,7 +2908,7 @@ def update_group(
         job = TallyIntegrationJob(
             company_id=current_user.company_id, connector_id=connector.id,
             created_by=current_user.id, operation=TallyJobOperation.CREATE_GROUP,
-            payload={"name": group.name, "parent": group.parent or "Capital Account", "is_update": True},
+            payload={"name": group.name, "old_name": old_name, "parent": group.parent or "Capital Account", "is_update": True},
             idempotency_key=f"alter_group::{group.id}::{datetime.now(timezone.utc).timestamp()}",
         )
         db.add(job)

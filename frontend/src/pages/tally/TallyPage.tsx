@@ -46,6 +46,7 @@ interface ActivityJob {
   completed_at: string | null;
   error_message: string | null;
   retry_count: number;
+  payload?: Record<string, unknown>;
 }
 
 interface PairingCode {
@@ -78,8 +79,80 @@ function relTime(iso: string | null) {
   return new Date(iso).toLocaleDateString();
 }
 
-function fmtOp(op: string) {
-  return op.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase());
+// Maps operation string → human label. Prefix is determined by is_update / DELETE / other.
+const OP_ENTITY: Record<string, string> = {
+  CREATE_LEDGER:          'Ledger',
+  CREATE_GROUP:           'Account Group',
+  CREATE_STOCK_ITEM:      'Stock Item',
+  CREATE_STOCK_GROUP:     'Stock Group',
+  CREATE_UNIT:            'Unit',
+  CREATE_GODOWN:          'Godown',
+  CREATE_STOCK_CATEGORY:  'Stock Category',
+  CREATE_VOUCHER_TYPE:    'Voucher Type',
+  CREATE_SALES_VOUCHER:   'Sales Voucher',
+  CREATE_PURCHASE_VOUCHER:'Purchase Voucher',
+  CREATE_RECEIPT_VOUCHER: 'Receipt Voucher',
+  CREATE_PAYMENT_VOUCHER: 'Payment Voucher',
+  CREATE_JOURNAL_VOUCHER: 'Journal Voucher',
+  CREATE_CREDIT_NOTE:     'Credit Note',
+  CREATE_DEBIT_NOTE:      'Debit Note',
+  CREATE_CONTRA_VOUCHER:  'Contra Voucher',
+  CREATE_STOCK_JOURNAL:   'Stock Journal',
+  CREATE_PHYSICAL_STOCK:  'Physical Stock',
+  CREATE_DELIVERY_NOTE:   'Delivery Note',
+  CREATE_RECEIPT_NOTE:    'Receipt Note',
+  CREATE_REJECTION_IN:    'Rejection In',
+  CREATE_REJECTION_OUT:   'Rejection Out',
+  DELETE_LEDGER:          'Ledger',
+  DELETE_STOCK_ITEM:      'Stock Item',
+  DELETE_STOCK_GROUP:     'Stock Group',
+  DELETE_UNIT:            'Unit',
+  DELETE_GODOWN:          'Godown',
+  DELETE_STOCK_CATEGORY:  'Stock Category',
+  DELETE_VOUCHER_TYPE:    'Voucher Type',
+  DELETE_VOUCHER:         'Voucher',
+  CANCEL_VOUCHER:         'Voucher',
+  READ_COMPANIES:         'Companies',
+  READ_LEDGERS:           'Ledgers',
+  READ_VOUCHERS:          'Vouchers',
+  READ_SALES:             'Sales',
+  READ_PURCHASES:         'Purchases',
+  READ_RECEIVABLES:       'Receivables',
+  READ_PAYABLES:          'Payables',
+  READ_STOCK_ITEMS:       'Stock Items',
+  SYNC_FULL:              'Full Sync',
+  SYNC_PARTIAL:           'Partial Sync',
+};
+
+function fmtJob(job: ActivityJob): { verb: string; entity: string; name: string; verbColor: string } {
+  const op  = job.operation;
+  const p   = job.payload ?? {};
+  const isUpdate = !!(p.is_update);
+  const isDelete = op.startsWith('DELETE_') || op === 'DELETE_VOUCHER' || op === 'CANCEL_VOUCHER';
+  const isRead   = op.startsWith('READ_') || op.startsWith('SYNC_');
+
+  const verb = isRead   ? 'Sync'
+             : isDelete ? 'Delete'
+             : isUpdate ? 'Update'
+             : 'Create';
+
+  const verbColor = isDelete ? 'text-red-600'
+                  : isUpdate ? 'text-indigo-600'
+                  : isRead   ? 'text-slate-500'
+                  : 'text-emerald-700';
+
+  const entity = OP_ENTITY[op] ?? op.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase());
+
+  // Best human-readable name from payload
+  const name = (
+    (p.name as string)               ||
+    (p.narration as string)          ||
+    (p.voucher_number as string)     ||
+    (p.transaction_number as string) ||
+    ''
+  );
+
+  return { verb, entity, name, verbColor };
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -771,27 +844,38 @@ export default function TallyPage() {
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {activity.map(job => (
-                <div key={job.id} className="flex items-center justify-between py-2.5 text-sm">
-                  <div className="flex items-center gap-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[job.status] ?? 'bg-slate-100 text-slate-600'}`}>
-                      {job.status}
-                    </span>
-                    <span className="text-slate-900 font-medium">{fmtOp(job.operation)}</span>
-                    {job.retry_count > 0 && (
-                      <span className="text-xs text-orange-500">retry {job.retry_count}</span>
-                    )}
+              {activity.map(job => {
+                const { verb, entity, name, verbColor } = fmtJob(job);
+                return (
+                  <div key={job.id} className="flex items-start justify-between py-2.5 text-sm gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[job.status] ?? 'bg-slate-100 text-slate-600'}`}>
+                        {job.status}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-900 leading-snug">
+                          <span className={verbColor}>{verb}</span>
+                          <span className="text-slate-500 font-normal"> {entity}</span>
+                        </p>
+                        {name && (
+                          <p className="text-xs text-slate-500 truncate mt-0.5" title={name}>· {name}</p>
+                        )}
+                        {job.retry_count > 0 && (
+                          <p className="text-xs text-orange-500 mt-0.5">retry {job.retry_count}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-slate-400 text-xs">{relTime(job.completed_at || job.created_at)}</p>
+                      {job.error_message && (
+                        <p className="text-red-500 text-xs break-words whitespace-normal mt-0.5 max-w-[200px]">
+                          {job.error_message}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-right max-w-xs">
-                    <p className="text-slate-400 text-xs">{relTime(job.completed_at || job.created_at)}</p>
-                    {job.error_message && (
-                      <p className="text-red-500 text-xs break-words whitespace-normal mt-0.5">
-                        {job.error_message}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

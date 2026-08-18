@@ -470,6 +470,7 @@ def get_activity(
                 "completed_at": j.completed_at.isoformat() if j.completed_at else None,
                 "error_message": j.error_message,
                 "retry_count": j.retry_count,
+                "payload": j.payload or {},
             }
             for j in jobs
         ]

@@ -440,6 +440,7 @@ export default function StockItemsPage() {
                         <td className="px-4 py-2.5 text-center"><SyncBadge status={item.tally_sync_status} source={item.source} /></td>
                         <td className="px-4 py-2.5 text-right">
                           <div className={cn('flex items-center justify-end gap-1', 'opacity-0 group-hover:opacity-100 transition-opacity')}>
+                            <button onClick={() => openAdjust(item)} title="Adjust Qty" className="p-1.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"><SlidersHorizontal className="w-3.5 h-3.5" /></button>
                             <button onClick={() => openEdit(item)} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700"><Pencil className="w-3.5 h-3.5" /></button>
                             <button onClick={() => setDeleteItem(item)} className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
                           </div>

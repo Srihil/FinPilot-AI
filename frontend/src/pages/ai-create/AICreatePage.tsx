@@ -1,10 +1,10 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Wand2, Zap, Loader2, CheckCircle, AlertCircle, RefreshCw,
-  Activity, X, Clock, CheckCircle2, XCircle, RotateCcw, ChevronRight, Plus, Trash2,
+  Clock, CheckCircle2, XCircle, RotateCcw, Plus, Trash2,
 } from 'lucide-react';
-import { aiCreateApi, tallyApi, managementApi, groupsApi, type TallyJobItem } from '../../api/endpoints';
+import { aiCreateApi, managementApi, groupsApi, type TallyJobItem } from '../../api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -239,89 +239,6 @@ function JobCard({ job, onRetry }: { job: TallyJobItem; onRetry?: (id: string) =
   );
 }
 
-function ActivityDrawer({
-  open,
-  onClose,
-  jobs,
-  isLoading,
-  onRetry,
-}: {
-  open: boolean;
-  onClose: () => void;
-  jobs: TallyJobItem[];
-  isLoading: boolean;
-  onRetry: (id: string) => void;
-}) {
-  return (
-    <>
-      {/* Backdrop with blur */}
-      <div
-        className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity duration-300
-          ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={onClose}
-      />
-
-      {/* Panel */}
-      <div
-        className={`fixed right-0 top-0 h-full w-[400px] max-w-[95vw] bg-white shadow-2xl z-50
-          flex flex-col transform transition-transform duration-300 ease-out
-          ${open ? 'translate-x-0' : 'translate-x-full'}`}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shrink-0">
-          <div className="flex items-center gap-2.5">
-            <Activity className="w-5 h-5" />
-            <div>
-              <p className="font-semibold text-sm">Tally Sync Activity</p>
-              <p className="text-indigo-200 text-xs">Latest command at the top</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {isLoading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="rounded-xl border p-3.5 space-y-2">
-                  <Skeleton className="h-4 w-40" />
-                  <Skeleton className="h-3 w-24" />
-                </div>
-              ))}
-            </div>
-          ) : jobs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
-                <Activity className="w-6 h-6 text-slate-400" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-700">No activity yet</p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Jobs appear here once you create something with AI
-                </p>
-              </div>
-            </div>
-          ) : (
-            jobs.map(job => <JobCard key={job.id} job={job} onRetry={onRetry} />)
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-4 py-3 border-t bg-slate-50 shrink-0">
-          <p className="text-[11px] text-slate-400 text-center">
-            Auto-refreshes every 5 seconds while open
-          </p>
-        </div>
-      </div>
-    </>
-  );
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -472,7 +389,6 @@ export default function AICreatePage() {
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
   const [editableData, setEditableData] = useState<Record<string, unknown>>({});
   const [created, setCreated] = useState<CreationResult | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const isStockTxn     = extraction ? STOCK_TXN_TYPES.has(extraction.entity_type) : false;
   const isAccounting   = extraction ? ACCOUNTING_TYPES.has(extraction.entity_type) : false;
@@ -541,40 +457,6 @@ export default function AICreatePage() {
     return m;
   }, [stockItemsData]);
 
-  // ── Tally activity polling ────────────────────────────────────────────────
-  const { data: activityData, isLoading: activityLoading } = useQuery({
-    queryKey: ['tally-activity'],
-    queryFn: () => tallyApi.activity(30),
-    refetchInterval: drawerOpen ? 5000 : 20000,
-    retry: false,
-  });
-
-  const jobs = activityData?.items ?? [];
-  const pendingCount = jobs.filter(j =>
-    j.status === 'PENDING' || j.status === 'CLAIMED' || j.status === 'RETRYING'
-  ).length;
-  const failedCount = jobs.filter(j => j.status === 'FAILED').length;
-
-  // Dot colour for the trigger: red > amber > green > grey
-  const dotCls =
-    failedCount > 0 ? 'bg-red-500 animate-pulse' :
-    pendingCount > 0 ? 'bg-amber-400 animate-pulse' :
-    jobs.some(j => j.status === 'SUCCESS') ? 'bg-emerald-400' :
-    'bg-slate-300';
-
-  // ── Retry failed job ──────────────────────────────────────────────────────
-  const retryMutation = useMutation({
-    mutationFn: (jobId: string) => tallyApi.retryJob(jobId),
-    onSuccess: () => {
-      toast({ title: 'Job queued for retry', description: 'The connector will retry the operation shortly.', variant: 'success' });
-      qc.invalidateQueries({ queryKey: ['tally-activity'] });
-    },
-    onError: () => {
-      toast({ title: 'Retry failed', description: 'Could not reset the job. Please try again.', variant: 'destructive' });
-    },
-  });
-  const handleRetry = useCallback((jobId: string) => retryMutation.mutate(jobId), [retryMutation]);
-
   // ── Mutations ─────────────────────────────────────────────────────────────
   const extractMutation = useMutation({
     mutationFn: () => aiCreateApi.extractEntity(text),
@@ -604,7 +486,7 @@ export default function AICreatePage() {
       toast({
         title: `${fieldLabel(result.entity_type)} created`,
         description: result.tally_queued
-          ? 'Queued for Tally sync — check status in the activity drawer.'
+          ? 'Queued for Tally sync — check the Activity button in the top bar.'
           : 'Saved to FinPilot (no Tally connector active).',
         variant: 'success',
       });
@@ -985,20 +867,6 @@ export default function AICreatePage() {
               </div>
             </div>
 
-            {created.tally_queued && (
-              <button
-                onClick={() => setDrawerOpen(true)}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-lg
-                  border border-emerald-300 bg-white/60 hover:bg-white/80 transition-colors text-sm
-                  text-emerald-800 font-medium"
-              >
-                <span className="flex items-center gap-2">
-                  <Activity className="w-4 h-4" />
-                  View Tally sync status
-                </span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            )}
 
             <Button
               onClick={handleReset}
@@ -1012,39 +880,6 @@ export default function AICreatePage() {
         </Card>
       )}
 
-      {/* ── Activity drawer trigger (always visible) ────────────────────────── */}
-      <button
-        onClick={() => setDrawerOpen(true)}
-        className="fixed right-0 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-1.5
-          bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white
-          px-2 py-5 rounded-l-xl shadow-xl transition-all duration-150 group"
-        title="View Tally sync activity"
-      >
-        {/* Status dot */}
-        <span className={`w-2 h-2 rounded-full ${dotCls}`} />
-        <Activity className="w-4 h-4" />
-        <span
-          className="text-[10px] font-bold tracking-widest uppercase"
-          style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-        >
-          Activity
-        </span>
-        {failedCount > 0 && (
-          <span className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-red-500 text-white
-            text-[10px] font-bold flex items-center justify-center shadow">
-            {failedCount}
-          </span>
-        )}
-      </button>
-
-      {/* ── Activity drawer ─────────────────────────────────────────────────── */}
-      <ActivityDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        jobs={jobs}
-        isLoading={activityLoading}
-        onRetry={handleRetry}
-      />
     </div>
   );
 }

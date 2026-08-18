@@ -1221,11 +1221,42 @@ class TallyClient:
     # ── Write: Create ledger ──────────────────────────────────────────────────
 
     def create_ledger(self, payload: dict) -> dict:
+        from xml.sax.saxutils import escape as _esc
         name = payload.get("name", "")
-        # For ALTER: use old_name to identify the record; new name goes in body
         id_name = payload.get("old_name") or name
         group = payload.get("group", "Sundry Debtors")
         opening_balance = payload.get("opening_balance", "0")
+
+        # Party contact fields (only meaningful for Sundry Debtors / Creditors)
+        email   = _esc(payload.get("email", "") or "")
+        phone   = _esc(payload.get("phone", "") or "")
+        address = _esc(payload.get("address", "") or "")
+        city    = _esc(payload.get("city", "") or "")
+        state   = _esc(payload.get("state", "") or "")
+        gstin   = _esc(payload.get("gstin", "") or "")
+
+        is_party = group.strip() in ("Sundry Debtors", "Sundry Creditors")
+        gst_type = "Regular" if gstin else "Unregistered"
+
+        # Build optional party XML blocks
+        party_xml = ""
+        if is_party:
+            addr_lines = ""
+            if address:
+                addr_lines += f"        <ADDRESS>{address}</ADDRESS>\n"
+            if city:
+                addr_lines += f"        <ADDRESS>{city}</ADDRESS>\n"
+            addr_block = (
+                f"      <ADDRESS.LIST TYPE=\"String\">\n{addr_lines}      </ADDRESS.LIST>\n"
+                if addr_lines else ""
+            )
+            party_xml = f"""      <MAILINGNAME>{_esc(name)}</MAILINGNAME>
+      {'<EMAIL>' + email + '</EMAIL>' if email else ''}
+      {'<LEDGERMOBILE>' + phone + '</LEDGERMOBILE>' if phone else ''}
+{addr_block}      {'<STATENAME>' + _esc(state) + '</STATENAME>' if state else ''}
+      <COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>
+      <GSTREGISTRATIONTYPE>{gst_type}</GSTREGISTRATIONTYPE>
+      {'<PARTYGSTIN>' + _esc(gstin) + '</PARTYGSTIN>' if gstin else ''}"""
 
         xml = f"""<ENVELOPE>
   <HEADER>
@@ -1238,10 +1269,11 @@ class TallyClient:
     <DESC/>
     <DATA>
       <TALLYMESSAGE xmlns:UDF="TallyUDF">
-        <LEDGER NAME="{id_name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
-          <NAME>{name}</NAME>
-          <PARENT>{group}</PARENT>
+        <LEDGER NAME="{_esc(id_name)}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
+          <NAME>{_esc(name)}</NAME>
+          <PARENT>{_esc(group)}</PARENT>
           <OPENINGBALANCE>{opening_balance}</OPENINGBALANCE>
+{party_xml}
         </LEDGER>
       </TALLYMESSAGE>
     </DATA>

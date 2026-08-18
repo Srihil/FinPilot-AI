@@ -222,6 +222,12 @@ class LedgerCreate(BaseModel):
     name: str
     parent_group: Optional[str] = "Sundry Debtors"
     opening_balance: Optional[float] = 0.0
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    gstin: Optional[str] = None
 
 
 @router.get("/ledgers")
@@ -250,6 +256,12 @@ def list_ledgers(
             "parent_group": r.parent_group,
             "opening_balance": r.opening_balance,
             "closing_balance": r.closing_balance,
+            "email": r.email,
+            "phone": r.phone,
+            "address": r.address,
+            "city": r.city,
+            "state": r.state,
+            "gstin": r.gstin,
             "source": r.source,
             "tally_sync_status": r.tally_sync_status,
             "synced_at": r.synced_at.isoformat() if r.synced_at else None,
@@ -284,6 +296,12 @@ def create_ledger(
         name=name,
         parent_group=data.parent_group,
         opening_balance=data.opening_balance or 0.0,
+        email=data.email or None,
+        phone=data.phone or None,
+        address=data.address or None,
+        city=data.city or None,
+        state=data.state or None,
+        gstin=data.gstin or None,
         tally_key=key,
         source="finpilot",
         tally_sync_status="pending",
@@ -309,6 +327,12 @@ def create_ledger(
                 "name": name,
                 "group": data.parent_group or "Sundry Debtors",
                 "opening_balance": str(int(data.opening_balance or 0)),
+                "email": data.email or "",
+                "phone": data.phone or "",
+                "address": data.address or "",
+                "city": data.city or "",
+                "state": data.state or "",
+                "gstin": data.gstin or "",
             },
             idempotency_key=ikey,
         )
@@ -341,6 +365,12 @@ class LedgerUpdate(BaseModel):
     name: Optional[str] = None
     parent_group: Optional[str] = None
     opening_balance: Optional[float] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    gstin: Optional[str] = None
 
 
 @router.patch("/ledgers/{ledger_id}")
@@ -365,6 +395,18 @@ def update_ledger(
         ledger.parent_group = data.parent_group
     if data.opening_balance is not None:
         ledger.opening_balance = data.opening_balance
+    if data.email is not None:
+        ledger.email = data.email.strip() or None
+    if data.phone is not None:
+        ledger.phone = data.phone.strip() or None
+    if data.address is not None:
+        ledger.address = data.address.strip() or None
+    if data.city is not None:
+        ledger.city = data.city.strip() or None
+    if data.state is not None:
+        ledger.state = data.state.strip() or None
+    if data.gstin is not None:
+        ledger.gstin = data.gstin.strip() or None
     ledger.updated_at = datetime.now(timezone.utc)
 
     connector = db.query(TallyConnector).filter(
@@ -375,8 +417,18 @@ def update_ledger(
         job = TallyIntegrationJob(
             company_id=current_user.company_id, connector_id=connector.id,
             created_by=current_user.id, operation=TallyJobOperation.CREATE_LEDGER,
-            payload={"name": ledger.name, "old_name": old_name, "group": ledger.parent_group or "Sundry Debtors",
-                     "opening_balance": str(ledger.opening_balance or 0), "is_update": True},
+            payload={
+                "name": ledger.name, "old_name": old_name,
+                "group": ledger.parent_group or "Sundry Debtors",
+                "opening_balance": str(ledger.opening_balance or 0),
+                "is_update": True,
+                "email": ledger.email or "",
+                "phone": ledger.phone or "",
+                "address": ledger.address or "",
+                "city": ledger.city or "",
+                "state": ledger.state or "",
+                "gstin": ledger.gstin or "",
+            },
             idempotency_key=f"alter_ledger::{ledger.id}::{datetime.now(timezone.utc).timestamp()}",
         )
         db.add(job)

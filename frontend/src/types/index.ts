@@ -356,6 +356,12 @@ export interface TallyLedger {
   parent_group?: string;
   opening_balance: number;
   closing_balance: number;
+  email?: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  gstin?: string;
   source: TallySource;
   tally_sync_status: TallySyncStatus;
   synced_at?: string;

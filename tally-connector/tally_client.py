@@ -1131,6 +1131,7 @@ class TallyClient:
         amount        = str(payload.get("amount", "0")).lstrip("-")
         narration     = payload.get("narration", "")
         vnum          = payload.get("voucher_number") or self._vch_id()
+        action        = "Alter" if payload.get("is_update") else "Create"
         fy_start, fy_end = self._fy_dates(date)
 
         xml = f"""<ENVELOPE>
@@ -1143,7 +1144,7 @@ class TallyClient:
       </STATICVARIABLES>
     </DESC>
     <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="{action}" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
@@ -1181,6 +1182,7 @@ class TallyClient:
         amount           = str(payload.get("amount", "0")).lstrip("-")
         narration        = payload.get("narration", "")
         vnum             = payload.get("voucher_number") or self._vch_id()
+        action           = "Alter" if payload.get("is_update") else "Create"
         fy_start, fy_end = self._fy_dates(date)
 
         xml = f"""<ENVELOPE>
@@ -1193,7 +1195,7 @@ class TallyClient:
       </STATICVARIABLES>
     </DESC>
     <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="{action}" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
@@ -1281,7 +1283,7 @@ class TallyClient:
     <DESC/>
     <DATA>
       <TALLYMESSAGE xmlns:UDF="TallyUDF">
-        <STOCKITEM NAME="{name}" ACTION="Create">
+        <STOCKITEM NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
           <NAME>{name}</NAME>
           {parent_xml}
           {unit_xml}
@@ -1425,6 +1427,7 @@ class TallyClient:
         amount    = str(payload.get("amount", "0")).lstrip("-")
         narration = payload.get("narration", "Receipt")
         vnum      = payload.get("voucher_number") or self._vch_id()
+        action    = "Alter" if payload.get("is_update") else "Create"
         fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
@@ -1437,7 +1440,7 @@ class TallyClient:
     </DESC>
     <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="{action}" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>
@@ -1472,6 +1475,7 @@ class TallyClient:
         amount    = str(payload.get("amount", "0")).lstrip("-")
         narration = payload.get("narration", "Payment")
         vnum      = payload.get("voucher_number") or self._vch_id()
+        action    = "Alter" if payload.get("is_update") else "Create"
         fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
@@ -1484,7 +1488,7 @@ class TallyClient:
     </DESC>
     <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="{action}" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <PARTYLEDGERNAME>{party}</PARTYLEDGERNAME>
         <NARRATION>{narration}</NARRATION>
@@ -1519,6 +1523,7 @@ class TallyClient:
         amount    = str(payload.get("amount", "0")).lstrip("-")
         narration = payload.get("narration", "Journal Entry")
         vnum      = payload.get("voucher_number") or self._vch_id()
+        action    = "Alter" if payload.get("is_update") else "Create"
         fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
@@ -1531,7 +1536,7 @@ class TallyClient:
     </DESC>
     <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="{action}" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
@@ -1565,6 +1570,7 @@ class TallyClient:
         amount        = str(payload.get("amount", "0")).lstrip("-")
         narration     = payload.get("narration", "Sales Return")
         vnum          = payload.get("voucher_number") or self._vch_id()
+        action        = "Alter" if payload.get("is_update") else "Create"
         fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
@@ -1577,7 +1583,7 @@ class TallyClient:
     </DESC>
     <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="{action}" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <ISINVOICE>No</ISINVOICE>
@@ -1614,6 +1620,7 @@ class TallyClient:
         amount           = str(payload.get("amount", "0")).lstrip("-")
         narration        = payload.get("narration", "Purchase Return")
         vnum             = payload.get("voucher_number") or self._vch_id()
+        action           = "Alter" if payload.get("is_update") else "Create"
         fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
@@ -1626,7 +1633,7 @@ class TallyClient:
     </DESC>
     <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="{action}" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <EFFECTIVEDATE>{date}</EFFECTIVEDATE>
         <ISINVOICE>No</ISINVOICE>
@@ -1762,7 +1769,7 @@ class TallyClient:
       </STATICVARIABLES>
     </DESC>
     <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{txn_number}" VCHTYPE="Stock Journal" ACTION="Create" OBJVIEW="Inventory Voucher View">
+      <VOUCHER REMOTEID="{txn_number}" VCHTYPE="Stock Journal" ACTION="{"Alter" if payload.get("is_update") else "Create"}" OBJVIEW="Inventory Voucher View">
         <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>Stock Journal</VOUCHERTYPENAME>
@@ -1807,7 +1814,7 @@ class TallyClient:
       </STATICVARIABLES>
     </DESC>
     <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{txn_number}" VCHTYPE="Physical Stock" ACTION="Create" OBJVIEW="Inventory Voucher View">
+      <VOUCHER REMOTEID="{txn_number}" VCHTYPE="Physical Stock" ACTION="{"Alter" if payload.get("is_update") else "Create"}" OBJVIEW="Inventory Voucher View">
         <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>Physical Stock</VOUCHERTYPENAME>
@@ -1857,7 +1864,7 @@ class TallyClient:
       </STATICVARIABLES>
     </DESC>
     <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{txn_number}" VCHTYPE="{vchtype}" ACTION="Create" OBJVIEW="Inventory Voucher View">
+      <VOUCHER REMOTEID="{txn_number}" VCHTYPE="{vchtype}" ACTION="{"Alter" if payload.get("is_update") else "Create"}" OBJVIEW="Inventory Voucher View">
         <DATE>{date}</DATE>{party_xml}
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vchtype}</VOUCHERTYPENAME>

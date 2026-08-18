@@ -432,6 +432,84 @@ _TXN_TYPE_TO_VCH_NAME = {
 }
 
 
+class StockTransactionUpdate(BaseModel):
+    transaction_date: Optional[str] = None
+    narration: Optional[str] = None
+    party_name: Optional[str] = None
+
+
+@router.patch("/stock-transactions/{txn_id}")
+def update_stock_transaction(
+    txn_id: str,
+    data: StockTransactionUpdate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    txn = db.query(StockTransaction).filter(
+        StockTransaction.id == uuid.UUID(txn_id),
+        StockTransaction.company_id == current_user.company_id,
+        StockTransaction.is_active == True,
+    ).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Stock transaction not found")
+
+    if data.transaction_date:
+        for fmt in ("%Y-%m-%d", "%Y%m%d"):
+            try:
+                txn.transaction_date = datetime.strptime(data.transaction_date, fmt).replace(tzinfo=timezone.utc)
+                break
+            except ValueError:
+                continue
+    if data.narration is not None:
+        txn.narration = data.narration
+    if data.party_name is not None:
+        txn.party_name = data.party_name
+    txn.updated_at = datetime.now(timezone.utc)
+
+    # Queue ALTER job if synced to Tally
+    vref = txn.transaction_number
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if connector and txn.tally_sync_status in ("synced", "pending", "failed"):
+        _OP_MAP = {
+            "STOCK_JOURNAL":  TallyJobOperation.CREATE_STOCK_JOURNAL,
+            "PHYSICAL_STOCK": TallyJobOperation.CREATE_PHYSICAL_STOCK,
+            "DELIVERY_NOTE":  TallyJobOperation.CREATE_DELIVERY_NOTE,
+            "RECEIPT_NOTE":   TallyJobOperation.CREATE_RECEIPT_NOTE,
+            "REJECTION_IN":   TallyJobOperation.CREATE_REJECTION_IN,
+            "REJECTION_OUT":  TallyJobOperation.CREATE_REJECTION_OUT,
+        }
+        op = _OP_MAP.get(txn.transaction_type)
+        if op:
+            import json as _json
+            entries = _json.loads(txn.entries_json) if txn.entries_json else []
+            job = TallyIntegrationJob(
+                company_id=current_user.company_id, connector_id=connector.id,
+                created_by=current_user.id, operation=op,
+                payload={
+                    "transaction_number": vref,
+                    "date": txn.transaction_date.strftime("%Y%m%d") if txn.transaction_date else "",
+                    "narration": txn.narration or "",
+                    "party_name": txn.party_name or "",
+                    "from_godown": txn.from_godown or "",
+                    "to_godown": txn.to_godown or "",
+                    "entries": entries,
+                    "is_update": True,
+                },
+                idempotency_key=f"alter_txn::{txn.id}::{datetime.now(timezone.utc).timestamp()}",
+            )
+            db.add(job)
+            txn.tally_sync_status = "pending"
+
+    db.commit()
+    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
+                      entity_type="stock_transaction", entity_id=txn.id,
+                      description=f"Updated {txn.transaction_type}: {txn.transaction_number}")
+    return _serialize_txn(txn)
+
+
 @router.delete("/stock-transactions/{txn_id}")
 def delete_stock_transaction(
     txn_id: str,

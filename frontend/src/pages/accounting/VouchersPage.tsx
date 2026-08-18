@@ -562,7 +562,7 @@ export default function VouchersPage() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-5">
+          <div className="space-y-5 max-h-[70vh] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 
             {/* ── Type selector ── */}
             <div>
@@ -698,7 +698,7 @@ export default function VouchersPage() {
           </DialogHeader>
 
           {editItem && (
-            <div className="space-y-5">
+            <div className="space-y-5 max-h-[70vh] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 
               {/* ── Voucher info badge ── */}
               <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftRight, Plus, Search, Loader2, AlertCircle, Trash2, X,
-  ChevronDown, ChevronRight, MoveRight, Package, MapPin, User2,
+  ChevronDown, ChevronRight, MoveRight, Package, MapPin, User2, Pencil,
 } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -77,6 +77,7 @@ const BLANK_ENTRY: EntryRow = { stock_item_name: '', quantity: '', unit: '', rat
 const api = {
   list:   (p: Record<string, unknown>) => apiClient.get('/api/inventory/stock-transactions', { params: p }).then(r => r.data),
   create: (d: object) => apiClient.post('/api/inventory/stock-transactions', d).then(r => r.data),
+  update: (id: string, d: object) => apiClient.patch(`/api/inventory/stock-transactions/${id}`, d).then(r => r.data),
   delete: (id: string) => apiClient.delete(`/api/inventory/stock-transactions/${id}`).then(r => r.data),
 };
 
@@ -214,7 +215,13 @@ export default function StockTransactionsPage() {
   const [page, setPage]         = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [deleteItem, setDeleteItem] = useState<StockTxn | null>(null);
-  const [expanded, setExpanded]  = useState<Set<string>>(new Set());
+  const [editItem, setEditItem]   = useState<StockTxn | null>(null);
+  const [expanded, setExpanded]   = useState<Set<string>>(new Set());
+
+  // Edit form state
+  const [editDate, setEditDate]           = useState('');
+  const [editNarration, setEditNarration] = useState('');
+  const [editParty, setEditParty]         = useState('');
 
   // Form state
   const [formType, setFormType]             = useState('STOCK_JOURNAL');
@@ -273,6 +280,22 @@ export default function StockTransactionsPage() {
       qc.invalidateQueries({ queryKey: ['stock-items-tree'] });
       setShowCreate(false);
       resetForm();
+    },
+    onError: (e: { response?: { data?: { detail?: string } } }) =>
+      toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' }),
+  });
+
+  // Update
+  const updateMut = useMutation({
+    mutationFn: () => api.update(editItem!.id, {
+      transaction_date: editDate || undefined,
+      narration: editNarration || undefined,
+      party_name: editParty || undefined,
+    }),
+    onSuccess: () => {
+      toast({ title: 'Transaction updated', description: 'Queued for TallyPrime sync.' });
+      qc.invalidateQueries({ queryKey: ['stock-transactions'] });
+      setEditItem(null);
     },
     onError: (e: { response?: { data?: { detail?: string } } }) =>
       toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' }),
@@ -459,12 +482,27 @@ export default function StockTransactionsPage() {
 
                         {/* Actions */}
                         <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
-                          <button
-                            onClick={() => setDeleteItem(t)}
-                            className="p-1.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => {
+                                setEditItem(t);
+                                setEditDate(t.transaction_date?.slice(0, 10) ?? '');
+                                setEditNarration(t.narration ?? '');
+                                setEditParty(t.party_name ?? '');
+                              }}
+                              className="p-1.5 rounded hover:bg-indigo-50 text-slate-300 hover:text-indigo-500 transition-colors"
+                              title="Edit"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteItem(t)}
+                              className="p-1.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
 
@@ -619,6 +657,51 @@ export default function StockTransactionsPage() {
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
             <Button onClick={() => createMut.mutate()} disabled={createMut.isPending}>
               {createMut.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}Create &amp; Sync
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editItem} onOpenChange={() => setEditItem(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-4 h-4 text-indigo-600" /> Edit Transaction</DialogTitle></DialogHeader>
+          {editItem && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-slate-400 mb-0.5">Transaction</p>
+                  <p className="font-mono text-sm font-semibold text-slate-800 truncate">{editItem.transaction_number}</p>
+                </div>
+                <span className={cn('px-2 py-0.5 rounded text-xs font-medium', TYPE_META[editItem.transaction_type]?.color || 'bg-slate-100 text-slate-600')}>
+                  {TYPE_META[editItem.transaction_type]?.label || editItem.transaction_type}
+                </span>
+              </div>
+              <div>
+                <Label>Date</Label>
+                <Input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="mt-1.5" />
+              </div>
+              {PARTY_TYPES.has(editItem.transaction_type) && (
+                <div>
+                  <Label>Party</Label>
+                  <Input value={editParty} onChange={e => setEditParty(e.target.value)} placeholder="Customer / Supplier" className="mt-1.5" />
+                </div>
+              )}
+              <div>
+                <Label>Narration</Label>
+                <Input value={editNarration} onChange={e => setEditNarration(e.target.value)} placeholder="Description / remarks" className="mt-1.5" />
+              </div>
+              {editItem.tally_sync_status === 'synced' && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                  Synced to TallyPrime — saving will re-queue for sync with ACTION=Alter.
+                </p>
+              )}
+            </div>
+          )}
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
+            <Button onClick={() => updateMut.mutate()} disabled={updateMut.isPending}>
+              {updateMut.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />} Save
             </Button>
           </DialogFooter>
         </DialogContent>

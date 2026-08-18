@@ -1169,7 +1169,6 @@ def update_stock_item(
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Stock item not found")
-    was_synced = item.tally_sync_status == "synced"
     if data.name is not None:
         item.name = data.name.strip()
     if data.stock_group is not None:
@@ -1181,14 +1180,34 @@ def update_stock_item(
     if data.rate is not None:
         item.rate = data.rate
     item.updated_at = datetime.now(timezone.utc)
+
+    # Queue ALTER job if connected to Tally
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if connector and item.tally_sync_status in ("synced", "pending", "failed"):
+        payload = {
+            "name": item.name, "unit": item.unit or "", "rate": str(item.rate or 0),
+            "is_update": True,
+        }
+        if item.stock_group:
+            payload["stock_group"] = item.stock_group
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id, connector_id=connector.id,
+            created_by=current_user.id,
+            operation=TallyJobOperation.CREATE_STOCK_ITEM,
+            payload=payload,
+            idempotency_key=f"alter_stock_item::{item.id}::{datetime.now(timezone.utc).timestamp()}",
+        )
+        db.add(job)
+        item.tally_sync_status = "pending"
+
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
                       entity_type="tally_stock_item", entity_id=item.id,
                       description=f"Updated stock item: {item.name}")
-    return {
-        "id": str(item.id), "name": item.name, "tally_sync_status": item.tally_sync_status,
-        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
-    }
+    return {"id": str(item.id), "name": item.name, "tally_sync_status": item.tally_sync_status}
 
 
 @router.delete("/stock-items/{item_id}")
@@ -1308,6 +1327,12 @@ def list_vouchers(
             inv_sync = getattr(inv, "tally_sync_status", None) or "local_only"
             inv_notes = getattr(inv, "notes", None) or ""
             inv_source = "tally_sync" if "[tally-sync]" in inv_notes else "finpilot"
+            # Fall back to party stored in notes for FinPilot-created invoices
+            if not party_name and "Party: " in inv_notes:
+                try:
+                    party_name = inv_notes.split("Party: ")[1].split(" |")[0].split("\n")[0].strip() or None
+                except Exception:
+                    pass
             results.append({
                 "id": str(inv.id),
                 "voucher_number": inv.invoice_number,
@@ -1864,6 +1889,7 @@ def create_voucher(
             invoice_date=d,
             subtotal=amount, total_amount=amount,
             status=InvoiceStatus.APPROVED,
+            notes=f"Party: {data.party_ledger or ''}",
             tally_sync_status="pending", tally_voucher_ref=vnum,
         )
         db.add(record)
@@ -1884,6 +1910,7 @@ def create_voucher(
             invoice_date=d,
             subtotal=amount, total_amount=amount,
             status=InvoiceStatus.APPROVED,
+            notes=f"Party: {data.party_ledger or ''}",
             tally_sync_status="pending", tally_voucher_ref=vnum,
         )
         db.add(record)
@@ -2101,6 +2128,7 @@ def update_voucher(
             "amount": str(int(float(record.total_amount or 0))),
             "narration": record.invoice_number or "",
             "voucher_number": vref,
+            "is_update": True,
         }
 
         if record.tally_sync_status == "synced" and vref:
@@ -2182,48 +2210,19 @@ def update_voucher(
         elif cat in ("Credit Note", "Debit Note"):
             record.notes = f"Party: {party}"
 
+        _base = {"amount": str(int(float(record.amount or 0))), "narration": record.title or "", "voucher_number": vref, "is_update": True, "date": record.expense_date.strftime("%Y%m%d")}
         if cat in ("Receipt", "Payment"):
-            tally_payload = {
-                "date": record.expense_date.strftime("%Y%m%d"),
-                "party_ledger": party, "account_ledger": account,
-                "amount": str(int(float(record.amount or 0))),
-                "narration": record.title or "", "voucher_number": vref,
-            }
+            tally_payload = {**_base, "party_ledger": party, "account_ledger": account}
         elif cat == "Journal":
-            tally_payload = {
-                "date": record.expense_date.strftime("%Y%m%d"),
-                "dr_ledger": dr, "cr_ledger": cr,
-                "amount": str(int(float(record.amount or 0))),
-                "narration": record.title or "", "voucher_number": vref,
-            }
+            tally_payload = {**_base, "dr_ledger": dr, "cr_ledger": cr}
         elif cat == "Contra":
-            tally_payload = {
-                "date": record.expense_date.strftime("%Y%m%d"),
-                "from_account": frm, "to_account": to,
-                "amount": str(int(float(record.amount or 0))),
-                "narration": record.title or "", "voucher_number": vref,
-            }
+            tally_payload = {**_base, "from_account": frm, "to_account": to}
         elif cat == "Credit Note":
-            tally_payload = {
-                "date": record.expense_date.strftime("%Y%m%d"),
-                "party_ledger": party, "sales_ledger": sales_l,
-                "amount": str(int(float(record.amount or 0))),
-                "narration": record.title or "", "voucher_number": vref,
-            }
+            tally_payload = {**_base, "party_ledger": party, "sales_ledger": sales_l}
         elif cat == "Debit Note":
-            tally_payload = {
-                "date": record.expense_date.strftime("%Y%m%d"),
-                "party_ledger": party, "purchase_ledger": purch_l,
-                "amount": str(int(float(record.amount or 0))),
-                "narration": record.title or "", "voucher_number": vref,
-            }
+            tally_payload = {**_base, "party_ledger": party, "purchase_ledger": purch_l}
         else:
-            tally_payload = {
-                "date": record.expense_date.strftime("%Y%m%d"),
-                "party_ledger": party,
-                "amount": str(int(float(record.amount or 0))),
-                "narration": record.title or "", "voucher_number": vref,
-            }
+            tally_payload = {**_base, "party_ledger": party}
 
         if record.tally_sync_status == "synced" and vref:
             record.tally_sync_status = "pending"

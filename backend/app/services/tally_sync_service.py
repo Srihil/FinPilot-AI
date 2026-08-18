@@ -507,9 +507,44 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
     - "pending"        — connector is still in the process of creating this in Tally
     - "delete_pending" — connector is in the process of deleting this from Tally
     """
-    # ── Step 1: wipe everything except in-flight jobs ────────────────────────
+    # ── Step 1: snapshot existing REMOTEIDs before wiping ───────────────────
+    # The Day Book (our only source of FP-xxx REMOTEIDs) only returns today's
+    # vouchers. For historical entries we save their tally_voucher_ref keyed by
+    # the dedup_key stored in notes ("[tally-sync] {dedup_key}") so we can
+    # restore it after reimporting — preserving the ability to delete them.
     KEEP_STATUSES = ("pending", "delete_pending")
+    TALLY_TAG_PREFIX = TALLY_TAG + " "  # "[tally-sync] "
 
+    remoteid_snapshot: dict[str, str] = {}
+    for inv in db.query(Invoice).filter(
+        Invoice.company_id == company_id,
+        Invoice.is_deleted.is_not(True),
+        ~Invoice.tally_sync_status.in_(KEEP_STATUSES),
+        Invoice.tally_voucher_ref.isnot(None),
+        Invoice.notes.like(f"%{TALLY_TAG}%"),
+    ).all():
+        notes = inv.notes or ""
+        ref = inv.tally_voucher_ref or ""
+        if ref and TALLY_TAG_PREFIX in notes:
+            key = notes[notes.index(TALLY_TAG_PREFIX) + len(TALLY_TAG_PREFIX):].strip()
+            if key:
+                remoteid_snapshot[key] = ref
+
+    for exp in db.query(Expense).filter(
+        Expense.company_id == company_id,
+        Expense.is_deleted.is_not(True),
+        ~Expense.tally_sync_status.in_(KEEP_STATUSES),
+        Expense.tally_voucher_ref.isnot(None),
+        Expense.notes.like(f"%{TALLY_TAG}%"),
+    ).all():
+        notes = exp.notes or ""
+        ref = exp.tally_voucher_ref or ""
+        if ref and TALLY_TAG_PREFIX in notes:
+            key = notes[notes.index(TALLY_TAG_PREFIX) + len(TALLY_TAG_PREFIX):].strip()
+            if key:
+                remoteid_snapshot[key] = ref
+
+    # ── Step 2: wipe everything except in-flight jobs ────────────────────────
     db.query(Invoice).filter(
         Invoice.company_id == company_id,
         Invoice.is_deleted.is_not(True),
@@ -524,7 +559,7 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
 
     db.flush()
 
-    # ── Step 2: reimport fresh from Tally ────────────────────────────────────
+    # ── Step 3: reimport fresh from Tally ────────────────────────────────────
     created_invoices = 0
     created_expenses = 0
     inv_counter = 0
@@ -540,8 +575,8 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
         vch_no    = v.get("voucher_number", "").strip()
         remoteid  = v.get("voucher_ref", "").strip()
 
-        # If TallyPrime returns a FinPilot REMOTEID (FP-xxx), this voucher was
-        # originally created by FinPilot — preserve that ref so it can be deleted later.
+        # Prefer FP-xxx from Day Book (current-day only). Fall back to the
+        # pre-wipe snapshot which covers ALL historical vouchers regardless of date.
         fp_remoteid = remoteid if remoteid.startswith("FP-") else ""
 
         try:
@@ -557,6 +592,10 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
         if dedup_key in seen_keys:
             continue
         seen_keys.add(dedup_key)
+
+        # Restore REMOTEID from pre-wipe snapshot when Day Book didn't have it
+        if not fp_remoteid:
+            fp_remoteid = remoteid_snapshot.get(dedup_key, "")
 
         notes_tag     = _tally_id(dedup_key)
         display_label = narration or party or f"Tally {vtype.title()}"

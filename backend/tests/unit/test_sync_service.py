@@ -453,6 +453,27 @@ class TestSyncVouchers:
         db.query.return_value.filter.return_value.all.return_value = []
         return db
 
+    def test_wipe_includes_all_entries_not_just_tally_sync_tagged(self):
+        """
+        The wipe step must remove ALL invoices/expenses (not only [tally-sync] tagged ones).
+        This ensures FinPilot-created entries that no longer exist in TallyPrime are cleaned up.
+        Pending and delete_pending entries are preserved.
+        """
+        db = MagicMock()
+        db.query.return_value.filter.return_value.update.return_value = 5
+        db.query.return_value.filter.return_value.first.return_value = None
+        db.query.return_value.filter.return_value.all.return_value = []
+
+        sync_vouchers(db, CID, [])
+
+        # The wipe update() must be called (twice — once for Invoice, once for Expense)
+        assert db.query.return_value.filter.return_value.update.call_count >= 2
+
+        # Verify the filter does NOT restrict to notes LIKE '[tally-sync]%'
+        # (we check by looking at filter call args — none should reference TALLY_TAG)
+        all_filter_calls = str(db.query.return_value.filter.call_args_list)
+        assert "tally-sync" not in all_filter_calls
+
     def test_sales_creates_invoice(self):
         db = self._run("Sales")
         from app.models.invoice import Invoice

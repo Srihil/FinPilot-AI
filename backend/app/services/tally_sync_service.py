@@ -492,21 +492,34 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
 
 def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> dict:
     """
-    Replace-sync: wipe all previously Tally-synced vouchers then reimport
-    from the current Tally payload. This makes sync idempotent — running it
-    multiple times always produces exactly the same records as Tally has.
+    Replace-sync: TallyPrime is the single source of truth.
+
+    Wipes ALL invoices and expenses for this company (except those currently
+    in-flight to/from TallyPrime), then reimports every voucher that exists
+    in TallyPrime right now.
+
+    After a sync:
+    - Entries created from FinPilot AI Create that exist in TallyPrime → come back
+    - Entries created from FinPilot that don't exist in TallyPrime → gone
+    - TallyPrime-native entries → always present
+
+    States preserved (not wiped):
+    - "pending"        — connector is still in the process of creating this in Tally
+    - "delete_pending" — connector is in the process of deleting this from Tally
     """
-    # ── Step 1: remove all previously synced invoices/expenses ───────────────
+    # ── Step 1: wipe everything except in-flight jobs ────────────────────────
+    KEEP_STATUSES = ("pending", "delete_pending")
+
     db.query(Invoice).filter(
         Invoice.company_id == company_id,
-        Invoice.notes.like(f"%{TALLY_TAG}%"),
         Invoice.is_deleted.is_not(True),
+        ~Invoice.tally_sync_status.in_(KEEP_STATUSES),
     ).update({"is_deleted": True}, synchronize_session=False)
 
     db.query(Expense).filter(
         Expense.company_id == company_id,
-        Expense.notes.like(f"%{TALLY_TAG}%"),
         Expense.is_deleted.is_not(True),
+        ~Expense.tally_sync_status.in_(KEEP_STATUSES),
     ).update({"is_deleted": True}, synchronize_session=False)
 
     db.flush()

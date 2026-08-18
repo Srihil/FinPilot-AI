@@ -1266,6 +1266,20 @@ class TallyClient:
                 f"            <PINCODE></PINCODE>\n"
                 f"          </LEDMAILINGDETAILS.LIST>\n"
             )
+            # LEDGSTREGDETAILS.LIST is what TallyPrime shows in the GST Registration
+            # Details section of the UI — PARTYGSTIN alone is not enough.
+            gst_list = (
+                f"          <LEDGSTREGDETAILS.LIST>\n"
+                f"            <APPLICABLEFROM>{fy_start}</APPLICABLEFROM>\n"
+                f"            <GSTREGISTRATIONTYPE>{gst_type}</GSTREGISTRATIONTYPE>\n"
+                + (f"            <GSTIN>{gstin}</GSTIN>\n" if gstin else "")
+                + (f"            <STATE>{state}</STATE>\n" if state else "")
+                + f"            <TRANSPORTERID></TRANSPORTERID>\n"
+                f"            <ISOTHTERRITORYASSESSEE>No</ISOTHTERRITORYASSESSEE>\n"
+                f"            <ISTRANSPORTER>No</ISTRANSPORTER>\n"
+                f"            <ISCOMMONPARTY>No</ISCOMMONPARTY>\n"
+                f"          </LEDGSTREGDETAILS.LIST>\n"
+            )
             party_xml = (
                 (f"          <EMAIL>{email}</EMAIL>\n" if email else "")
                 + (f"          <COUNTRYOFRESIDENCE>{country}</COUNTRYOFRESIDENCE>\n" if country else "")
@@ -1273,6 +1287,7 @@ class TallyClient:
                 + (f"          <PARTYGSTIN>{gstin}</PARTYGSTIN>\n" if gstin else "")
                 + (f"          <LEDGERMOBILE>{phone}</LEDGERMOBILE>\n" if phone else "")
                 + mailing_list
+                + gst_list
             )
 
         xml = f"""<ENVELOPE>

@@ -647,6 +647,192 @@ class TallyClient:
             logger.warning("get_stock_groups: %s", e)
             return []
 
+    # ── Read: Stock Categories ────────────────────────────────────────────────
+
+    def get_stock_categories(self) -> list[dict]:
+        """Fetch all stock categories from TallyPrime (master data)."""
+        xml = """<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>FP StockCategories</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP StockCategories" ISMODIFY="No">
+            <TYPE>StockCategory</TYPE>
+            <FETCH>NAME,PARENT</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+    </DESC>
+  </BODY>
+</ENVELOPE>"""
+        try:
+            raw = self._post_xml(xml)
+            root = self._parse_response(raw)
+            cats = []
+            for item in root.findall(".//STOCKCATEGORY"):
+                name = (item.get("NAME") or "").strip()
+                parent_el = item.find("PARENT")
+                parent = parent_el.text.strip() if parent_el is not None and parent_el.text else ""
+                if name and name.lower() not in ("primary", ""):
+                    cats.append({"name": name, "parent": parent if parent and parent.lower() != "primary" else None})
+            return cats
+        except TallyError as e:
+            logger.warning("get_stock_categories: %s", e)
+            return []
+
+    # ── Read: Stock Transactions (inventory vouchers) ─────────────────────────
+
+    # Mapping from TallyPrime voucher type name → FinPilot transaction_type
+    _STOCK_TXN_VTYPES = {
+        "stock journal":   "STOCK_JOURNAL",
+        "physical stock":  "PHYSICAL_STOCK",
+        "delivery note":   "DELIVERY_NOTE",
+        "receipt note":    "RECEIPT_NOTE",
+        "rejections in":   "REJECTION_IN",
+        "rejections out":  "REJECTION_OUT",
+    }
+
+    @staticmethod
+    def _parse_qty(qty_str: str) -> tuple[float, str]:
+        """Parse TallyPrime qty string like '5 Nos' or '-5 Nos' → (5.0, 'Nos')."""
+        if not qty_str:
+            return 0.0, ""
+        parts = qty_str.strip().lstrip("-").split(None, 1)
+        try:
+            qty = abs(float(parts[0].replace(",", "")))
+        except (ValueError, IndexError):
+            qty = 0.0
+        unit = parts[1].strip() if len(parts) > 1 else ""
+        return qty, unit
+
+    def get_stock_transactions(self, from_date: str = "", to_date: str = "") -> list[dict]:
+        """
+        Fetch inventory vouchers from TallyPrime:
+        Stock Journal, Physical Stock, Delivery Note, Receipt Note,
+        Rejections In, Rejections Out.
+
+        These vouchers have ALLINVENTORYENTRIES.LIST (item movements)
+        rather than ALLLEDGERENTRIES.LIST (monetary entries).
+        """
+        date_vars = ""
+        if from_date:
+            date_vars += f"\n        <SVFROMDATE>{from_date}</SVFROMDATE>"
+        if to_date:
+            date_vars += f"\n        <SVTODATE>{to_date}</SVTODATE>"
+
+        xml = f"""<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>FP Stock Txns</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP Stock Txns" ISMODIFY="No">
+            <TYPE>Voucher</TYPE>
+            <BELONGSTO>Yes</BELONGSTO>
+            <FETCH>DATE,VOUCHERNUMBER,VOUCHERTYPENAME,NARRATION,PARTYLEDGERNAME,ALLINVENTORYENTRIES.LIST</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>{date_vars}
+      </STATICVARIABLES>
+    </DESC>
+  </BODY>
+</ENVELOPE>"""
+        try:
+            raw = self._post_xml(xml)
+            root = self._parse_response(raw)
+            txns = []
+
+            for v in root.findall(".//VOUCHER"):
+                vtype_el = v.find("VOUCHERTYPENAME")
+                vtype_raw = (vtype_el.text or "").strip() if vtype_el is not None else ""
+                txn_type = self._STOCK_TXN_VTYPES.get(vtype_raw.lower())
+                if not txn_type:
+                    continue  # skip accounting vouchers (Sales, Purchase, etc.)
+
+                date_el   = v.find("DATE")
+                vchno_el  = v.find("VOUCHERNUMBER")
+                narr_el   = v.find("NARRATION")
+                party_el  = v.find("PARTYLEDGERNAME")
+
+                date_str  = (date_el.text or "").strip()  if date_el  is not None else ""
+                vch_no    = (vchno_el.text or "").strip() if vchno_el is not None else ""
+                narration = (narr_el.text or "").strip()  if narr_el  is not None else ""
+                party     = (party_el.text or "").strip() if party_el is not None else ""
+
+                entries = []
+                from_godown = ""
+                to_godown   = ""
+
+                for inv in v.findall(".//ALLINVENTORYENTRIES.LIST"):
+                    item_el = inv.find("STOCKITEMNAME")
+                    item_name = (item_el.text or "").strip() if item_el is not None else ""
+                    if not item_name:
+                        continue
+
+                    deemed_el = inv.find("ISDEEMEDPOSITIVE")
+                    inward = (deemed_el.text or "").strip().lower() == "yes" if deemed_el is not None else True
+
+                    # Get godown from BATCHALLOCATIONS.LIST if present, else from GODOWN
+                    godown = ""
+                    batch = inv.find(".//BATCHALLOCATIONS.LIST")
+                    if batch is not None:
+                        gd_el = batch.find("GODOWN")
+                        godown = (gd_el.text or "").strip() if gd_el is not None else ""
+
+                    qty_el  = inv.find("ACTUALQTY")
+                    qty_raw = (qty_el.text or "").strip() if qty_el is not None else ""
+                    qty, unit = self._parse_qty(qty_raw)
+
+                    entries.append({
+                        "stock_item_name": item_name,
+                        "quantity": qty,
+                        "unit": unit,
+                        "rate": 0,
+                        "godown": godown,
+                        "inward": inward,
+                    })
+
+                    if inward and not to_godown:
+                        to_godown = godown
+                    elif not inward and not from_godown:
+                        from_godown = godown
+
+                if not entries:
+                    continue  # skip vouchers with no inventory entries
+
+                txns.append({
+                    "transaction_type": txn_type,
+                    "transaction_number": vch_no,
+                    "date": date_str,
+                    "narration": narration,
+                    "party": party,
+                    "from_godown": from_godown,
+                    "to_godown": to_godown,
+                    "voucher_type_name": vtype_raw,
+                    "entries": entries,
+                })
+
+            return txns
+        except TallyError as e:
+            logger.warning("get_stock_transactions: %s", e)
+            return []
+
     # ── Read: Units ───────────────────────────────────────────────────────────
 
     def get_units(self) -> list[dict]:

@@ -2000,6 +2000,101 @@ def wipe_all_vouchers(
     }
 
 
+# ─── Wipe ALL local FinPilot data (pre-sync reset) ──────────────────────────────
+
+@router.post("/wipe-all-local-data")
+def wipe_all_local_data(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Wipe every entity stored locally in FinPilot for this company so the user
+    can start with a clean slate and re-import everything from TallyPrime via Sync.
+
+    Deletes (soft or hard):
+      - Invoices (Sales / Purchase)
+      - Expenses (Receipt / Payment / Journal / Contra / Credit Note / Debit Note)
+      - Stock transactions (all types)
+      - Voucher types (custom + base)
+      - Ledgers, Account groups
+      - Stock groups, Stock items, Stock categories
+      - Units, Godowns
+
+    Does NOT delete: customers, vendors, users, company settings, audit logs,
+    payments recorded against invoices, or TallyPrime connector pairing.
+    """
+    from app.models.stock_transaction import StockTransaction
+    from app.models.stock_category import StockCategory
+
+    cid = current_user.company_id
+
+    # ── Vouchers (invoices + expenses) ───────────────────────────────────────
+    del_invoices  = db.query(Invoice).filter(Invoice.company_id == cid,  Invoice.is_deleted.is_not(True)) \
+                      .update({"is_deleted": True}, synchronize_session=False)
+    del_expenses  = db.query(Expense).filter(Expense.company_id == cid,  Expense.is_deleted.is_not(True)) \
+                      .update({"is_deleted": True}, synchronize_session=False)
+
+    # ── Stock transactions ────────────────────────────────────────────────────
+    del_stxns     = db.query(StockTransaction).filter(StockTransaction.company_id == cid,
+                        StockTransaction.is_active.is_not(False)) \
+                      .update({"is_active": False}, synchronize_session=False)
+
+    # ── Tally master entities (soft-delete via is_active) ────────────────────
+    del_vtypes    = db.query(TallyVoucherType).filter(TallyVoucherType.company_id == cid,
+                        TallyVoucherType.is_active == True) \
+                      .update({"is_active": False}, synchronize_session=False)
+    del_ledgers   = db.query(TallyLedger).filter(TallyLedger.company_id == cid,
+                        TallyLedger.is_active == True) \
+                      .update({"is_active": False}, synchronize_session=False)
+    del_groups    = db.query(TallyGroup).filter(TallyGroup.company_id == cid,
+                        TallyGroup.is_active == True) \
+                      .update({"is_active": False}, synchronize_session=False)
+    del_sgroups   = db.query(TallyStockGroup).filter(TallyStockGroup.company_id == cid,
+                        TallyStockGroup.is_active == True) \
+                      .update({"is_active": False}, synchronize_session=False)
+    del_sitems    = db.query(TallyStockItem).filter(TallyStockItem.company_id == cid,
+                        TallyStockItem.is_active == True) \
+                      .update({"is_active": False}, synchronize_session=False)
+    del_scats     = db.query(StockCategory).filter(StockCategory.company_id == cid,
+                        StockCategory.is_active == True) \
+                      .update({"is_active": False}, synchronize_session=False)
+    del_units     = db.query(TallyUnit).filter(TallyUnit.company_id == cid,
+                        TallyUnit.is_active == True) \
+                      .update({"is_active": False}, synchronize_session=False)
+    del_godowns   = db.query(TallyGodown).filter(TallyGodown.company_id == cid,
+                        TallyGodown.is_active == True) \
+                      .update({"is_active": False}, synchronize_session=False)
+
+    db.commit()
+
+    audit_service.log(
+        db, cid, current_user.id, AuditAction.DELETE,
+        entity_type="wipe_all_local_data",
+        description=(
+            f"Wiped all local data: {del_invoices} invoices, {del_expenses} expenses, "
+            f"{del_stxns} stock transactions, {del_vtypes} voucher types, "
+            f"{del_ledgers} ledgers, {del_groups} account groups, "
+            f"{del_sgroups} stock groups, {del_sitems} stock items, "
+            f"{del_scats} stock categories, {del_units} units, {del_godowns} godowns"
+        ),
+    )
+
+    return {
+        "invoices":          del_invoices,
+        "expenses":          del_expenses,
+        "stock_transactions": del_stxns,
+        "voucher_types":     del_vtypes,
+        "ledgers":           del_ledgers,
+        "account_groups":    del_groups,
+        "stock_groups":      del_sgroups,
+        "stock_items":       del_sitems,
+        "stock_categories":  del_scats,
+        "units":             del_units,
+        "godowns":           del_godowns,
+        "message": "All local data wiped. Click Sync Now to re-import everything from TallyPrime.",
+    }
+
+
 # ─── Clear local-only vouchers ───────────────────────────────────────────────────
 
 @router.post("/clear-local-vouchers")

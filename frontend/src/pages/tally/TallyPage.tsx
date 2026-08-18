@@ -3,9 +3,9 @@ import {
   Zap, CheckCircle, XCircle, RefreshCw, Settings, Info,
   Copy, Clock, AlertTriangle, Activity, Wifi, WifiOff,
   Monitor, Database, Shield, ChevronRight, Loader2, Download,
-  ExternalLink, FolderOpen, CheckSquare, TrendingUp,
+  ExternalLink, FolderOpen, CheckSquare, TrendingUp, Trash2,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { managementApi } from '../../api/endpoints';
 import type { SyncHealth } from '../../types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
@@ -13,6 +13,7 @@ import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { Separator } from '../../components/ui/separator';
 import { toast } from '../../components/ui/use-toast';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import apiClient from '../../api/client';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -356,8 +357,31 @@ export default function TallyPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [showDownload, setShowDownload] = useState(false);
+  const [showWipeConfirm, setShowWipeConfirm] = useState(false);
   const latestVersion = useLatestVersion();
   const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const qc = useQueryClient();
+
+  const wipeMut = useMutation({
+    mutationFn: () => managementApi.wipeAllLocalData(),
+    onSuccess: (res) => {
+      const total =
+        res.invoices + res.expenses + res.stock_transactions +
+        res.voucher_types + res.ledgers + res.account_groups +
+        res.stock_groups + res.stock_items + res.stock_categories +
+        res.units + res.godowns;
+      toast({
+        title: 'All local data wiped',
+        description: `${total} records removed. Click Sync Now to re-import from TallyPrime.`,
+      });
+      setShowWipeConfirm(false);
+      qc.invalidateQueries({ queryKey: ['vouchers'] });
+      qc.invalidateQueries({ queryKey: ['tally-sync-health'] });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to wipe local data', variant: 'destructive' });
+    },
+  });
 
   const { data: syncHealth } = useQuery<SyncHealth>({
     queryKey: ['tally-sync-health'],
@@ -509,11 +533,86 @@ export default function TallyPage() {
       {showDownload && <DownloadModal onClose={() => setShowDownload(false)} />}
       {pairing && <PairingModal pairing={pairing} onClose={() => { setPairing(null); fetchStatus(); }} />}
 
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">TallyPrime Integration</h2>
-        <p className="text-sm text-slate-500">
-          Connect your local TallyPrime installation through the FinPilot Connector.
-        </p>
+      {/* ── Wipe All Local Data Confirm Dialog ── */}
+      <Dialog open={showWipeConfirm} onOpenChange={setShowWipeConfirm}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="w-4 h-4" /> Wipe All Local Data
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm text-slate-700">
+            <p>
+              This will permanently remove <strong>all data</strong> stored in FinPilot for your company.
+              After wiping, click <strong>Sync Now</strong> to re-import everything fresh from TallyPrime.
+            </p>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1 text-xs text-red-800">
+              <p className="font-semibold mb-1">The following will be deleted:</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                {[
+                  'Sales & Purchase Invoices',
+                  'Receipts, Payments, Journals',
+                  'Contra, Credit & Debit Notes',
+                  'All Stock Transactions',
+                  'Voucher Types (custom & base)',
+                  'Ledgers',
+                  'Account Groups',
+                  'Stock Groups & Items',
+                  'Stock Categories',
+                  'Units of Measure',
+                  'Godowns / Warehouses',
+                ].map(item => (
+                  <div key={item} className="flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600">
+              <p className="font-semibold text-slate-700 mb-0.5">Safe — these are NOT deleted:</p>
+              <p>Customers, vendors, users, company settings, audit logs, TallyPrime connector pairing.</p>
+            </div>
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+              <strong>This action cannot be undone.</strong> Make sure TallyPrime is running and connected before syncing afterward.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWipeConfirm(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => wipeMut.mutate()}
+              disabled={wipeMut.isPending}
+              className="gap-2"
+            >
+              {wipeMut.isPending
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Trash2 className="w-4 h-4" />}
+              Yes, Wipe All Local Data
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">TallyPrime Integration</h2>
+          <p className="text-sm text-slate-500">
+            Connect your local TallyPrime installation through the FinPilot Connector.
+          </p>
+        </div>
+        <Button
+          variant="destructive"
+          size="sm"
+          className="gap-2 shrink-0"
+          onClick={() => setShowWipeConfirm(true)}
+          disabled={wipeMut.isPending}
+        >
+          {wipeMut.isPending
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : <Trash2 className="w-3.5 h-3.5" />}
+          Wipe All Local Data
+        </Button>
       </div>
 
       {/* ── Status Card ── */}

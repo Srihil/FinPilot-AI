@@ -17,6 +17,8 @@ from app.models.invoice import Invoice, InvoiceStatus, InvoiceType
 from app.models.expense import Expense, ExpenseStatus
 from app.models.product import Product
 from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyStockItem, TallyUnit, TallyGodown, TallyGroup, TallyVoucherType
+from app.models.stock_transaction import StockTransaction
+from app.models.stock_category import StockCategory
 
 TALLY_TAG = "[tally-sync]"
 DEBTOR_GROUPS = {"sundry debtors", "debtors", "trade receivables"}
@@ -635,6 +637,155 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
     return {"invoices": created_invoices, "expenses": created_expenses}
 
 
+# ─── Stock Categories ────────────────────────────────────────────────────────
+
+def sync_stock_categories(db: Session, company_id: uuid.UUID, categories: list[dict]) -> dict:
+    """Upsert stock categories from TallyPrime into FinPilot."""
+    created = 0
+    updated = 0
+    now = datetime.now(timezone.utc)
+    keys_seen: set = set()
+
+    for item in categories:
+        name = item.get("name", "").strip()
+        if not name or name.lower() == "primary":
+            continue
+        parent = item.get("parent") or None
+        if parent and parent.lower() == "primary":
+            parent = None
+
+        key = _tally_key(company_id, name)
+        keys_seen.add(key)
+        existing = db.query(StockCategory).filter(
+            StockCategory.company_id == company_id,
+            StockCategory.tally_key == key,
+        ).first()
+
+        if existing:
+            existing.parent = parent
+            existing.tally_sync_status = "synced"
+            existing.synced_at = now
+            existing.is_active = True
+            existing.source = "tally_sync"
+            updated += 1
+        else:
+            db.add(StockCategory(
+                company_id=company_id,
+                name=name,
+                parent=parent,
+                tally_key=key,
+                source="tally_sync",
+                tally_sync_status="synced",
+                synced_at=now,
+                is_active=True,
+            ))
+            created += 1
+
+    db.flush()
+
+    # Prune stock categories no longer in TallyPrime
+    if keys_seen:
+        removed = db.query(StockCategory).filter(
+            StockCategory.company_id == company_id,
+            StockCategory.is_active == True,
+            StockCategory.tally_sync_status == "synced",
+            ~StockCategory.tally_key.in_(keys_seen),
+        ).update({"is_active": False}, synchronize_session=False)
+    else:
+        removed = 0
+
+    return {"created": created, "updated": updated, "removed": removed}
+
+
+# ─── Stock Transactions ───────────────────────────────────────────────────────
+
+def sync_stock_transactions(db: Session, company_id: uuid.UUID, txns: list[dict]) -> dict:
+    """
+    Replace-sync stock transactions from TallyPrime.
+
+    Dedup by transaction_number + company_id. If already present, update it.
+    Mark transactions no longer in TallyPrime as inactive.
+    """
+    created = 0
+    updated = 0
+    now = datetime.now(timezone.utc)
+    seen_numbers: set = set()
+
+    for txn in txns:
+        txn_type = txn.get("transaction_type", "")
+        vch_no   = (txn.get("transaction_number") or "").strip()
+        if not txn_type or not vch_no:
+            continue
+
+        seen_numbers.add(vch_no)
+
+        # Parse date
+        date_str = txn.get("date", "")
+        try:
+            if len(date_str) == 8 and date_str.isdigit():
+                txn_date = datetime(
+                    int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]),
+                    tzinfo=timezone.utc,
+                )
+            else:
+                txn_date = None
+        except Exception:
+            txn_date = None
+
+        entries    = txn.get("entries", [])
+        narration  = txn.get("narration", "")
+        party      = txn.get("party", "")
+        from_gd    = txn.get("from_godown", "")
+        to_gd      = txn.get("to_godown", "")
+
+        existing = db.query(StockTransaction).filter(
+            StockTransaction.company_id == company_id,
+            StockTransaction.transaction_number == vch_no,
+        ).first()
+
+        if existing:
+            existing.transaction_type   = txn_type
+            existing.transaction_date   = txn_date
+            existing.narration          = narration or existing.narration
+            existing.party_name         = party or existing.party_name
+            existing.from_godown        = from_gd or existing.from_godown
+            existing.to_godown          = to_gd or existing.to_godown
+            existing.entries            = entries
+            existing.tally_sync_status  = "synced"
+            existing.is_active          = True
+            updated += 1
+        else:
+            db.add(StockTransaction(
+                company_id=company_id,
+                transaction_number=vch_no,
+                transaction_type=txn_type,
+                transaction_date=txn_date,
+                narration=narration,
+                party_name=party or None,
+                from_godown=from_gd or None,
+                to_godown=to_gd or None,
+                entries=entries,
+                tally_sync_status="synced",
+                is_active=True,
+            ))
+            created += 1
+
+    db.flush()
+
+    # Tombstone stock transactions no longer present in TallyPrime
+    if seen_numbers:
+        removed = db.query(StockTransaction).filter(
+            StockTransaction.company_id == company_id,
+            StockTransaction.is_active == True,
+            StockTransaction.tally_sync_status == "synced",
+            ~StockTransaction.transaction_number.in_(seen_numbers),
+        ).update({"is_active": False}, synchronize_session=False)
+    else:
+        removed = 0
+
+    return {"created": created, "updated": updated, "removed": removed}
+
+
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
 def process_sync_result(db: Session, company_id: uuid.UUID, result: dict) -> dict:
@@ -642,23 +793,27 @@ def process_sync_result(db: Session, company_id: uuid.UUID, result: dict) -> dic
     Called after a SYNC_FULL / SYNC_PARTIAL job succeeds.
     Processes all entity types the connector returned.
     """
-    ledgers      = result.get("ledgers", [])
-    vouchers     = result.get("vouchers", [])
-    stock_items  = result.get("stock_items", [])
-    godowns      = result.get("godowns", [])
-    stock_groups = result.get("stock_groups", [])
-    units        = result.get("units", [])
-    groups        = result.get("groups", [])
-    voucher_types = result.get("voucher_types", [])
+    ledgers           = result.get("ledgers", [])
+    vouchers          = result.get("vouchers", [])
+    stock_items       = result.get("stock_items", [])
+    godowns           = result.get("godowns", [])
+    stock_groups      = result.get("stock_groups", [])
+    stock_categories  = result.get("stock_categories", [])
+    units             = result.get("units", [])
+    groups            = result.get("groups", [])
+    voucher_types     = result.get("voucher_types", [])
+    stock_txns        = result.get("stock_transactions", [])
 
     ledger_stats        = {"customers": 0, "vendors": 0, "ledgers": 0}
     voucher_stats       = {"invoices": 0, "expenses": 0}
     stock_item_stats    = {"created": 0, "updated": 0}
     godown_stats        = {"created": 0, "updated": 0}
     stock_group_stats   = {"created": 0, "updated": 0}
+    stock_cat_stats     = {"created": 0, "updated": 0}
     unit_stats          = {"created": 0, "updated": 0}
     group_stats         = {"created": 0, "updated": 0}
     voucher_type_stats  = {"created": 0, "updated": 0}
+    stock_txn_stats     = {"created": 0, "updated": 0}
 
     if ledgers:
         ledger_stats = sync_ledgers(db, company_id, ledgers)
@@ -670,21 +825,27 @@ def process_sync_result(db: Session, company_id: uuid.UUID, result: dict) -> dic
         godown_stats = sync_godowns(db, company_id, godowns)
     if stock_groups:
         stock_group_stats = sync_stock_groups(db, company_id, stock_groups)
+    if stock_categories:
+        stock_cat_stats = sync_stock_categories(db, company_id, stock_categories)
     if units:
         unit_stats = sync_units(db, company_id, units)
     if groups:
         group_stats = sync_groups(db, company_id, groups)
     if voucher_types:
         voucher_type_stats = sync_voucher_types(db, company_id, voucher_types)
+    if stock_txns:
+        stock_txn_stats = sync_stock_transactions(db, company_id, stock_txns)
 
     total_removed = (
         ledger_stats.get("removed_ledgers", 0)
         + stock_item_stats.get("removed", 0)
         + godown_stats.get("removed", 0)
         + stock_group_stats.get("removed", 0)
+        + stock_cat_stats.get("removed", 0)
         + unit_stats.get("removed", 0)
         + group_stats.get("removed", 0)
         + voucher_type_stats.get("removed", 0)
+        + stock_txn_stats.get("removed", 0)
     )
 
     return {
@@ -709,8 +870,14 @@ def process_sync_result(db: Session, company_id: uuid.UUID, result: dict) -> dic
         "imported_groups":         group_stats["created"],
         "updated_groups":          group_stats["updated"],
         "removed_groups":          group_stats.get("removed", 0),
-        "imported_voucher_types":  voucher_type_stats["created"],
-        "updated_voucher_types":   voucher_type_stats["updated"],
-        "removed_voucher_types":   voucher_type_stats.get("removed", 0),
+        "imported_voucher_types":       voucher_type_stats["created"],
+        "updated_voucher_types":        voucher_type_stats["updated"],
+        "removed_voucher_types":        voucher_type_stats.get("removed", 0),
+        "imported_stock_categories":    stock_cat_stats["created"],
+        "updated_stock_categories":     stock_cat_stats["updated"],
+        "removed_stock_categories":     stock_cat_stats.get("removed", 0),
+        "imported_stock_transactions":  stock_txn_stats["created"],
+        "updated_stock_transactions":   stock_txn_stats["updated"],
+        "removed_stock_transactions":   stock_txn_stats.get("removed", 0),
         "total_removed_from_tally": total_removed,
     }

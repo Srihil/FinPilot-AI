@@ -417,6 +417,16 @@ export const managementApi = {
     return res.data;
   },
 
+  wipeAllLocalData: async (): Promise<{
+    invoices: number; expenses: number; stock_transactions: number;
+    voucher_types: number; ledgers: number; account_groups: number;
+    stock_groups: number; stock_items: number; stock_categories: number;
+    units: number; godowns: number; message: string;
+  }> => {
+    const res = await apiClient.post('/api/management/wipe-all-local-data');
+    return res.data;
+  },
+
   voucherTypes: async (params?: { page?: number; page_size?: number; search?: string }) => {
     const res = await apiClient.get('/api/management/voucher-types', { params });
     return res.data as { items: VoucherTypeItem[]; total: number; total_pages: number };

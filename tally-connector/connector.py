@@ -239,32 +239,38 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
         if op in ("DELETE_VOUCHER", "CANCEL_VOUCHER"):
             return tally.delete_voucher(payload), None
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
-            ledgers      = tally.get_ledgers()
-            vouchers     = tally.get_vouchers()
-            stock        = tally.get_stock_items()
-            godowns      = tally.get_godowns()
-            stock_groups = tally.get_stock_groups()
-            units        = tally.get_units()
-            groups        = tally.get_groups()
-            voucher_types = tally.get_voucher_types()
+            ledgers           = tally.get_ledgers()
+            vouchers          = tally.get_vouchers()
+            stock             = tally.get_stock_items()
+            godowns           = tally.get_godowns()
+            stock_groups      = tally.get_stock_groups()
+            stock_categories  = tally.get_stock_categories()
+            units             = tally.get_units()
+            groups            = tally.get_groups()
+            voucher_types     = tally.get_voucher_types()
+            stock_txns        = tally.get_stock_transactions()
             return {
                 "synced": True,
-                "ledgers":       ledgers,
-                "vouchers":      vouchers,
-                "stock_items":   stock,
-                "godowns":       godowns,
-                "stock_groups":  stock_groups,
-                "units":         units,
-                "groups":        groups,
-                "voucher_types": voucher_types,
-                "ledger_count":       len(ledgers),
-                "voucher_count":      len(vouchers),
-                "stock_item_count":   len(stock),
-                "godown_count":       len(godowns),
-                "stock_group_count":  len(stock_groups),
-                "unit_count":         len(units),
-                "group_count":        len(groups),
-                "voucher_type_count": len(voucher_types),
+                "ledgers":            ledgers,
+                "vouchers":           vouchers,
+                "stock_items":        stock,
+                "godowns":            godowns,
+                "stock_groups":       stock_groups,
+                "stock_categories":   stock_categories,
+                "units":              units,
+                "groups":             groups,
+                "voucher_types":      voucher_types,
+                "stock_transactions": stock_txns,
+                "ledger_count":             len(ledgers),
+                "voucher_count":            len(vouchers),
+                "stock_item_count":         len(stock),
+                "godown_count":             len(godowns),
+                "stock_group_count":        len(stock_groups),
+                "stock_category_count":     len(stock_categories),
+                "unit_count":               len(units),
+                "group_count":              len(groups),
+                "voucher_type_count":       len(voucher_types),
+                "stock_transaction_count":  len(stock_txns),
             }, None
     except TallyError as e:
         return None, str(e)

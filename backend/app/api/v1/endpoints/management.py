@@ -358,7 +358,6 @@ def update_ledger(
     if not ledger:
         raise HTTPException(status_code=404, detail="Ledger not found")
 
-    was_synced = ledger.tally_sync_status == "synced"
     if data.name is not None:
         ledger.name = data.name.strip()
     if data.parent_group is not None:
@@ -367,24 +366,26 @@ def update_ledger(
         ledger.opening_balance = data.opening_balance
     ledger.updated_at = datetime.now(timezone.utc)
 
-    # If pending job, update its payload too
-    if ledger.tally_job_id and not was_synced:
-        job = db.query(TallyIntegrationJob).filter(
-            TallyIntegrationJob.id == ledger.tally_job_id,
-            TallyIntegrationJob.status == JobStatus.PENDING,
-        ).first()
-        if job and data.name:
-            job.payload = {**(job.payload or {}), "name": ledger.name}
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if connector and ledger.tally_sync_status in ("synced", "pending", "failed"):
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id, connector_id=connector.id,
+            created_by=current_user.id, operation=TallyJobOperation.CREATE_LEDGER,
+            payload={"name": ledger.name, "group": ledger.parent_group or "Sundry Debtors",
+                     "opening_balance": str(ledger.opening_balance or 0), "is_update": True},
+            idempotency_key=f"alter_ledger::{ledger.id}::{datetime.now(timezone.utc).timestamp()}",
+        )
+        db.add(job)
+        ledger.tally_sync_status = "pending"
 
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
                       entity_type="tally_ledger", entity_id=ledger.id,
                       description=f"Updated ledger: {ledger.name}")
-    return {
-        "id": str(ledger.id), "name": ledger.name,
-        "tally_sync_status": ledger.tally_sync_status,
-        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
-    }
+    return {"id": str(ledger.id), "name": ledger.name, "tally_sync_status": ledger.tally_sync_status}
 
 
 @router.delete("/ledgers/{ledger_id}")
@@ -563,20 +564,31 @@ def update_stock_group(
     ).first()
     if not sg:
         raise HTTPException(status_code=404, detail="Stock group not found")
-    was_synced = sg.tally_sync_status == "synced"
     if data.name is not None:
         sg.name = data.name.strip()
     if data.parent is not None:
         sg.parent = data.parent.strip() or None
     sg.updated_at = datetime.now(timezone.utc)
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if connector and sg.tally_sync_status in ("synced", "pending", "failed"):
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id, connector_id=connector.id,
+            created_by=current_user.id, operation=TallyJobOperation.CREATE_STOCK_GROUP,
+            payload={"name": sg.name, "parent": sg.parent or "", "is_update": True},
+            idempotency_key=f"alter_stock_group::{sg.id}::{datetime.now(timezone.utc).timestamp()}",
+        )
+        db.add(job)
+        sg.tally_sync_status = "pending"
+
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
                       entity_type="tally_stock_group", entity_id=sg.id,
                       description=f"Updated stock group: {sg.name}")
-    return {
-        "id": str(sg.id), "name": sg.name, "tally_sync_status": sg.tally_sync_status,
-        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
-    }
+    return {"id": str(sg.id), "name": sg.name, "tally_sync_status": sg.tally_sync_status}
 
 
 @router.delete("/stock-groups/{sg_id}")
@@ -770,7 +782,6 @@ def update_unit(
     ).first()
     if not unit:
         raise HTTPException(status_code=404, detail="Unit not found")
-    was_synced = unit.tally_sync_status == "synced"
     if data.name is not None:
         unit.name = data.name.strip()
     if data.symbol is not None:
@@ -781,14 +792,27 @@ def update_unit(
     if data.decimal_places is not None:
         unit.decimal_places = data.decimal_places
     unit.updated_at = datetime.now(timezone.utc)
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if connector and unit.tally_sync_status in ("synced", "pending", "failed"):
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id, connector_id=connector.id,
+            created_by=current_user.id, operation=TallyJobOperation.CREATE_UNIT,
+            payload={"name": unit.name, "symbol": unit.symbol or unit.name,
+                     "decimal_places": unit.decimal_places or 0, "is_update": True},
+            idempotency_key=f"alter_unit::{unit.id}::{datetime.now(timezone.utc).timestamp()}",
+        )
+        db.add(job)
+        unit.tally_sync_status = "pending"
+
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
                       entity_type="tally_unit", entity_id=unit.id,
                       description=f"Updated unit: {unit.name}")
-    return {
-        "id": str(unit.id), "name": unit.name, "tally_sync_status": unit.tally_sync_status,
-        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
-    }
+    return {"id": str(unit.id), "name": unit.name, "tally_sync_status": unit.tally_sync_status}
 
 
 @router.delete("/units/{unit_id}")
@@ -960,20 +984,31 @@ def update_godown(
     ).first()
     if not godown:
         raise HTTPException(status_code=404, detail="Godown not found")
-    was_synced = godown.tally_sync_status == "synced"
     if data.name is not None:
         godown.name = data.name.strip()
     if data.parent is not None:
         godown.parent = data.parent.strip() or None
     godown.updated_at = datetime.now(timezone.utc)
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if connector and godown.tally_sync_status in ("synced", "pending", "failed"):
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id, connector_id=connector.id,
+            created_by=current_user.id, operation=TallyJobOperation.CREATE_GODOWN,
+            payload={"name": godown.name, "parent": godown.parent or "", "is_update": True},
+            idempotency_key=f"alter_godown::{godown.id}::{datetime.now(timezone.utc).timestamp()}",
+        )
+        db.add(job)
+        godown.tally_sync_status = "pending"
+
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
                       entity_type="tally_godown", entity_id=godown.id,
                       description=f"Updated godown: {godown.name}")
-    return {
-        "id": str(godown.id), "name": godown.name, "tally_sync_status": godown.tally_sync_status,
-        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
-    }
+    return {"id": str(godown.id), "name": godown.name, "tally_sync_status": godown.tally_sync_status}
 
 
 @router.delete("/godowns/{godown_id}")
@@ -2827,7 +2862,6 @@ def update_group(
     ).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    was_synced = group.tally_sync_status == "synced"
     if data.name is not None:
         group.name = data.name.strip()
     if data.parent is not None:
@@ -2835,14 +2869,26 @@ def update_group(
     if data.nature is not None:
         group.nature = data.nature.strip() or None
     group.updated_at = datetime.now(timezone.utc)
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if connector and group.tally_sync_status in ("synced", "pending", "failed"):
+        job = TallyIntegrationJob(
+            company_id=current_user.company_id, connector_id=connector.id,
+            created_by=current_user.id, operation=TallyJobOperation.CREATE_GROUP,
+            payload={"name": group.name, "parent": group.parent or "Capital Account", "is_update": True},
+            idempotency_key=f"alter_group::{group.id}::{datetime.now(timezone.utc).timestamp()}",
+        )
+        db.add(job)
+        group.tally_sync_status = "pending"
+
     db.commit()
     audit_service.log(db, current_user.company_id, current_user.id, AuditAction.UPDATE,
                       entity_type="tally_group", entity_id=group.id,
                       description=f"Updated group: {group.name}")
-    return {
-        "id": str(group.id), "name": group.name, "tally_sync_status": group.tally_sync_status,
-        "warning": "Already synced to TallyPrime — update it there manually too." if was_synced else None,
-    }
+    return {"id": str(group.id), "name": group.name, "tally_sync_status": group.tally_sync_status}
 
 
 @router.delete("/groups/{group_id}")

@@ -1236,7 +1236,7 @@ class TallyClient:
     <DESC/>
     <DATA>
       <TALLYMESSAGE xmlns:UDF="TallyUDF">
-        <LEDGER NAME="{name}" ACTION="Create">
+        <LEDGER NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
           <NAME>{name}</NAME>
           <PARENT>{group}</PARENT>
           <OPENINGBALANCE>{opening_balance}</OPENINGBALANCE>
@@ -1307,7 +1307,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <STOCKCATEGORY NAME="{name}" ACTION="Create">
+      <STOCKCATEGORY NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
         <NAME>{name}</NAME>
         {parent_xml}
       </STOCKCATEGORY>
@@ -1329,7 +1329,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <GROUP NAME="{name}" ACTION="Create">
+      <GROUP NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
         <NAME>{name}</NAME>
         <PARENT>{parent}</PARENT>
       </GROUP>
@@ -1355,7 +1355,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <STOCKGROUP NAME="{name}" ACTION="Create">
+      <STOCKGROUP NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
         <NAME>{name}</NAME>
         {parent_xml}
       </STOCKGROUP>
@@ -1378,7 +1378,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <UNIT NAME="{name}" ACTION="Create">
+      <UNIT NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
         <NAME>{name}</NAME>
         <ORIGINALNAME>{symbol}</ORIGINALNAME>
         <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
@@ -1404,7 +1404,7 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <GODOWN NAME="{name}" ACTION="Create">
+      <GODOWN NAME="{name}" ACTION="{"Alter" if payload.get("is_update") else "Create"}">
         <NAME>{name}</NAME>
         {parent_xml}
       </GODOWN>
@@ -1901,6 +1901,7 @@ class TallyClient:
         amount     = str(payload.get("amount", "0")).lstrip("-")
         narration  = payload.get("narration", "Fund Transfer")
         vnum       = payload.get("voucher_number") or self._vch_id()
+        action     = "Alter" if payload.get("is_update") else "Create"
         fy_start, fy_end = self._fy_dates(date)
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
@@ -1913,7 +1914,7 @@ class TallyClient:
     </DESC>
     <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="{action}" OBJVIEW="Accounting Voucher View">
         <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>

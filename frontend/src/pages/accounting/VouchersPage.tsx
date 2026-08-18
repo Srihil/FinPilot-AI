@@ -255,6 +255,7 @@ export default function VouchersPage() {
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
     }),
+    refetchInterval: 5000,
   });
 
   const { data: ledgersData } = useQuery({

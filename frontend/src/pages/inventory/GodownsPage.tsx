@@ -25,6 +25,7 @@ export default function GodownsPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['godowns', page, search],
     queryFn: () => managementApi.godowns({ page, page_size: 20, search: search || undefined }),
+    refetchInterval: 5000,
   });
 
   const createMut = useMutation({

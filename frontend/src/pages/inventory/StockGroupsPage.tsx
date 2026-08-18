@@ -157,6 +157,7 @@ export default function StockGroupsPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stock-groups-tree'],
     queryFn: () => managementApi.stockGroups({ page_size: 500 }),
+    refetchInterval: 5000,
   });
 
   const allGroups: TallyStockGroup[] = data?.items ?? [];

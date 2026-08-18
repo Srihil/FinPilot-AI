@@ -151,6 +151,7 @@ export default function StockCategoriesPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stock-categories-tree'],
     queryFn: () => managementApi.stockCategories({ page_size: 500 }),
+    refetchInterval: 5000,
   });
 
   const allCats: StockCategory[] = data?.items ?? [];

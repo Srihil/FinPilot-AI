@@ -167,6 +167,7 @@ export default function StockItemsPage() {
   const { data: itemsData, isLoading, isError } = useQuery({
     queryKey: ['stock-items-tree'],
     queryFn: () => managementApi.stockItems({ page_size: 500 }),
+    refetchInterval: 5000,
   });
 
   const { data: unitsData } = useQuery({

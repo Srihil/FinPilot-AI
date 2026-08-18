@@ -39,6 +39,7 @@ export default function GroupsPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['groups', page, search],
     queryFn: () => groupsApi.list({ page, page_size: 20, search: search || undefined }),
+    refetchInterval: 5000,
   });
 
   const createMut = useMutation({

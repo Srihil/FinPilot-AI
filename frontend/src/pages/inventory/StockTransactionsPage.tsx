@@ -256,6 +256,7 @@ export default function StockTransactionsPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stock-transactions', page, typeFilter, search],
     queryFn: () => api.list({ page, page_size: 20, transaction_type: typeFilter || undefined, search: search || undefined }),
+    refetchInterval: 5000,
   });
 
   // Create

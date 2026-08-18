@@ -87,6 +87,7 @@ export default function UnitsPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['units', page, search],
     queryFn: () => managementApi.units({ page, page_size: 20, search: search || undefined }),
+    refetchInterval: 5000,
   });
 
   const createMut = useMutation({

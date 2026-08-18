@@ -40,6 +40,7 @@ export default function LedgersPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['ledgers', page, search],
     queryFn: () => managementApi.ledgers({ page, page_size: PAGE_SIZE, search: search || undefined }),
+    refetchInterval: 5000,
   });
 
   const createMut = useMutation({

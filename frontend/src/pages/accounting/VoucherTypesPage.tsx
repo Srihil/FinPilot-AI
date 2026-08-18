@@ -263,6 +263,7 @@ export default function VoucherTypesPage() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['voucher-types'],
     queryFn: () => managementApi.voucherTypes({ page_size: 200 }),
+    refetchInterval: 5000,
   });
 
   const createMut = useMutation({

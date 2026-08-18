@@ -430,16 +430,17 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
         name = item.get("name", "").strip()
         if not name:
             continue
-        unit = item.get("unit", "")
+        unit        = item.get("unit", "")
+        stock_group = item.get("stock_group") or None   # parent group from TallyPrime
 
-        # Parse closing rate
+        # Parse closing rate  (format: "500 /Nos" or "500")
         rate_raw = item.get("closing_rate", "0")
         try:
             rate = abs(float(str(rate_raw).split()[0].replace(",", ""))) if rate_raw else 0.0
         except (ValueError, IndexError):
             rate = 0.0
 
-        # Parse closing balance (quantity)
+        # Parse closing balance / quantity (format: "50 Nos" or "50")
         qty_raw = item.get("closing_balance", "0")
         try:
             qty = abs(float(str(qty_raw).split()[0].replace(",", ""))) if qty_raw else 0.0
@@ -459,6 +460,8 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
                 existing.rate = rate
             if unit:
                 existing.unit = unit
+            if stock_group:
+                existing.stock_group = stock_group
             existing.opening_qty = qty
             existing.tally_sync_status = "synced"
             existing.is_active = True
@@ -468,6 +471,7 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
             db.add(TallyStockItem(
                 company_id=company_id,
                 name=name,
+                stock_group=stock_group,
                 unit=unit or None,
                 rate=rate,
                 opening_qty=qty,

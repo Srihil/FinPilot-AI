@@ -209,21 +209,73 @@ class TestSyncVoucherTypes:
 # ─── sync_stock_items ─────────────────────────────────────────────────────────
 
 class TestSyncStockItems:
-    def test_creates_stock_item(self):
+    def test_creates_stock_item_with_group(self):
+        """Matches TallyPrime screenshot: Remote is under Tablets (under Electronics)."""
         db = _db(existing=None)
         result = sync_stock_items(db, CID, [
-            {"name": "Remote", "unit": "Nos", "closing_balance": "50 Nos", "closing_rate": "500"},
+            {"name": "Remote", "stock_group": "Tablets", "unit": "Nos",
+             "closing_balance": "50 Nos", "closing_rate": "500"},
         ])
         assert result["created"] == 1
+        added = db.add.call_args[0][0]
+        assert added.stock_group == "Tablets"
+        assert added.name == "Remote"
 
-    def test_updates_existing_stock_item(self):
+    def test_creates_stock_item_without_group(self):
+        db = _db(existing=None)
+        result = sync_stock_items(db, CID, [
+            {"name": "FP-TEST-Stock-Item", "stock_group": None, "unit": "Nos",
+             "closing_balance": "0", "closing_rate": "0"},
+        ])
+        assert result["created"] == 1
+        added = db.add.call_args[0][0]
+        assert added.stock_group is None
+
+    def test_all_tally_screenshot_items_created(self):
+        """Verify all 12 items from the TallyPrime screenshot are created correctly."""
+        tally_items = [
+            # ABC Traders group
+            {"name": "Bed",             "stock_group": "ABC Traders", "unit": "Nos", "closing_balance": "0", "closing_rate": "0"},
+            {"name": "Mattress",        "stock_group": "ABC Traders", "unit": "Nos", "closing_balance": "0", "closing_rate": "0"},
+            {"name": "pencils",         "stock_group": "ABC Traders", "unit": "Nos", "closing_balance": "0", "closing_rate": "0"},
+            {"name": "Pillow",          "stock_group": "ABC Traders", "unit": "Nos", "closing_balance": "0", "closing_rate": "0"},
+            # Mobile Phones subgroup (under Electronics)
+            {"name": "blankets",        "stock_group": "Mobile Phones", "unit": "Nos", "closing_balance": "0", "closing_rate": "0"},
+            {"name": "Samsung Galaxy",  "stock_group": "Mobile Phones", "unit": "Nos", "closing_balance": "0", "closing_rate": "25000"},
+            # Tablets subgroup (under Electronics)
+            {"name": "IPhone",          "stock_group": "Tablets", "unit": "Nos", "closing_balance": "0", "closing_rate": "0"},
+            {"name": "Phone",           "stock_group": "Tablets", "unit": "Nos", "closing_balance": "0", "closing_rate": "0"},
+            {"name": "Remote",          "stock_group": "Tablets", "unit": "Nos", "closing_balance": "50 Nos", "closing_rate": "500"},
+            # Furniture group
+            {"name": "Office Chair",    "stock_group": "Furniture", "unit": "Nos", "closing_balance": "0", "closing_rate": "5000"},
+            # Sahil stocks group
+            {"name": "Laptop",          "stock_group": "Sahil stocks", "unit": "Nos", "closing_balance": "0", "closing_rate": "45000"},
+            # No group
+            {"name": "FP-TEST-Stock-Item", "stock_group": None, "unit": "Nos", "closing_balance": "0", "closing_rate": "0"},
+        ]
+        db = _db(existing=None)
+        result = sync_stock_items(db, CID, tally_items)
+        assert result["created"] == 12
+
+        # Verify each call had the right stock_group
+        calls = db.add.call_args_list
+        assert len(calls) == 12
+        created_groups = {c[0][0].name: c[0][0].stock_group for c in calls}
+        assert created_groups["Remote"] == "Tablets"
+        assert created_groups["Laptop"] == "Sahil stocks"
+        assert created_groups["Office Chair"] == "Furniture"
+        assert created_groups["FP-TEST-Stock-Item"] is None
+
+    def test_updates_existing_stock_item_group(self):
         existing = MagicMock()
         db = _db(existing=existing)
         result = sync_stock_items(db, CID, [
-            {"name": "Remote", "unit": "Nos", "closing_balance": "60 Nos", "closing_rate": "600"},
+            {"name": "Remote", "stock_group": "Tablets", "unit": "Nos",
+             "closing_balance": "60 Nos", "closing_rate": "600"},
         ])
         assert result["updated"] == 1
         assert float(existing.rate) == 600.0
+        assert existing.stock_group == "Tablets"
 
 
 # ─── sync_stock_transactions ─────────────────────────────────────────────────

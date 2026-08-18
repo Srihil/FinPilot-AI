@@ -366,15 +366,24 @@ class TallyClient:
     # ── Stock items ───────────────────────────────────────────────────────────
 
     def get_stock_items(self) -> list[dict]:
+        """Fetch all stock items including their parent stock group (PARENT field)."""
         xml = """<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
     <TYPE>Collection</TYPE>
-    <ID>List of Stock Items</ID>
+    <ID>FP StockItems</ID>
   </HEADER>
   <BODY>
     <DESC>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="FP StockItems" ISMODIFY="No">
+            <TYPE>StockItem</TYPE>
+            <FETCH>NAME,PARENT,BASEUNITS,CLOSINGBALANCE,CLOSINGRATE</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
       </STATICVARIABLES>
@@ -385,15 +394,27 @@ class TallyClient:
         root = self._parse_response(raw)
         items = []
         for item in root.findall(".//STOCKITEM"):
-            name = item.find("NAME")
-            unit = item.find("BASEUNITS")
-            qty = item.find("CLOSINGBALANCE")
-            rate = item.find("CLOSINGRATE")
+            name_el   = item.find("NAME")
+            parent_el = item.find("PARENT")
+            unit_el   = item.find("BASEUNITS")
+            qty_el    = item.find("CLOSINGBALANCE")
+            rate_el   = item.find("CLOSINGRATE")
+
+            name  = (name_el.text or "").strip()   if name_el   is not None else ""
+            group = (parent_el.text or "").strip() if parent_el is not None else ""
+            unit  = (unit_el.text or "").strip()   if unit_el   is not None else ""
+            qty   = (qty_el.text or "0").strip()   if qty_el    is not None else "0"
+            rate  = (rate_el.text or "0").strip()  if rate_el   is not None else "0"
+
+            if not name:
+                continue
+
             items.append({
-                "name": name.text.strip() if name is not None and name.text else "",
-                "unit": unit.text.strip() if unit is not None and unit.text else "",
-                "closing_balance": qty.text.strip() if qty is not None and qty.text else "0",
-                "closing_rate": rate.text.strip() if rate is not None and rate.text else "0",
+                "name":            name,
+                "stock_group":     group if group and group.lower() not in ("", "primary") else None,
+                "unit":            unit,
+                "closing_balance": qty,
+                "closing_rate":    rate,
             })
         return items
 

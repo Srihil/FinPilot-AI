@@ -758,11 +758,12 @@ class TallyClient:
         The voucher is marked as cancelled in Tally (preserving the voucher number in the sequence)
         and the REMOTEID uniquely identifies it.
         """
-        vref         = payload.get("voucher_ref", "")
+        vref         = payload.get("voucher_ref", "").strip()
+        vnum         = payload.get("voucher_number", "").strip()  # fallback for Tally-native vouchers
         voucher_type = payload.get("voucher_type", "Sales")
 
-        if not vref:
-            raise TallyError("cancel_voucher: voucher_ref is required")
+        if not vref and not vnum:
+            raise TallyError("cancel_voucher: voucher_ref (REMOTEID) or voucher_number is required")
 
         # TallyPrime requires a DATE in the Cancel action; omitting it causes
         # "date 0-0-0 is Out of Range". Use the payload date if present,
@@ -776,11 +777,19 @@ class TallyClient:
         # Use 1st of month to avoid mid-period split errors (same as create flow)
         cancel_date = cancel_date[:6] + "01"
 
+        # Identify the voucher: prefer REMOTEID (FP-xxxx), fall back to VOUCHERNUMBER
+        # REMOTEID works for FinPilot-created vouchers.
+        # VOUCHERNUMBER works for TallyPrime-native vouchers imported into FinPilot.
+        if vref:
+            id_attr = f'REMOTEID="{vref}"'
+        else:
+            id_attr = f'VOUCHERNUMBER="{vnum}"'
+
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER REMOTEID="{vref}" VCHTYPE="{voucher_type}" ACTION="Cancel">
+      <VOUCHER {id_attr} VCHTYPE="{voucher_type}" ACTION="Cancel">
         <DATE>{cancel_date}</DATE>
         <VOUCHERTYPENAME>{voucher_type}</VOUCHERTYPENAME>
         <ISCANCELLED>Yes</ISCANCELLED>

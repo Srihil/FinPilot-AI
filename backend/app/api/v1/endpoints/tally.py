@@ -767,34 +767,56 @@ def submit_job_result(
 
         # CANCEL_VOUCHER confirmed → soft-delete the record in FinPilot
         elif job.operation == TallyJobOperation.CANCEL_VOUCHER:
-            vref = (job.payload or {}).get("voucher_ref", "")
-            entity_type = (job.payload or {}).get("entity_type", "")
-            if vref:
-                if entity_type == "invoice":
+            payload_c   = job.payload or {}
+            vref        = payload_c.get("voucher_ref", "")
+            entity_type = payload_c.get("entity_type", "")
+            entity_id_s = payload_c.get("entity_id", "")
+            if entity_type == "invoice":
+                # Prefer lookup by entity_id (UUID) — always reliable regardless of REMOTEID
+                rec = None
+                if entity_id_s:
+                    try:
+                        rec = db.query(Invoice).filter(
+                            Invoice.id == uuid.UUID(entity_id_s),
+                            Invoice.company_id == job.company_id,
+                        ).first()
+                    except Exception:
+                        pass
+                if not rec and vref:
                     rec = db.query(Invoice).filter(
                         Invoice.tally_voucher_ref == vref,
                         Invoice.company_id == job.company_id,
                     ).first()
-                    if rec:
-                        rec.is_deleted = True
-                        rec.tally_sync_status = "delete_success"
-                elif entity_type == "expense":
+                if rec:
+                    rec.is_deleted = True
+                    rec.tally_sync_status = "delete_success"
+            elif entity_type == "expense":
+                rec = None
+                if entity_id_s:
+                    try:
+                        rec = db.query(Expense).filter(
+                            Expense.id == uuid.UUID(entity_id_s),
+                            Expense.company_id == job.company_id,
+                        ).first()
+                    except Exception:
+                        pass
+                if not rec and vref:
                     rec = db.query(Expense).filter(
                         Expense.tally_voucher_ref == vref,
                         Expense.company_id == job.company_id,
                     ).first()
-                    if rec:
-                        rec.is_deleted = True
-                        rec.tally_sync_status = "delete_success"
-                elif entity_type == "stock_transaction":
-                    txn_id_str = (job.payload or {}).get("txn_id", "")
-                    if txn_id_str:
-                        txn = db.query(StockTransaction).filter(
-                            StockTransaction.id == uuid.UUID(txn_id_str),
-                            StockTransaction.company_id == job.company_id,
-                        ).first()
-                        if txn:
-                            txn.is_active = False
+                if rec:
+                    rec.is_deleted = True
+                    rec.tally_sync_status = "delete_success"
+            elif entity_type == "stock_transaction":
+                txn_id_str = (job.payload or {}).get("txn_id", "")
+                if txn_id_str:
+                    txn = db.query(StockTransaction).filter(
+                        StockTransaction.id == uuid.UUID(txn_id_str),
+                        StockTransaction.company_id == job.company_id,
+                    ).first()
+                    if txn:
+                        txn.is_active = False
 
         # Voucher CREATE confirmed → mark invoice/expense as synced
         elif job.operation in _VOUCHER_CREATE_OPS:
@@ -882,26 +904,37 @@ def submit_job_result(
 
         # Handle CANCEL_VOUCHER failure → restore delete_failed so user can retry
         if job.status == JobStatus.FAILED and job.operation == TallyJobOperation.CANCEL_VOUCHER:
-            vref = (job.payload or {}).get("voucher_ref", "")
-            entity_type = (job.payload or {}).get("entity_type", "")
-            if vref:
-                if entity_type == "stock_transaction":
-                    txn_id_str = (job.payload or {}).get("txn_id", "")
-                    if txn_id_str:
-                        txn = db.query(StockTransaction).filter(
-                            StockTransaction.id == uuid.UUID(txn_id_str),
-                            StockTransaction.company_id == job.company_id,
-                        ).first()
-                        if txn:
-                            txn.tally_sync_status = "delete_failed"
-                else:
-                    model = Invoice if entity_type == "invoice" else Expense
-                    rec = db.query(model).filter(
-                        model.tally_voucher_ref == vref,
-                        model.company_id == job.company_id,
+            payload_f   = job.payload or {}
+            vref_f      = payload_f.get("voucher_ref", "")
+            entity_type_f = payload_f.get("entity_type", "")
+            entity_id_f = payload_f.get("entity_id", "")
+            if entity_type_f == "stock_transaction":
+                txn_id_str = payload_f.get("txn_id", "")
+                if txn_id_str:
+                    txn = db.query(StockTransaction).filter(
+                        StockTransaction.id == uuid.UUID(txn_id_str),
+                        StockTransaction.company_id == job.company_id,
                     ).first()
-                    if rec:
-                        rec.tally_sync_status = "delete_failed"
+                    if txn:
+                        txn.tally_sync_status = "delete_failed"
+            elif entity_type_f in ("invoice", "expense"):
+                model_f = Invoice if entity_type_f == "invoice" else Expense
+                rec_f = None
+                if entity_id_f:
+                    try:
+                        rec_f = db.query(model_f).filter(
+                            model_f.id == uuid.UUID(entity_id_f),
+                            model_f.company_id == job.company_id,
+                        ).first()
+                    except Exception:
+                        pass
+                if not rec_f and vref_f:
+                    rec_f = db.query(model_f).filter(
+                        model_f.tally_voucher_ref == vref_f,
+                        model_f.company_id == job.company_id,
+                    ).first()
+                if rec_f:
+                    rec_f.tally_sync_status = "delete_failed"
 
         # Handle master table status on final failure
         if job.status == JobStatus.FAILED:

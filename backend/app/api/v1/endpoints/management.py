@@ -1435,6 +1435,23 @@ def list_vouchers(
     }
 
 
+def _extract_tally_vnum_from_notes(notes: str) -> str:
+    """Extract actual TallyPrime voucher number from '[tally-sync] VType::VNUM' notes.
+
+    Returns empty string when notes use the fallback dedup format (no real voucher number).
+    """
+    tag = "[tally-sync]"
+    if not notes or tag not in notes:
+        return ""
+    after = notes[notes.find(tag) + len(tag):].strip()
+    parts = after.split("::", 1)
+    if len(parts) < 2:
+        return ""
+    vnum = parts[1].strip()
+    # Fallback dedup key format uses additional "::" separators (type::date::party::amount)
+    return vnum if "::" not in vnum else ""
+
+
 def _queue_tally_cancel_voucher(
     db: Session,
     company_id: uuid.UUID,
@@ -1442,8 +1459,17 @@ def _queue_tally_cancel_voucher(
     voucher_type: str,
     entity_type: str,
     voucher_date: str = "",
+    voucher_number: str = "",
+    entity_id: str = "",
 ) -> bool:
-    """Queue a CANCEL_VOUCHER job. Returns True if queued, False if no active connector."""
+    """Queue a CANCEL_VOUCHER job. Returns True if queued, False if no active connector.
+
+    voucher_ref    – REMOTEID (FP-xxxx) set when the voucher was created from FinPilot.
+    voucher_number – Fallback for TallyPrime-native vouchers (e.g. TALLY-0004) that were
+                     imported into FinPilot and have no REMOTEID.
+    entity_id      – UUID of the FinPilot record; included in payload so the callback
+                     can soft-delete by ID when neither REMOTEID nor voucher_number matches.
+    """
     connector = db.query(TallyConnector).filter(
         TallyConnector.company_id == company_id,
         TallyConnector.status == ConnectorStatus.ACTIVE,
@@ -1451,16 +1477,19 @@ def _queue_tally_cancel_voucher(
     if not connector:
         return False
     import secrets as _sec
-    ikey = f"cancel_voucher::{voucher_ref}::{_sec.token_hex(4)}"
+    ref_key = voucher_ref or voucher_number or "unknown"
+    ikey = f"cancel_voucher::{ref_key}::{_sec.token_hex(4)}"
     db.add(TallyIntegrationJob(
         company_id=company_id,
         connector_id=connector.id,
         operation=TallyJobOperation.CANCEL_VOUCHER,
         payload={
-            "voucher_ref": voucher_ref,
-            "voucher_type": voucher_type,
-            "entity_type": entity_type,
-            "date": voucher_date,          # passed to connector so cancel XML has a valid date
+            "voucher_ref":    voucher_ref,     # REMOTEID if available
+            "voucher_number": voucher_number,  # VOUCHERNUMBER fallback for Tally-native
+            "voucher_type":   voucher_type,
+            "entity_type":    entity_type,
+            "date":           voucher_date,
+            "entity_id":      entity_id,       # FinPilot record UUID for callback lookup
         },
         idempotency_key=ikey,
     ))
@@ -1505,55 +1534,118 @@ def delete_voucher(
             )
 
         voucher_status = getattr(record, "tally_sync_status", "local_only") or "local_only"
-        voucher_ref = getattr(record, "tally_voucher_ref", None)
+        raw_vref       = getattr(record, "tally_voucher_ref", None) or ""
         voucher_type_tally = "Sales" if record.invoice_type and record.invoice_type.value == "SALES" else "Purchase"
+        inv_number     = record.invoice_number or ""
 
-        if voucher_status in ("synced", "delete_failed") and voucher_ref:
-            # Tally-confirmed-first: queue cancel job, keep record visible until Tally confirms
-            inv_date = ""
-            if record.invoice_date:
-                try:
-                    inv_date = record.invoice_date.strftime("%Y%m%d")
-                except Exception:
-                    pass
+        inv_date = ""
+        if record.invoice_date:
+            try:
+                inv_date = record.invoice_date.strftime("%Y%m%d")
+            except Exception:
+                pass
+
+        # Distinguish REMOTEID (FinPilot-created, "FP-xxxx") from Tally voucher number
+        # (Tally-native, stored in tally_voucher_ref after the sync-service fix, or
+        # embedded in notes for records synced before the fix).
+        is_tally_native = "[tally-sync]" in (record.notes or "")
+        if is_tally_native:
+            # tally_voucher_ref holds the actual Tally voucher number (new syncs)
+            # or we fall back to extracting it from notes (pre-fix syncs).
+            voucher_ref = ""
+            tally_vnum  = raw_vref or _extract_tally_vnum_from_notes(record.notes or "")
+        else:
+            voucher_ref = raw_vref   # REMOTEID (FP-xxxx)
+            tally_vnum  = ""
+
+        # ── Case 1: Synced (or previous cancel failed) — MUST cancel in TallyPrime first
+        # Covers both FinPilot-created (has REMOTEID) and Tally-native (has VOUCHERNUMBER only).
+        if voucher_status in ("synced", "delete_failed"):
+            if not voucher_ref and not tally_vnum:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Cannot delete: invoice has no TallyPrime reference. "
+                        "Cancel it in TallyPrime manually, then delete here."
+                    ),
+                )
             record.tally_sync_status = "delete_pending"
             db.flush()
-            queued = _queue_tally_cancel_voucher(db, cid, voucher_ref, voucher_type_tally, "invoice", inv_date)
+            queued = _queue_tally_cancel_voucher(
+                db, cid,
+                voucher_ref=voucher_ref,
+                voucher_type=voucher_type_tally,
+                entity_type="invoice",
+                voucher_date=inv_date,
+                voucher_number=tally_vnum,
+                entity_id=str(record.id),
+            )
             db.commit()
             audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
                               entity_type="invoice", entity_id=record.id,
-                              description=f"Cancel queued for invoice: {record.invoice_number}")
+                              description=f"Cancel queued for invoice: {inv_number}")
             if queued:
                 return {
                     "status": "pending",
                     "tally_confirmed": False,
-                    "message": "Cancel request sent to TallyPrime. The invoice will be removed from FinPilot once TallyPrime confirms cancellation.",
+                    "message": (
+                        f"Cancel request sent to TallyPrime for {inv_number}. "
+                        "The invoice will be removed from FinPilot once TallyPrime confirms."
+                    ),
                 }
-            else:
-                # No active connector — restore and soft-delete locally
-                record.tally_sync_status = voucher_status
-                record.is_deleted = True
-                db.commit()
-                return {
-                    "status": "deleted",
-                    "tally_confirmed": False,
-                    "message": f"Invoice {record.invoice_number} removed from FinPilot. No active Tally connector — cancel it in TallyPrime manually.",
-                }
-        else:
-            # Local-only or no ref — safe to soft-delete immediately
+            # No active connector — inform user; keep record visible
+            record.tally_sync_status = voucher_status   # restore
+            db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"No active TallyPrime connector. "
+                    f"Cancel invoice {inv_number} in TallyPrime first, then delete here — "
+                    "or connect the TallyPrime connector and retry."
+                ),
+            )
+
+        # ── Case 2: Pending (queued for creation, not yet confirmed by TallyPrime)
+        # Cancel the in-flight create job so TallyPrime doesn't process it.
+        elif voucher_status == "pending":
+            if record.tally_voucher_ref:
+                # Cancel any pending create job for this ref
+                from app.models.tally_job import TallyJobOperation as _TJO
+                pending_jobs = db.query(TallyIntegrationJob).filter(
+                    TallyIntegrationJob.company_id == cid,
+                    TallyIntegrationJob.status == JobStatus.PENDING,
+                    TallyIntegrationJob.operation.in_([
+                        _TJO.CREATE_SALES_VOUCHER, _TJO.CREATE_PURCHASE_VOUCHER,
+                    ]),
+                ).all()
+                for j in pending_jobs:
+                    if (j.payload or {}).get("voucher_number") == record.tally_voucher_ref:
+                        j.status = JobStatus.CANCELLED
             record.is_deleted = True
             db.commit()
             audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
                               entity_type="invoice", entity_id=record.id,
-                              description=f"Deleted invoice: {record.invoice_number}")
-            warning = None
-            if not voucher_ref and voucher_status not in ("local_only",):
-                warning = "This invoice was created before Tally sync tracking. If it exists in TallyPrime, cancel it there manually."
+                              description=f"Deleted pending invoice: {inv_number}")
             return {
                 "status": "deleted",
                 "tally_confirmed": False,
-                "message": f"Invoice {record.invoice_number} removed from FinPilot.",
-                "warning": warning,
+                "message": (
+                    f"Invoice {inv_number} removed from FinPilot. "
+                    "The pending TallyPrime create job was cancelled."
+                ),
+            }
+
+        # ── Case 3: Local-only — never reached TallyPrime, safe to delete immediately
+        else:
+            record.is_deleted = True
+            db.commit()
+            audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
+                              entity_type="invoice", entity_id=record.id,
+                              description=f"Deleted local invoice: {inv_number}")
+            return {
+                "status": "deleted",
+                "tally_confirmed": False,
+                "message": f"Invoice {inv_number} removed from FinPilot.",
             }
 
     elif entity_type == "expense":
@@ -1566,47 +1658,118 @@ def delete_voucher(
             raise HTTPException(status_code=404, detail="Expense not found")
 
         voucher_status = getattr(record, "tally_sync_status", "local_only") or "local_only"
-        voucher_ref = getattr(record, "tally_voucher_ref", None)
+        raw_vref_exp   = getattr(record, "tally_voucher_ref", None) or ""
+        exp_title      = record.title or ""
 
-        if voucher_status in ("synced", "delete_failed") and voucher_ref:
-            exp_date = ""
-            if record.expense_date:
-                try:
-                    exp_date = record.expense_date.strftime("%Y%m%d")
-                except Exception:
-                    pass
+        exp_date = ""
+        if record.expense_date:
+            try:
+                exp_date = record.expense_date.strftime("%Y%m%d")
+            except Exception:
+                pass
+
+        # Distinguish REMOTEID vs Tally voucher number (same logic as invoice branch)
+        is_tally_native_exp = "[tally-sync]" in (record.notes or "")
+        if is_tally_native_exp:
+            exp_voucher_ref = ""
+            exp_tally_vnum  = raw_vref_exp or _extract_tally_vnum_from_notes(record.notes or "")
+        else:
+            exp_voucher_ref = raw_vref_exp   # REMOTEID
+            exp_tally_vnum  = ""
+
+        # Guess the correct Tally voucher type from the expense category
+        _EXP_VTYPE_MAP = {
+            "Purchase": "Purchase", "Receipt": "Receipt", "Payment": "Payment",
+            "Credit Note": "Credit Note", "Debit Note": "Debit Note",
+            "Contra": "Contra", "Journal": "Journal",
+        }
+        exp_voucher_type = _EXP_VTYPE_MAP.get(record.category or "", "Purchase")
+
+        # ── Case 1: Synced (or previous cancel failed) — MUST cancel in TallyPrime first
+        if voucher_status in ("synced", "delete_failed"):
+            if not exp_voucher_ref and not exp_tally_vnum:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Cannot delete: expense has no TallyPrime reference. "
+                        "Cancel it in TallyPrime manually, then delete here."
+                    ),
+                )
             record.tally_sync_status = "delete_pending"
             db.flush()
-            queued = _queue_tally_cancel_voucher(db, cid, voucher_ref, "Purchase", "expense", exp_date)
+            queued = _queue_tally_cancel_voucher(
+                db, cid,
+                voucher_ref=exp_voucher_ref,
+                voucher_type=exp_voucher_type,
+                entity_type="expense",
+                voucher_date=exp_date,
+                voucher_number=exp_tally_vnum,
+                entity_id=str(record.id),
+            )
             db.commit()
             audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
                               entity_type="expense", entity_id=record.id,
-                              description=f"Cancel queued for expense: {record.title}")
+                              description=f"Cancel queued for expense: {exp_title}")
             if queued:
                 return {
                     "status": "pending",
                     "tally_confirmed": False,
-                    "message": "Cancel request sent to TallyPrime. The expense will be removed from FinPilot once TallyPrime confirms cancellation.",
+                    "message": (
+                        f"Cancel request sent to TallyPrime for '{exp_title}'. "
+                        "The expense will be removed from FinPilot once TallyPrime confirms."
+                    ),
                 }
-            else:
-                record.tally_sync_status = voucher_status
-                record.is_deleted = True
-                db.commit()
-                return {
-                    "status": "deleted",
-                    "tally_confirmed": False,
-                    "message": f"Expense '{record.title}' removed from FinPilot. No active Tally connector — cancel it in TallyPrime manually.",
-                }
+            # No active connector — inform user; keep record visible
+            record.tally_sync_status = voucher_status   # restore
+            db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"No active TallyPrime connector. "
+                    f"Cancel expense '{exp_title}' in TallyPrime first, then delete here — "
+                    "or connect the TallyPrime connector and retry."
+                ),
+            )
+
+        # ── Case 2: Pending (queued for creation, not yet confirmed by TallyPrime)
+        elif voucher_status == "pending":
+            if record.tally_voucher_ref:
+                from app.models.tally_job import TallyJobOperation as _TJO
+                pending_jobs = db.query(TallyIntegrationJob).filter(
+                    TallyIntegrationJob.company_id == cid,
+                    TallyIntegrationJob.status == JobStatus.PENDING,
+                    TallyIntegrationJob.operation.in_([
+                        _TJO.CREATE_PURCHASE_VOUCHER,
+                    ]),
+                ).all()
+                for j in pending_jobs:
+                    if (j.payload or {}).get("voucher_number") == record.tally_voucher_ref:
+                        j.status = JobStatus.CANCELLED
+            record.is_deleted = True
+            db.commit()
+            audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
+                              entity_type="expense", entity_id=record.id,
+                              description=f"Deleted pending expense: {exp_title}")
+            return {
+                "status": "deleted",
+                "tally_confirmed": False,
+                "message": (
+                    f"Expense '{exp_title}' removed from FinPilot. "
+                    "The pending TallyPrime create job was cancelled."
+                ),
+            }
+
+        # ── Case 3: Local-only — never reached TallyPrime, safe to delete immediately
         else:
             record.is_deleted = True
             db.commit()
             audit_service.log(db, cid, current_user.id, AuditAction.DELETE,
                               entity_type="expense", entity_id=record.id,
-                              description=f"Deleted expense: {record.title}")
+                              description=f"Deleted local expense: {exp_title}")
             return {
                 "status": "deleted",
                 "tally_confirmed": False,
-                "message": f"Expense '{record.title}' removed from FinPilot.",
+                "message": f"Expense '{exp_title}' removed from FinPilot.",
             }
 
     else:

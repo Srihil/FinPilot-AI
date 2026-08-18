@@ -576,6 +576,7 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
                 notes=notes_tag,
                 customer_id=customer.id if customer else None,
                 tally_sync_status="synced",
+                tally_voucher_ref=vch_no or None,  # actual Tally voucher number for cancel-via-VOUCHERNUMBER
             ))
             created_invoices += 1
 
@@ -595,6 +596,7 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
                 notes=notes_tag,
                 vendor_id=vendor.id if vendor else None,
                 tally_sync_status="synced",
+                tally_voucher_ref=vch_no or None,
             ))
             created_expenses += 1
 
@@ -623,6 +625,7 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
                 notes=notes_tag,
                 vendor_id=vendor.id if vendor else None,
                 tally_sync_status="synced",
+                tally_voucher_ref=vch_no or None,
             ))
             created_expenses += 1
 

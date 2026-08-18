@@ -1557,9 +1557,9 @@ def delete_voucher(
             voucher_ref = raw_vref   # REMOTEID (FP-xxxx)
             tally_vnum  = ""
 
-        # ── Case 1: Synced (or previous cancel failed) — MUST cancel in TallyPrime first
-        # Covers both FinPilot-created (has REMOTEID) and Tally-native (has VOUCHERNUMBER only).
-        if voucher_status in ("synced", "delete_failed"):
+        # ── Case 1: Synced (or previous delete attempt) — MUST delete from TallyPrime first
+        # Covers: synced, delete_failed, delete_pending (re-queue if connector is available)
+        if voucher_status in ("synced", "delete_failed", "delete_pending"):
             if not voucher_ref and not tally_vnum:
                 raise HTTPException(
                     status_code=400,
@@ -1684,8 +1684,8 @@ def delete_voucher(
         }
         exp_voucher_type = _EXP_VTYPE_MAP.get(record.category or "", "Purchase")
 
-        # ── Case 1: Synced (or previous cancel failed) — MUST cancel in TallyPrime first
-        if voucher_status in ("synced", "delete_failed"):
+        # ── Case 1: Synced (or previous delete attempt) — MUST delete from TallyPrime first
+        if voucher_status in ("synced", "delete_failed", "delete_pending"):
             if not exp_voucher_ref and not exp_tally_vnum:
                 raise HTTPException(
                     status_code=400,

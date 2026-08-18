@@ -974,7 +974,7 @@ class TallyClient:
         if not vref and not vnum:
             raise TallyError("delete_voucher: voucher_ref (REMOTEID) or voucher_number is required")
 
-        # DATE is required even for Delete — omitting it causes "date 0-0-0 is Out of Range"
+        # DATE is required even for Delete — omitting causes "date 0-0-0 is Out of Range"
         from datetime import date as _date
         raw_date = str(payload.get("date", "")).strip()
         if raw_date and len(raw_date) == 8 and raw_date.isdigit():
@@ -983,22 +983,44 @@ class TallyClient:
             del_date = _date.today().strftime("%Y%m%d")
         del_date = del_date[:6] + "01"
 
-        # Prefer REMOTEID for FinPilot-created; fall back to VOUCHERNUMBER for Tally-native
+        # TallyPrime needs fiscal year context to locate the voucher.
+        # Without SVFROMDATE/SVTODATE it only searches the current active sub-period
+        # and returns "Cannot delete unnamed object: VOUCHER!" for vouchers outside it.
+        fy_start, fy_end = self._fy_dates(del_date)
+
         if vref:
-            id_attr = f'REMOTEID="{vref}"'
+            # FinPilot-created voucher: identify by REMOTEID attribute
+            id_xml = f'REMOTEID="{vref}"'
+            vnum_elem = ""
         else:
-            id_attr = f'VOUCHERNUMBER="{vnum}"'
+            # Tally-native voucher: VOUCHERNUMBER must be a child element (not attribute)
+            # Using it as an attribute causes "unnamed object" error in TallyPrime
+            id_xml = ""
+            vnum_elem = f"<VOUCHERNUMBER>{vnum}</VOUCHERNUMBER>"
+
+        voucher_open = f'<VOUCHER {id_xml} VCHTYPE="{voucher_type}" ACTION="Delete">'.replace(
+            '  VCHTYPE', ' VCHTYPE'  # normalise spacing when id_xml is empty
+        ).strip()
 
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/><DATA>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER {id_attr} VCHTYPE="{voucher_type}" ACTION="Delete">
+      {voucher_open}
+        {vnum_elem}
         <DATE>{del_date}</DATE>
         <VOUCHERTYPENAME>{voucher_type}</VOUCHERTYPENAME>
       </VOUCHER>
     </TALLYMESSAGE>
-  </DATA></BODY>
+    </DATA>
+  </BODY>
 </ENVELOPE>"""
         raw = self._post_xml(xml)
         root = self._parse_response(raw)

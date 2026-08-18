@@ -356,19 +356,40 @@ class TestDeleteVoucher:
         assert 'ISCANCELLED' not in xml
         assert 'REMOTEID="FP-xyz"' in xml
 
-    def test_xml_uses_vouchernumber_for_tally_native(self):
-        """Verify the generated XML uses VOUCHERNUMBER when no REMOTEID."""
+    def test_xml_includes_fiscal_year_staticvariables(self):
+        """DELETE XML must include SVFROMDATE/SVTODATE so TallyPrime searches the right period.
+        Without this, TallyPrime returns 'Cannot delete unnamed object: VOUCHER!'."""
+        client = TallyClient()
+        posted_xml = []
+        client._post_xml = lambda xml: (posted_xml.append(xml), SAMPLE_DELETE_OK_XML)[1]
+        client.delete_voucher({
+            "voucher_ref": "FP-xyz",
+            "voucher_type": "Receipt",
+            "date": "20260901",
+        })
+        xml = posted_xml[0]
+        assert "SVFROMDATE" in xml, "Missing SVFROMDATE — TallyPrime can't locate voucher"
+        assert "SVTODATE" in xml,   "Missing SVTODATE — TallyPrime can't locate voucher"
+
+    def test_xml_uses_vouchernumber_as_child_element_for_tally_native(self):
+        """For Tally-native vouchers, VOUCHERNUMBER must be a child element (not XML attribute).
+        Using it as an attribute causes 'Cannot delete unnamed object: VOUCHER!' in TallyPrime."""
         client = TallyClient()
         posted_xml = []
         client._post_xml = lambda xml: (posted_xml.append(xml), SAMPLE_DELETE_OK_XML)[1]
         client.delete_voucher({
             "voucher_ref": "",
-            "voucher_number": "TALLY-0004",
-            "voucher_type": "Sales",
+            "voucher_number": "19",
+            "voucher_type": "Receipt",
             "date": "20260901",
         })
         xml = posted_xml[0]
-        assert 'VOUCHERNUMBER="TALLY-0004"' in xml
+        # Must appear as child element <VOUCHERNUMBER>19</VOUCHERNUMBER>
+        assert "<VOUCHERNUMBER>19</VOUCHERNUMBER>" in xml, \
+            "VOUCHERNUMBER must be a child element, not an attribute"
+        # Must NOT appear as XML attribute VOUCHERNUMBER="19"
+        assert 'VOUCHERNUMBER="19"' not in xml, \
+            "VOUCHERNUMBER as attribute causes 'unnamed object' error in TallyPrime"
         assert 'REMOTEID' not in xml
 
 

@@ -18,7 +18,7 @@ class TallyLedger(Base):
     email = Column(String(255), nullable=True)
     phone = Column(String(50), nullable=True)
     address = Column(String(500), nullable=True)
-    city = Column(String(100), nullable=True)
+    country = Column(String(100), nullable=True)
     state = Column(String(100), nullable=True)
     gstin = Column(String(20), nullable=True)
     conflict_data = Column(JSON, nullable=True)

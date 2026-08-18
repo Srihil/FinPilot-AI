@@ -225,7 +225,7 @@ class LedgerCreate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
-    city: Optional[str] = None
+    country: Optional[str] = None
     state: Optional[str] = None
     gstin: Optional[str] = None
 
@@ -259,7 +259,7 @@ def list_ledgers(
             "email": r.email,
             "phone": r.phone,
             "address": r.address,
-            "city": r.city,
+            "country": r.country,
             "state": r.state,
             "gstin": r.gstin,
             "source": r.source,
@@ -299,7 +299,7 @@ def create_ledger(
         email=data.email or None,
         phone=data.phone or None,
         address=data.address or None,
-        city=data.city or None,
+        country=data.country or None,
         state=data.state or None,
         gstin=data.gstin or None,
         tally_key=key,
@@ -330,7 +330,7 @@ def create_ledger(
                 "email": data.email or "",
                 "phone": data.phone or "",
                 "address": data.address or "",
-                "city": data.city or "",
+                "country": data.country or "",
                 "state": data.state or "",
                 "gstin": data.gstin or "",
             },
@@ -368,7 +368,7 @@ class LedgerUpdate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
-    city: Optional[str] = None
+    country: Optional[str] = None
     state: Optional[str] = None
     gstin: Optional[str] = None
 
@@ -401,8 +401,8 @@ def update_ledger(
         ledger.phone = data.phone.strip() or None
     if data.address is not None:
         ledger.address = data.address.strip() or None
-    if data.city is not None:
-        ledger.city = data.city.strip() or None
+    if data.country is not None:
+        ledger.country = data.country.strip() or None
     if data.state is not None:
         ledger.state = data.state.strip() or None
     if data.gstin is not None:
@@ -425,7 +425,7 @@ def update_ledger(
                 "email": ledger.email or "",
                 "phone": ledger.phone or "",
                 "address": ledger.address or "",
-                "city": ledger.city or "",
+                "country": ledger.country or "",
                 "state": ledger.state or "",
                 "gstin": ledger.gstin or "",
             },

@@ -359,7 +359,7 @@ export interface TallyLedger {
   email?: string;
   phone?: string;
   address?: string;
-  city?: string;
+  country?: string;
   state?: string;
   gstin?: string;
   source: TallySource;

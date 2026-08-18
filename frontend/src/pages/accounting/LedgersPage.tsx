@@ -15,6 +15,7 @@ import { toast } from '../../components/ui/use-toast';
 import { managementApi } from '../../api/endpoints';
 import { formatCurrency } from '../../utils/format';
 import { cn } from '../../utils/cn';
+import { Combobox, preventDropdownDismissal } from '../../components/ui/Combobox';
 import type { TallyLedger } from '../../types';
 
 // ─── Tree types ───────────────────────────────────────────────────────────────
@@ -78,15 +79,68 @@ function buildRows(
 
 const PARTY_GROUPS = ['Sundry Debtors', 'Sundry Creditors'];
 
-const INDIAN_STATES = [
-  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
-  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
-  'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
-  'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
-  'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
-  'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra & Nagar Haveli and Daman & Diu',
-  'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
+// TallyPrime country list (all countries available in TallyPrime)
+const TALLY_COUNTRIES = [
+  'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Argentina',
+  'Armenia', 'Australia', 'Austria', 'Azerbaijan', 'Bahrain', 'Bangladesh',
+  'Belarus', 'Belgium', 'Bhutan', 'Bolivia', 'Bosnia Herzegovina', 'Brazil',
+  'Bulgaria', 'Cambodia', 'Cameroon', 'Canada', 'Chile', 'China', 'Colombia',
+  'Croatia', 'Cuba', 'Cyprus', 'Czech Republic', 'Denmark', 'Ecuador', 'Egypt',
+  'Eritrea', 'Estonia', 'Ethiopia', 'Finland', 'France', 'Germany', 'Ghana',
+  'Greece', 'Guatemala', 'Hungary', 'India', 'Indonesia', 'Iran', 'Iraq',
+  'Ireland', 'Israel', 'Italy', 'Japan', 'Jordan', 'Kazakhstan', 'Kenya',
+  'Kuwait', 'Kyrgyzstan', 'Latvia', 'Lebanon', 'Libya', 'Lithuania',
+  'Luxembourg', 'Malaysia', 'Maldives', 'Malta', 'Mexico', 'Moldova',
+  'Mongolia', 'Morocco', 'Myanmar', 'Nepal', 'Netherlands', 'New Zealand',
+  'Nigeria', 'Norway', 'Oman', 'Pakistan', 'Palestine', 'Panama', 'Peru',
+  'Philippines', 'Poland', 'Portugal', 'Qatar', 'Romania', 'Russia',
+  'Saudi Arabia', 'Serbia', 'Singapore', 'Slovakia', 'Slovenia',
+  'South Africa', 'South Korea', 'Spain', 'Sri Lanka', 'Sweden', 'Switzerland',
+  'Syria', 'Taiwan', 'Tajikistan', 'Tanzania', 'Thailand', 'Tunisia', 'Turkey',
+  'Turkmenistan', 'Uganda', 'Ukraine', 'United Arab Emirates', 'United Kingdom',
+  'United States', 'Uruguay', 'Uzbekistan', 'Venezuela', 'Vietnam', 'Yemen',
+  'Zimbabwe',
 ];
+
+// States/provinces per country (TallyPrime predefined lists)
+const COUNTRY_STATES: Record<string, string[]> = {
+  'India': [
+    'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+    'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
+    'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
+    'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
+    'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+    'Andaman and Nicobar Islands', 'Chandigarh',
+    'Dadra & Nagar Haveli and Daman & Diu', 'Delhi',
+    'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
+  ],
+  'United States': [
+    'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado',
+    'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho',
+    'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana', 'Maine',
+    'Maryland', 'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi',
+    'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 'New Jersey',
+    'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
+    'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina',
+    'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia',
+    'Washington', 'West Virginia', 'Wisconsin', 'Wyoming', 'District of Columbia',
+  ],
+  'Australia': [
+    'Australian Capital Territory', 'New South Wales', 'Northern Territory',
+    'Queensland', 'South Australia', 'Tasmania', 'Victoria', 'Western Australia',
+  ],
+  'Canada': [
+    'Alberta', 'British Columbia', 'Manitoba', 'New Brunswick',
+    'Newfoundland and Labrador', 'Northwest Territories', 'Nova Scotia',
+    'Nunavut', 'Ontario', 'Prince Edward Island', 'Quebec', 'Saskatchewan',
+    'Yukon',
+  ],
+  'United Arab Emirates': [
+    'Abu Dhabi', 'Ajman', 'Dubai', 'Fujairah',
+    'Ras Al Khaimah', 'Sharjah', 'Umm Al Quwain',
+  ],
+  'United Kingdom': ['England', 'Northern Ireland', 'Scotland', 'Wales'],
+};
 
 const TALLY_GROUPS = [
   'Sundry Debtors', 'Sundry Creditors', 'Bank Accounts', 'Cash-in-Hand',
@@ -114,7 +168,7 @@ export default function LedgersPage() {
   const [formEmail, setFormEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formAddress, setFormAddress] = useState('');
-  const [formCity, setFormCity] = useState('');
+  const [formCountry, setFormCountry] = useState('');
   const [formState, setFormState] = useState('');
   const [formGstin, setFormGstin] = useState('');
 
@@ -194,7 +248,7 @@ export default function LedgersPage() {
         email: formEmail || undefined,
         phone: formPhone || undefined,
         address: formAddress || undefined,
-        city: formCity || undefined,
+        country: formCountry || undefined,
         state: formState || undefined,
         gstin: formGstin || undefined,
       } : {}),
@@ -223,7 +277,7 @@ export default function LedgersPage() {
   function resetForm() {
     setFormName(''); setFormGroup('Sundry Debtors'); setFormBalance('');
     setFormEmail(''); setFormPhone(''); setFormAddress('');
-    setFormCity(''); setFormState(''); setFormGstin('');
+    setFormCountry(''); setFormState(''); setFormGstin('');
   }
 
   function openEdit(l: TallyLedger) {
@@ -233,7 +287,7 @@ export default function LedgersPage() {
     setFormEmail(l.email || '');
     setFormPhone(l.phone || '');
     setFormAddress(l.address || '');
-    setFormCity(l.city || '');
+    setFormCountry(l.country || '');
     setFormState(l.state || '');
     setFormGstin(l.gstin || '');
     setEditItem(l);
@@ -412,7 +466,7 @@ export default function LedgersPage() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editItem} onOpenChange={() => setEditItem(null)}>
-        <DialogContent className={isPartyGroup ? 'max-w-lg' : 'max-w-md'}>
+        <DialogContent className={isPartyGroup ? 'max-w-lg' : 'max-w-md'} onPointerDownOutside={preventDropdownDismissal}>
           <DialogHeader><DialogTitle>Edit Ledger</DialogTitle></DialogHeader>
           <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
             <div>
@@ -437,10 +491,12 @@ export default function LedgersPage() {
             {/* Party fields — only for Sundry Debtors / Creditors */}
             {isPartyGroup && (
               <>
-                <div className="border-t pt-3 mt-1">
-                  <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-3">
+                <div className="border-t pt-3 mt-1 space-y-3">
+                  <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">
                     Party / Contact Details
                   </p>
+
+                  {/* Email + Phone */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label>Email</Label>
@@ -462,7 +518,9 @@ export default function LedgersPage() {
                       />
                     </div>
                   </div>
-                  <div className="mt-3">
+
+                  {/* Address */}
+                  <div>
                     <Label>Address</Label>
                     <Input
                       value={formAddress}
@@ -471,29 +529,45 @@ export default function LedgersPage() {
                       className="mt-1"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3 mt-3">
-                    <div>
-                      <Label>City</Label>
-                      <Input
-                        value={formCity}
-                        onChange={e => setFormCity(e.target.value)}
-                        placeholder="Mumbai"
+
+                  {/* Country */}
+                  <div>
+                    <Label>Country</Label>
+                    <Combobox
+                      options={TALLY_COUNTRIES}
+                      value={formCountry}
+                      onChange={v => { setFormCountry(v); setFormState(''); setFormGstin(''); }}
+                      placeholder="Search country…"
+                      clearLabel="— No country —"
+                      className="mt-1"
+                    />
+                  </div>
+
+                  {/* State — depends on selected country */}
+                  <div>
+                    <Label>State</Label>
+                    {!formCountry ? (
+                      <p className="mt-1 text-xs text-slate-400 italic px-3 py-2 border border-dashed border-slate-200 rounded-md">
+                        Please select a country first
+                      </p>
+                    ) : (
+                      <Combobox
+                        options={COUNTRY_STATES[formCountry] ?? []}
+                        value={formState}
+                        onChange={setFormState}
+                        placeholder={
+                          COUNTRY_STATES[formCountry]
+                            ? 'Search state…'
+                            : 'No predefined states for this country'
+                        }
+                        clearLabel="— No state —"
                         className="mt-1"
                       />
-                    </div>
-                    <div>
-                      <Label>State</Label>
-                      <select
-                        value={formState}
-                        onChange={e => setFormState(e.target.value)}
-                        className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                      >
-                        <option value="">— Select state —</option>
-                        {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </div>
+                    )}
                   </div>
-                  <div className="mt-3">
+
+                  {/* GSTIN */}
+                  <div>
                     <Label>GSTIN</Label>
                     <Input
                       value={formGstin}

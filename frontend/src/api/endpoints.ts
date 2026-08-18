@@ -445,7 +445,7 @@ export const managementApi = {
 
   updateLedger: async (id: string, data: {
     name?: string; parent_group?: string; opening_balance?: number;
-    email?: string; phone?: string; address?: string; city?: string; state?: string; gstin?: string;
+    email?: string; phone?: string; address?: string; country?: string; state?: string; gstin?: string;
   }) => {
     const res = await apiClient.patch(`/api/management/ledgers/${id}`, data);
     return res.data;

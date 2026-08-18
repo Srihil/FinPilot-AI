@@ -1231,32 +1231,45 @@ class TallyClient:
         email   = _esc(payload.get("email", "") or "")
         phone   = _esc(payload.get("phone", "") or "")
         address = _esc(payload.get("address", "") or "")
-        city    = _esc(payload.get("city", "") or "")
+        country = _esc(payload.get("country", "") or "")
         state   = _esc(payload.get("state", "") or "")
         gstin   = _esc(payload.get("gstin", "") or "")
 
         is_party = group.strip() in ("Sundry Debtors", "Sundry Creditors")
+        is_india = country.strip().lower() == "india"
         gst_type = "Regular" if gstin else "Unregistered"
 
         # Build optional party XML blocks
         party_xml = ""
         if is_party:
-            addr_lines = ""
-            if address:
-                addr_lines += f"        <ADDRESS>{address}</ADDRESS>\n"
-            if city:
-                addr_lines += f"        <ADDRESS>{city}</ADDRESS>\n"
             addr_block = (
-                f"      <ADDRESS.LIST TYPE=\"String\">\n{addr_lines}      </ADDRESS.LIST>\n"
-                if addr_lines else ""
+                f"      <ADDRESS.LIST TYPE=\"String\">\n"
+                f"        <ADDRESS>{address}</ADDRESS>\n"
+                f"      </ADDRESS.LIST>\n"
+                if address else ""
             )
-            party_xml = f"""      <MAILINGNAME>{_esc(name)}</MAILINGNAME>
-      {'<EMAIL>' + email + '</EMAIL>' if email else ''}
-      {'<LEDGERMOBILE>' + phone + '</LEDGERMOBILE>' if phone else ''}
-{addr_block}      {'<STATENAME>' + _esc(state) + '</STATENAME>' if state else ''}
-      <COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>
-      <GSTREGISTRATIONTYPE>{gst_type}</GSTREGISTRATIONTYPE>
-      {'<PARTYGSTIN>' + _esc(gstin) + '</PARTYGSTIN>' if gstin else ''}"""
+            # LEDGERCONTACT.LIST is the TallyPrime tag for Contact Details (phone/mobile)
+            contact_block = (
+                f"      <LEDGERCONTACT.LIST>\n"
+                f"        <CONTACTTYPE>Mobile</CONTACTTYPE>\n"
+                f"        <CONTACTNUMBER>{phone}</CONTACTNUMBER>\n"
+                f"      </LEDGERCONTACT.LIST>\n"
+                if phone else ""
+            )
+            # GSTIN / GST registration (sent whenever provided)
+            gst_block = (
+                f"      <GSTREGISTRATIONTYPE>{gst_type}</GSTREGISTRATIONTYPE>\n"
+                f"      {'<PARTYGSTIN>' + gstin + '</PARTYGSTIN>' if gstin else ''}\n"
+            )
+            party_xml = (
+                f"      <MAILINGNAME>{_esc(name)}</MAILINGNAME>\n"
+                f"      {'<EMAIL>' + email + '</EMAIL>' if email else ''}\n"
+                f"{contact_block}"
+                f"{addr_block}"
+                f"      {'<STATENAME>' + state + '</STATENAME>' if state else ''}\n"
+                f"      {'<COUNTRYOFRESIDENCE>' + country + '</COUNTRYOFRESIDENCE>' if country else ''}\n"
+                f"{gst_block}"
+            )
 
         xml = f"""<ENVELOPE>
   <HEADER>

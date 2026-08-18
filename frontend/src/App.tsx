@@ -37,10 +37,6 @@ import StockTransactionsPage from './pages/inventory/StockTransactionsPage';
 // Tally
 import ConflictsPage from './pages/tally/ConflictsPage';
 
-// Parties
-import PartiesCustomersPage from './pages/parties/CustomersPage';
-import PartiesVendorsPage from './pages/parties/VendorsPage';
-
 // Other app pages
 import AnalyticsPage from './pages/analytics/AnalyticsPage';
 import ApprovalsPage from './pages/approvals/ApprovalsPage';
@@ -91,10 +87,6 @@ export default function App() {
               <Route path="/inventory/units" element={<UnitsPage />} />
               <Route path="/inventory/godowns" element={<GodownsPage />} />
               <Route path="/inventory/stock-transactions" element={<StockTransactionsPage />} />
-
-              {/* Parties */}
-              <Route path="/parties/customers" element={<PartiesCustomersPage />} />
-              <Route path="/parties/vendors" element={<PartiesVendorsPage />} />
 
               {/* AI */}
               <Route path="/assistant" element={<AssistantPage />} />

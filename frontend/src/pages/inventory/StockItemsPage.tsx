@@ -376,14 +376,13 @@ export default function StockItemsPage() {
                     const ic = countItems(n);
                     const isRoot = row.continues.length === 0;
                     return (
-                      <tr key={`${cId}-${i}`} className={cn('border-b', isRoot ? 'bg-amber-50/60' : 'hover:bg-amber-50/40')}>
+                      <tr key={`${cId}-${i}`} className={cn('border-b', isRoot ? 'bg-amber-50/60' : 'hover:bg-amber-50/40', hasChildren && 'cursor-pointer select-none')} onClick={() => hasChildren && toggle(cId)}>
                         <td className="px-3 py-2">
                           <div className="flex items-center">
                             <TreePrefix continues={row.continues} />
                             {hasChildren ? (
                               <button
-                                onClick={() => toggle(cId)}
-                                className="p-0.5 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-100 shrink-0"
+                                className="p-0.5 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-100 shrink-0 pointer-events-none"
                               >
                                 {isCol ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                               </button>

@@ -309,12 +309,11 @@ export default function LedgersPage() {
                     const key = normalise(row.name);
                     const isCol = collapsed.has(key);
                     return (
-                      <tr key={`g-${row.name}-${i}`} className="border-b bg-indigo-50/40 hover:bg-indigo-50/60">
+                      <tr key={`g-${row.name}-${i}`} className="border-b bg-indigo-50/40 hover:bg-indigo-50/60 cursor-pointer select-none" onClick={() => toggle(row.name)}>
                         <td className="px-3 py-2" colSpan={4}>
                           <div className="flex items-center gap-1">
                             <button
-                              onClick={() => toggle(row.name)}
-                              className="p-0.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 shrink-0"
+                              className="p-0.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 shrink-0 pointer-events-none"
                             >
                               {isCol
                                 ? <ChevronRight className="w-3.5 h-3.5" />

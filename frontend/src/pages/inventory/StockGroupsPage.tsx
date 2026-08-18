@@ -81,7 +81,7 @@ function GroupRow({ node, collapsed, onToggle, onEdit, onDelete }: RowProps) {
   const isCollapsed = collapsed.has(node.id);
 
   return (
-    <tr className="border-b hover:bg-slate-50 group">
+    <tr className={cn('border-b hover:bg-slate-50 group', hasChildren && 'cursor-pointer select-none')} onClick={() => hasChildren && onToggle(node.id)}>
       <td className="px-4 py-2.5">
         <div className="flex items-center gap-1" style={{ paddingLeft: node.depth * 20 }}>
           {/* Tree line indicator */}
@@ -93,8 +93,7 @@ function GroupRow({ node, collapsed, onToggle, onEdit, onDelete }: RowProps) {
           {/* Expand / collapse toggle */}
           {hasChildren ? (
             <button
-              onClick={() => onToggle(node.id)}
-              className="p-0.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+              className="p-0.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors pointer-events-none"
             >
               {isCollapsed
                 ? <ChevronRight className="w-3.5 h-3.5" />

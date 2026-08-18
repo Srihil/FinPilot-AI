@@ -288,15 +288,15 @@ export default function GroupsPage() {
                   return (
                     <tr
                       key={`${cId}-${i}`}
-                      className={cn('border-b group', isRoot ? 'bg-indigo-50/40 hover:bg-indigo-50/60' : 'hover:bg-slate-50/80')}
+                      className={cn('border-b group', isRoot ? 'bg-indigo-50/40 hover:bg-indigo-50/60' : 'hover:bg-slate-50/80', hasChildren && 'cursor-pointer select-none')}
+                      onClick={() => hasChildren && toggle(cId)}
                     >
                       <td className="px-3 py-2">
                         <div className="flex items-center">
                           <TreePrefix continues={row.continues} />
                           {hasChildren ? (
                             <button
-                              onClick={() => toggle(cId)}
-                              className="p-0.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 shrink-0"
+                              className="p-0.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 shrink-0 pointer-events-none"
                             >
                               {isCol ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                             </button>

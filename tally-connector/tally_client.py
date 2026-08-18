@@ -1131,14 +1131,20 @@ class TallyClient:
         amount        = str(payload.get("amount", "0")).lstrip("-")
         narration     = payload.get("narration", "")
         vnum          = payload.get("voucher_number") or self._vch_id()
-        tally_date    = self._month_start(date)
+        fy_start, fy_end = self._fy_dates(date)
 
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
     <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="{vtype}" ACTION="Create">
-        <DATE>{tally_date}</DATE>
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+        <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>
@@ -1175,14 +1181,20 @@ class TallyClient:
         amount           = str(payload.get("amount", "0")).lstrip("-")
         narration        = payload.get("narration", "")
         vnum             = payload.get("voucher_number") or self._vch_id()
-        tally_date       = self._month_start(date)
+        fy_start, fy_end = self._fy_dates(date)
 
         xml = f"""<ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
-  <BODY><DESC/>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVFROMDATE>{fy_start}</SVFROMDATE>
+        <SVTODATE>{fy_end}</SVTODATE>
+      </STATICVARIABLES>
+    </DESC>
     <DATA><TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER VCHTYPE="{vtype}" ACTION="Create">
-        <DATE>{tally_date}</DATE>
+      <VOUCHER REMOTEID="{vnum}" VCHTYPE="{vtype}" ACTION="Create" OBJVIEW="Accounting Voucher View">
+        <DATE>{date}</DATE>
         <NARRATION>{narration}</NARRATION>
         <VOUCHERTYPENAME>{vtype}</VOUCHERTYPENAME>
         <ALLLEDGERENTRIES.LIST>

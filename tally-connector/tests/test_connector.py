@@ -110,14 +110,15 @@ class TestAllowedOperations:
             "DELETE_STOCK_CATEGORY", "DELETE_VOUCHER_TYPE",
             # Permanent voucher delete in TallyPrime (Tally-confirmed-first)
             "DELETE_VOUCHER",
+            "CANCEL_VOUCHER",  # legacy alias
             # Sync
             "SYNC_FULL", "SYNC_PARTIAL",
         }
         assert expected == ALLOWED_OPERATIONS
 
-    def test_cancel_voucher_not_allowed(self):
-        # CANCEL_VOUCHER (old name) was replaced by DELETE_VOUCHER
-        assert "CANCEL_VOUCHER" not in ALLOWED_OPERATIONS
+    def test_cancel_voucher_allowed_as_legacy_alias(self):
+        # CANCEL_VOUCHER is kept as a legacy alias that routes to delete_voucher
+        assert "CANCEL_VOUCHER" in ALLOWED_OPERATIONS
 
     def test_arbitrary_sql_not_allowed(self):
         assert "EXECUTE_SQL" not in ALLOWED_OPERATIONS
@@ -159,8 +160,11 @@ class TestDeleteVoucher:
         assert result is None
         assert "Voucher not found" in error
 
-    def test_cancel_voucher_operation_rejected(self):
+    def test_cancel_voucher_legacy_routes_to_delete_voucher(self):
+        # CANCEL_VOUCHER is a legacy alias — must call delete_voucher, not cancel_voucher
         tally = MagicMock(spec=TallyClient)
-        result, error = execute_job(tally, _mk_job("CANCEL_VOUCHER", {"voucher_ref": "FP-001"}))
-        assert result is None
-        assert "not allowed" in error
+        tally.delete_voucher.return_value = {"deleted": 1, "altered": 0, "voucher_ref": "FP-001", "voucher_number": ""}
+        result, error = execute_job(tally, _mk_job("CANCEL_VOUCHER", {"voucher_ref": "FP-001", "voucher_type": "Sales"}))
+        assert error is None
+        assert result["deleted"] == 1
+        tally.delete_voucher.assert_called_once()

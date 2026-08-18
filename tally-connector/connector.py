@@ -135,6 +135,7 @@ ALLOWED_OPERATIONS = {
     "CREATE_REJECTION_IN", "CREATE_REJECTION_OUT",
     # Permanent voucher delete in TallyPrime (Tally-confirmed-first)
     "DELETE_VOUCHER",
+    "CANCEL_VOUCHER",  # legacy alias — old connector jobs; routes to delete_voucher
     # Sync
     "SYNC_FULL", "SYNC_PARTIAL",
 }
@@ -235,7 +236,7 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
             return tally.delete_stock_category(payload), None
         if op == "DELETE_VOUCHER_TYPE":
             return tally.delete_voucher_type(payload), None
-        if op == "DELETE_VOUCHER":
+        if op in ("DELETE_VOUCHER", "CANCEL_VOUCHER"):
             return tally.delete_voucher(payload), None
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
             ledgers      = tally.get_ledgers()

@@ -4,8 +4,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FileText, Search, Loader2, AlertCircle, Trash2, Filter, Eraser,
   Sparkles, ChevronRight, ChevronDown, Info, Plus, Pencil,
-  Receipt, CreditCard, TrendingUp, ShoppingCart, BookOpen, ArrowLeftRight,
-  RotateCcw, RotateCw, Zap,
 } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -36,16 +34,16 @@ const VOUCHER_TYPE_TABS = [
   { label: '✨ Custom', value: 'CUSTOM' },
 ];
 
-const CREATE_TYPE_PILLS = [
-  { value: 'RECEIPT',     label: 'Receipt',     icon: Receipt,        color: 'bg-blue-50 border-blue-200 text-blue-700',    active: 'bg-blue-600 border-blue-600 text-white' },
-  { value: 'PAYMENT',     label: 'Payment',     icon: CreditCard,     color: 'bg-red-50 border-red-200 text-red-700',       active: 'bg-red-600 border-red-600 text-white' },
-  { value: 'SALES',       label: 'Sales',       icon: TrendingUp,     color: 'bg-green-50 border-green-200 text-green-700', active: 'bg-green-600 border-green-600 text-white' },
-  { value: 'PURCHASE',    label: 'Purchase',    icon: ShoppingCart,   color: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 border-orange-600 text-white' },
-  { value: 'JOURNAL',     label: 'Journal',     icon: BookOpen,       color: 'bg-purple-50 border-purple-200 text-purple-700', active: 'bg-purple-600 border-purple-600 text-white' },
-  { value: 'CONTRA',      label: 'Contra',      icon: ArrowLeftRight, color: 'bg-cyan-50 border-cyan-200 text-cyan-700',    active: 'bg-cyan-600 border-cyan-600 text-white' },
-  { value: 'CREDIT_NOTE', label: 'Credit Note', icon: RotateCcw,      color: 'bg-yellow-50 border-yellow-200 text-yellow-700', active: 'bg-yellow-500 border-yellow-500 text-white' },
-  { value: 'DEBIT_NOTE',  label: 'Debit Note',  icon: RotateCw,       color: 'bg-pink-50 border-pink-200 text-pink-700',   active: 'bg-pink-600 border-pink-600 text-white' },
-  { value: 'CUSTOM',      label: '✨ Custom',   icon: Zap,            color: 'bg-indigo-50 border-indigo-200 text-indigo-700', active: 'bg-indigo-600 border-indigo-600 text-white' },
+const CREATE_TYPES = [
+  { value: 'RECEIPT',     label: 'Receipt' },
+  { value: 'PAYMENT',     label: 'Payment' },
+  { value: 'SALES',       label: 'Sales' },
+  { value: 'PURCHASE',    label: 'Purchase' },
+  { value: 'JOURNAL',     label: 'Journal' },
+  { value: 'CONTRA',      label: 'Contra' },
+  { value: 'CREDIT_NOTE', label: 'Credit Note' },
+  { value: 'DEBIT_NOTE',  label: 'Debit Note' },
+  { value: 'CUSTOM',      label: '✨ Custom' },
 ];
 
 const TYPE_FIELDS: Record<string, {
@@ -564,31 +562,18 @@ export default function VouchersPage() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-5 max-h-[72vh] overflow-y-auto pr-1">
+          <div className="space-y-5">
 
-            {/* ── Type selector pills ── */}
+            {/* ── Type selector ── */}
             <div>
-              <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Voucher Type</Label>
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                {CREATE_TYPE_PILLS.map(pill => {
-                  const Icon = pill.icon;
-                  const isActive = ft === pill.value;
-                  return (
-                    <button
-                      key={pill.value}
-                      type="button"
-                      onClick={() => setFormType(pill.value)}
-                      className={cn(
-                        'flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-all',
-                        isActive ? pill.active : pill.color + ' hover:opacity-80',
-                      )}
-                    >
-                      <Icon className="w-3.5 h-3.5 shrink-0" />
-                      <span>{pill.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <Label>Voucher Type</Label>
+              <select
+                value={formType}
+                onChange={e => setFormType(e.target.value)}
+                className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                {CREATE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
               {ftFields.description && (
                 <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1.5">
                   <Info className="w-3 h-3" />{ftFields.description}
@@ -685,13 +670,13 @@ export default function VouchersPage() {
             )}
 
             {/* ── Narration ── */}
-            <div>
+            <div className="pb-1">
               <Label>Narration</Label>
               <Input value={formNarration} onChange={e => setFormNarration(e.target.value)} placeholder="Description / remarks" className="mt-1.5" />
             </div>
           </div>
 
-          <DialogFooter className="mt-3 gap-2">
+          <DialogFooter className="mt-4 gap-2">
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
             <Button onClick={() => createMut.mutate()} disabled={createMut.isPending} className="gap-2">
               {createMut.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -713,7 +698,7 @@ export default function VouchersPage() {
           </DialogHeader>
 
           {editItem && (
-            <div className="space-y-5 max-h-[72vh] overflow-y-auto pr-1">
+            <div className="space-y-5">
 
               {/* ── Voucher info badge ── */}
               <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -822,10 +807,11 @@ export default function VouchersPage() {
                   </div>
                 </div>
               )}
+              <div className="pb-1" />
             </div>
           )}
 
-          <DialogFooter className="mt-3 gap-2">
+          <DialogFooter className="mt-4 gap-2">
             <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
             <Button onClick={() => updateMut.mutate()} disabled={updateMut.isPending} className="gap-2">
               {updateMut.isPending && <Loader2 className="w-4 h-4 animate-spin" />}

@@ -566,17 +566,26 @@ export default function LedgersPage() {
                     )}
                   </div>
 
-                  {/* GSTIN */}
+                  {/* GSTIN — disabled until country is chosen */}
                   <div>
-                    <Label>GSTIN</Label>
+                    <Label className={!formCountry ? 'text-slate-400' : ''}>GSTIN</Label>
                     <Input
                       value={formGstin}
-                      onChange={e => setFormGstin(e.target.value.toUpperCase())}
-                      placeholder="22AAAAA0000A1Z5"
+                      onChange={e => {
+                        const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                        setFormGstin(v);
+                      }}
+                      placeholder={formCountry ? '22AAAAA0000A1Z5' : 'Select a country first'}
                       maxLength={15}
-                      className="mt-1 font-mono tracking-wider"
+                      disabled={!formCountry}
+                      className={cn('mt-1 font-mono tracking-wider', !formCountry && 'opacity-50 cursor-not-allowed')}
                     />
-                    <p className="text-xs text-slate-400 mt-1">15-character GST Identification Number</p>
+                    {formGstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(formGstin) && (
+                      <p className="text-xs text-red-500 mt-1">Invalid GSTIN format (e.g. 22AAAAA0000A1Z5)</p>
+                    )}
+                    {(!formGstin || /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(formGstin)) && (
+                      <p className="text-xs text-slate-400 mt-1">15-character GST Identification Number</p>
+                    )}
                   </div>
                 </div>
               </>
@@ -590,7 +599,13 @@ export default function LedgersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
-            <Button onClick={() => updateMut.mutate()} disabled={updateMut.isPending}>
+            <Button
+              onClick={() => updateMut.mutate()}
+              disabled={
+                updateMut.isPending ||
+                (isPartyGroup && !!formGstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(formGstin))
+              }
+            >
               {updateMut.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
               Save Changes
             </Button>

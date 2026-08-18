@@ -1236,39 +1236,28 @@ class TallyClient:
         gstin   = _esc(payload.get("gstin", "") or "")
 
         is_party = group.strip() in ("Sundry Debtors", "Sundry Creditors")
-        is_india = country.strip().lower() == "india"
         gst_type = "Regular" if gstin else "Unregistered"
 
-        # Build optional party XML blocks
+        # Build party XML in the order TallyPrime expects for import.
+        # Wrong order or unknown tags (e.g. LEDGERCONTACT.LIST) cause Tally to
+        # silently stop processing remaining fields — order matters.
         party_xml = ""
         if is_party:
             addr_block = (
-                f"      <ADDRESS.LIST TYPE=\"String\">\n"
-                f"        <ADDRESS>{address}</ADDRESS>\n"
-                f"      </ADDRESS.LIST>\n"
+                f"          <ADDRESS.LIST TYPE=\"String\">\n"
+                f"            <ADDRESS>{address}</ADDRESS>\n"
+                f"          </ADDRESS.LIST>\n"
                 if address else ""
             )
-            # LEDGERCONTACT.LIST is the TallyPrime tag for Contact Details (phone/mobile)
-            contact_block = (
-                f"      <LEDGERCONTACT.LIST>\n"
-                f"        <CONTACTTYPE>Mobile</CONTACTTYPE>\n"
-                f"        <CONTACTNUMBER>{phone}</CONTACTNUMBER>\n"
-                f"      </LEDGERCONTACT.LIST>\n"
-                if phone else ""
-            )
-            # GSTIN / GST registration (sent whenever provided)
-            gst_block = (
-                f"      <GSTREGISTRATIONTYPE>{gst_type}</GSTREGISTRATIONTYPE>\n"
-                f"      {'<PARTYGSTIN>' + gstin + '</PARTYGSTIN>' if gstin else ''}\n"
-            )
             party_xml = (
-                f"      <MAILINGNAME>{_esc(name)}</MAILINGNAME>\n"
-                f"      {'<EMAIL>' + email + '</EMAIL>' if email else ''}\n"
-                f"{contact_block}"
+                f"          <MAILINGNAME>{_esc(name)}</MAILINGNAME>\n"
                 f"{addr_block}"
-                f"      {'<STATENAME>' + state + '</STATENAME>' if state else ''}\n"
-                f"      {'<COUNTRYOFRESIDENCE>' + country + '</COUNTRYOFRESIDENCE>' if country else ''}\n"
-                f"{gst_block}"
+                + (f"          <STATENAME>{state}</STATENAME>\n" if state else "")
+                + (f"          <COUNTRYOFRESIDENCE>{country}</COUNTRYOFRESIDENCE>\n" if country else "")
+                + (f"          <EMAIL>{email}</EMAIL>\n" if email else "")
+                + f"          <GSTREGISTRATIONTYPE>{gst_type}</GSTREGISTRATIONTYPE>\n"
+                + (f"          <PARTYGSTIN>{gstin}</PARTYGSTIN>\n" if gstin else "")
+                + (f"          <LEDGERMOBILE>{phone}</LEDGERMOBILE>\n" if phone else "")
             )
 
         xml = f"""<ENVELOPE>
@@ -1286,8 +1275,7 @@ class TallyClient:
           <NAME>{_esc(name)}</NAME>
           <PARENT>{_esc(group)}</PARENT>
           <OPENINGBALANCE>{opening_balance}</OPENINGBALANCE>
-{party_xml}
-        </LEDGER>
+{party_xml}          </LEDGER>
       </TALLYMESSAGE>
     </DATA>
   </BODY>

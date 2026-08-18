@@ -495,6 +495,34 @@ export const managementApi = {
     return res.data;
   },
 
+  createVoucher: async (data: {
+    voucher_type: string;
+    date: string;
+    amount: number;
+    narration?: string;
+    party_ledger?: string;
+    account_ledger?: string;
+    sales_ledger?: string;
+    purchase_ledger?: string;
+    dr_ledger?: string;
+    cr_ledger?: string;
+    from_account?: string;
+    to_account?: string;
+    custom_voucher_type_name?: string;
+  }) => {
+    const res = await apiClient.post('/api/management/vouchers/create', data);
+    return res.data;
+  },
+
+  updateVoucher: async (entityType: 'invoice' | 'expense', id: string, data: {
+    date?: string;
+    amount?: number;
+    narration?: string;
+  }) => {
+    const res = await apiClient.patch(`/api/management/vouchers/${entityType}/${id}`, data);
+    return res.data;
+  },
+
   stockCategories: async (params: { page?: number; page_size?: number; search?: string }): Promise<PaginatedResponse<StockCategory>> => {
     const res = await apiClient.get('/api/inventory/stock-categories', { params });
     return res.data;

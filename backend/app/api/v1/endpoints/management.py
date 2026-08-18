@@ -14,9 +14,10 @@ from app.auth.dependencies import get_current_user, require_admin_or_accountant,
 from app.db.base import get_db
 from app.models.audit_log import AuditAction
 from app.models.customer import Customer
-from app.models.expense import Expense
+from app.models.expense import Expense, ExpenseStatus
 from app.models.approval import Approval
-from app.models.invoice import Invoice, InvoiceType
+from app.models.invoice import Invoice, InvoiceType, InvoiceStatus
+from app.services.tally_write_service import queue_tally_write
 from app.models.payment import Payment
 from app.models.product import Product
 from app.models.tally_connector import TallyConnector, ConnectorStatus
@@ -1794,6 +1795,428 @@ def delete_voucher(
                 "tally_confirmed": False,
                 "message": f"Expense '{exp_title}' removed from FinPilot.",
             }
+
+    else:
+        raise HTTPException(status_code=400, detail="entity_type must be 'invoice' or 'expense'")
+
+
+# ─── Voucher Create / Update ─────────────────────────────────────────────────────
+
+class VoucherCreate(BaseModel):
+    voucher_type: str
+    date: str
+    amount: float
+    narration: Optional[str] = None
+    party_ledger: Optional[str] = None
+    account_ledger: Optional[str] = "Cash"
+    sales_ledger: Optional[str] = "Sales"
+    purchase_ledger: Optional[str] = "Purchases"
+    dr_ledger: Optional[str] = None
+    cr_ledger: Optional[str] = None
+    from_account: Optional[str] = None
+    to_account: Optional[str] = None
+    custom_voucher_type_name: Optional[str] = None
+
+
+class VoucherUpdate(BaseModel):
+    date: Optional[str] = None
+    amount: Optional[float] = None
+    narration: Optional[str] = None
+
+
+def _parse_voucher_date(d_str: str) -> datetime:
+    d_str = (d_str or "").strip()
+    for fmt in ("%Y%m%d", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(d_str, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return datetime.now(timezone.utc)
+
+
+@router.post("/vouchers/create")
+def create_voucher(
+    data: VoucherCreate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    cid = current_user.company_id
+    uid = current_user.id
+    vt = data.voucher_type.upper()
+    d = _parse_voucher_date(data.date)
+    amount = float(data.amount)
+    narration = (data.narration or "").strip()
+    vnum = f"FP-{uuid.uuid4().hex[:12].upper()}"
+
+    if vt == "SALES":
+        record = Invoice(
+            company_id=cid, created_by=uid,
+            invoice_number=narration or vnum,
+            invoice_type=InvoiceType.SALES,
+            invoice_date=d,
+            subtotal=amount, total_amount=amount,
+            status=InvoiceStatus.APPROVED,
+            tally_sync_status="pending", tally_voucher_ref=vnum,
+        )
+        db.add(record)
+        db.flush()
+        queue_tally_write(db, cid, "CREATE_SALES_VOUCHER", {
+            "date": d.strftime("%Y%m%d"),
+            "party_ledger": data.party_ledger or "",
+            "sales_ledger": data.sales_ledger or "Sales",
+            "amount": str(int(amount)),
+            "narration": narration, "voucher_number": vnum,
+        })
+
+    elif vt == "PURCHASE":
+        record = Invoice(
+            company_id=cid, created_by=uid,
+            invoice_number=narration or vnum,
+            invoice_type=InvoiceType.PURCHASE,
+            invoice_date=d,
+            subtotal=amount, total_amount=amount,
+            status=InvoiceStatus.APPROVED,
+            tally_sync_status="pending", tally_voucher_ref=vnum,
+        )
+        db.add(record)
+        db.flush()
+        queue_tally_write(db, cid, "CREATE_PURCHASE_VOUCHER", {
+            "date": d.strftime("%Y%m%d"),
+            "party_ledger": data.party_ledger or "",
+            "purchase_ledger": data.purchase_ledger or "Purchases",
+            "amount": str(int(amount)),
+            "narration": narration, "voucher_number": vnum,
+        })
+
+    elif vt == "RECEIPT":
+        record = Expense(
+            company_id=cid, created_by=uid,
+            title=narration or "Receipt", category="Receipt",
+            expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+            currency="INR", status=ExpenseStatus.APPROVED,
+            notes=f"Party: {data.party_ledger or ''} | Account: {data.account_ledger or 'Cash'}",
+            tally_sync_status="pending", tally_voucher_ref=vnum,
+        )
+        db.add(record)
+        db.flush()
+        queue_tally_write(db, cid, "CREATE_RECEIPT_VOUCHER", {
+            "date": d.strftime("%Y%m%d"),
+            "party_ledger": data.party_ledger or "",
+            "account_ledger": data.account_ledger or "Cash",
+            "amount": str(int(amount)),
+            "narration": narration, "voucher_number": vnum,
+        })
+
+    elif vt == "PAYMENT":
+        record = Expense(
+            company_id=cid, created_by=uid,
+            title=narration or "Payment", category="Payment",
+            expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+            currency="INR", status=ExpenseStatus.APPROVED,
+            notes=f"Party: {data.party_ledger or ''} | Account: {data.account_ledger or 'Cash'}",
+            tally_sync_status="pending", tally_voucher_ref=vnum,
+        )
+        db.add(record)
+        db.flush()
+        queue_tally_write(db, cid, "CREATE_PAYMENT_VOUCHER", {
+            "date": d.strftime("%Y%m%d"),
+            "party_ledger": data.party_ledger or "",
+            "account_ledger": data.account_ledger or "Cash",
+            "amount": str(int(amount)),
+            "narration": narration, "voucher_number": vnum,
+        })
+
+    elif vt == "JOURNAL":
+        record = Expense(
+            company_id=cid, created_by=uid,
+            title=narration or "Journal Entry", category="Journal",
+            expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+            currency="INR", status=ExpenseStatus.APPROVED,
+            notes=f"Dr: {data.dr_ledger or ''} | Cr: {data.cr_ledger or ''}",
+            tally_sync_status="pending", tally_voucher_ref=vnum,
+        )
+        db.add(record)
+        db.flush()
+        queue_tally_write(db, cid, "CREATE_JOURNAL_VOUCHER", {
+            "date": d.strftime("%Y%m%d"),
+            "dr_ledger": data.dr_ledger or "",
+            "cr_ledger": data.cr_ledger or "",
+            "amount": str(int(amount)),
+            "narration": narration, "voucher_number": vnum,
+        })
+
+    elif vt == "CONTRA":
+        record = Expense(
+            company_id=cid, created_by=uid,
+            title=narration or "Fund Transfer", category="Contra",
+            expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+            currency="INR", status=ExpenseStatus.APPROVED,
+            notes=f"From: {data.from_account or 'Cash'} | To: {data.to_account or 'Bank'}",
+            tally_sync_status="pending", tally_voucher_ref=vnum,
+        )
+        db.add(record)
+        db.flush()
+        queue_tally_write(db, cid, "CREATE_CONTRA_VOUCHER", {
+            "date": d.strftime("%Y%m%d"),
+            "from_account": data.from_account or "Cash",
+            "to_account": data.to_account or "Bank",
+            "amount": str(int(amount)),
+            "narration": narration, "voucher_number": vnum,
+        })
+
+    elif vt == "CREDIT_NOTE":
+        record = Expense(
+            company_id=cid, created_by=uid,
+            title=narration or "Sales Return", category="Credit Note",
+            expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+            currency="INR", status=ExpenseStatus.APPROVED,
+            notes=f"Party: {data.party_ledger or ''}",
+            tally_sync_status="pending", tally_voucher_ref=vnum,
+        )
+        db.add(record)
+        db.flush()
+        queue_tally_write(db, cid, "CREATE_CREDIT_NOTE", {
+            "date": d.strftime("%Y%m%d"),
+            "party_ledger": data.party_ledger or "",
+            "sales_ledger": data.sales_ledger or "Sales",
+            "amount": str(int(amount)),
+            "narration": narration, "voucher_number": vnum,
+        })
+
+    elif vt == "DEBIT_NOTE":
+        record = Expense(
+            company_id=cid, created_by=uid,
+            title=narration or "Purchase Return", category="Debit Note",
+            expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+            currency="INR", status=ExpenseStatus.APPROVED,
+            notes=f"Party: {data.party_ledger or ''}",
+            tally_sync_status="pending", tally_voucher_ref=vnum,
+        )
+        db.add(record)
+        db.flush()
+        queue_tally_write(db, cid, "CREATE_DEBIT_NOTE", {
+            "date": d.strftime("%Y%m%d"),
+            "party_ledger": data.party_ledger or "",
+            "purchase_ledger": data.purchase_ledger or "Purchases",
+            "amount": str(int(amount)),
+            "narration": narration, "voucher_number": vnum,
+        })
+
+    elif vt == "CUSTOM":
+        vt_name = (data.custom_voucher_type_name or "").strip()
+        if not vt_name:
+            raise HTTPException(status_code=422, detail="custom_voucher_type_name is required for CUSTOM type")
+        vt_record = db.query(TallyVoucherType).filter(
+            TallyVoucherType.company_id == cid,
+            TallyVoucherType.name.ilike(vt_name),
+            TallyVoucherType.is_active == True,
+        ).first()
+        if not vt_record:
+            raise HTTPException(status_code=404, detail=f"Custom voucher type '{vt_name}' not found")
+        parent = (vt_record.parent or "Sales").strip()
+        record = Expense(
+            company_id=cid, created_by=uid,
+            title=narration or vt_name, category=vt_record.name,
+            expense_date=d, amount=amount, tax_amount=0, total_amount=amount,
+            currency="INR", status=ExpenseStatus.APPROVED,
+            notes=f"Party: {data.party_ledger or ''} | Type: {vt_record.name}",
+            tally_sync_status="pending", tally_voucher_ref=vnum,
+        )
+        db.add(record)
+        db.flush()
+        _parent_op = {
+            "Sales":       ("CREATE_SALES_VOUCHER",    {"party_ledger": data.party_ledger or "", "sales_ledger": data.sales_ledger or "Sales"}),
+            "Purchase":    ("CREATE_PURCHASE_VOUCHER", {"party_ledger": data.party_ledger or "", "purchase_ledger": data.purchase_ledger or "Purchases"}),
+            "Receipt":     ("CREATE_RECEIPT_VOUCHER",  {"party_ledger": data.party_ledger or "", "account_ledger": data.account_ledger or "Cash"}),
+            "Payment":     ("CREATE_PAYMENT_VOUCHER",  {"party_ledger": data.party_ledger or "", "account_ledger": data.account_ledger or "Cash"}),
+            "Journal":     ("CREATE_JOURNAL_VOUCHER",  {"dr_ledger": data.dr_ledger or "", "cr_ledger": data.cr_ledger or ""}),
+            "Contra":      ("CREATE_CONTRA_VOUCHER",   {"from_account": data.from_account or "Cash", "to_account": data.to_account or "Bank"}),
+            "Credit Note": ("CREATE_CREDIT_NOTE",      {"party_ledger": data.party_ledger or "", "sales_ledger": data.sales_ledger or "Sales"}),
+            "Debit Note":  ("CREATE_DEBIT_NOTE",       {"party_ledger": data.party_ledger or "", "purchase_ledger": data.purchase_ledger or "Purchases"}),
+        }
+        operation, extra = _parent_op.get(parent, _parent_op["Sales"])
+        queue_tally_write(db, cid, operation, {
+            "date": d.strftime("%Y%m%d"), "amount": str(int(amount)),
+            "narration": narration, "voucher_number": vnum,
+            "voucher_type_name": vt_record.name,
+            **extra,
+        })
+
+    else:
+        raise HTTPException(status_code=422, detail=f"Unknown voucher_type: {vt}")
+
+    db.commit()
+    audit_service.log(db, cid, uid, AuditAction.CREATE,
+                      entity_type="voucher", entity_id=None,
+                      description=f"Created {vt} voucher: {vnum}")
+    return {"status": "pending", "message": "Voucher queued for TallyPrime sync."}
+
+
+@router.patch("/vouchers/{entity_type}/{entity_id}")
+def update_voucher(
+    entity_type: str,
+    entity_id: str,
+    data: VoucherUpdate,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    cid = current_user.company_id
+
+    if entity_type == "invoice":
+        record = db.query(Invoice).filter(
+            Invoice.id == uuid.UUID(entity_id),
+            Invoice.company_id == cid,
+            Invoice.is_deleted.is_not(True),
+        ).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        if data.date:
+            record.invoice_date = _parse_voucher_date(data.date)
+        if data.amount is not None:
+            record.subtotal = data.amount
+            record.total_amount = data.amount
+        if data.narration is not None:
+            record.invoice_number = data.narration or record.invoice_number
+
+        vref = record.tally_voucher_ref or ""
+        if record.tally_sync_status == "synced" and vref:
+            record.tally_sync_status = "pending"
+            inv_type = record.invoice_type.value if record.invoice_type else "SALES"
+            op = "CREATE_SALES_VOUCHER" if inv_type == "SALES" else "CREATE_PURCHASE_VOUCHER"
+            ledger_key = "sales_ledger" if inv_type == "SALES" else "purchase_ledger"
+            ledger_val = "Sales" if inv_type == "SALES" else "Purchases"
+            queue_tally_write(db, cid, op, {
+                "date": record.invoice_date.strftime("%Y%m%d"),
+                "party_ledger": "",
+                ledger_key: ledger_val,
+                "amount": str(int(float(record.total_amount or 0))),
+                "narration": record.invoice_number or "",
+                "voucher_number": vref,
+            })
+        elif record.tally_sync_status == "pending" and vref:
+            for j in db.query(TallyIntegrationJob).filter(
+                TallyIntegrationJob.company_id == cid,
+                TallyIntegrationJob.status == JobStatus.PENDING,
+            ).all():
+                if (j.payload or {}).get("voucher_number") == vref:
+                    new_payload = dict(j.payload or {})
+                    if data.date:
+                        new_payload["date"] = record.invoice_date.strftime("%Y%m%d")
+                    if data.amount is not None:
+                        new_payload["amount"] = str(int(float(data.amount)))
+                    if data.narration is not None:
+                        new_payload["narration"] = data.narration or ""
+                    j.payload = new_payload
+                    break
+
+        record.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        audit_service.log(db, cid, current_user.id, AuditAction.UPDATE,
+                          entity_type="invoice", entity_id=record.id,
+                          description=f"Updated invoice: {record.invoice_number}")
+        return {"status": "ok", "message": "Updated."}
+
+    elif entity_type == "expense":
+        record = db.query(Expense).filter(
+            Expense.id == uuid.UUID(entity_id),
+            Expense.company_id == cid,
+            Expense.is_deleted.is_not(True),
+        ).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Expense not found")
+
+        if data.date:
+            record.expense_date = _parse_voucher_date(data.date)
+        if data.amount is not None:
+            record.amount = data.amount
+            record.total_amount = data.amount
+        if data.narration is not None:
+            record.title = data.narration or record.title
+
+        vref = record.tally_voucher_ref or ""
+        cat = record.category or "Payment"
+        _CAT_OP = {
+            "Receipt": "CREATE_RECEIPT_VOUCHER",
+            "Payment": "CREATE_PAYMENT_VOUCHER",
+            "Journal": "CREATE_JOURNAL_VOUCHER",
+            "Contra": "CREATE_CONTRA_VOUCHER",
+            "Credit Note": "CREATE_CREDIT_NOTE",
+            "Debit Note": "CREATE_DEBIT_NOTE",
+        }
+
+        if record.tally_sync_status == "synced" and vref:
+            record.tally_sync_status = "pending"
+            op = _CAT_OP.get(cat, "CREATE_PAYMENT_VOUCHER")
+            notes = record.notes or ""
+
+            def _extract(key: str) -> str:
+                if f"{key}: " in notes:
+                    try:
+                        return notes.split(f"{key}: ")[1].split(" |")[0].strip()
+                    except Exception:
+                        pass
+                return ""
+
+            if cat in ("Receipt", "Payment"):
+                tally_payload = {
+                    "date": record.expense_date.strftime("%Y%m%d"),
+                    "party_ledger": _extract("Party"),
+                    "account_ledger": _extract("Account") or "Cash",
+                    "amount": str(int(float(record.amount or 0))),
+                    "narration": record.title or "",
+                    "voucher_number": vref,
+                }
+            elif cat == "Journal":
+                tally_payload = {
+                    "date": record.expense_date.strftime("%Y%m%d"),
+                    "dr_ledger": _extract("Dr"),
+                    "cr_ledger": _extract("Cr"),
+                    "amount": str(int(float(record.amount or 0))),
+                    "narration": record.title or "",
+                    "voucher_number": vref,
+                }
+            elif cat == "Contra":
+                tally_payload = {
+                    "date": record.expense_date.strftime("%Y%m%d"),
+                    "from_account": _extract("From"),
+                    "to_account": _extract("To"),
+                    "amount": str(int(float(record.amount or 0))),
+                    "narration": record.title or "",
+                    "voucher_number": vref,
+                }
+            else:
+                tally_payload = {
+                    "date": record.expense_date.strftime("%Y%m%d"),
+                    "party_ledger": _extract("Party"),
+                    "amount": str(int(float(record.amount or 0))),
+                    "narration": record.title or "",
+                    "voucher_number": vref,
+                }
+            queue_tally_write(db, cid, op, tally_payload)
+
+        elif record.tally_sync_status == "pending" and vref:
+            for j in db.query(TallyIntegrationJob).filter(
+                TallyIntegrationJob.company_id == cid,
+                TallyIntegrationJob.status == JobStatus.PENDING,
+            ).all():
+                if (j.payload or {}).get("voucher_number") == vref:
+                    new_payload = dict(j.payload or {})
+                    if data.date:
+                        new_payload["date"] = record.expense_date.strftime("%Y%m%d")
+                    if data.amount is not None:
+                        new_payload["amount"] = str(int(float(data.amount)))
+                    if data.narration is not None:
+                        new_payload["narration"] = data.narration or ""
+                    j.payload = new_payload
+                    break
+
+        record.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        audit_service.log(db, cid, current_user.id, AuditAction.UPDATE,
+                          entity_type="expense", entity_id=record.id,
+                          description=f"Updated expense: {record.title}")
+        return {"status": "ok", "message": "Updated."}
 
     else:
         raise HTTPException(status_code=400, detail="entity_type must be 'invoice' or 'expense'")

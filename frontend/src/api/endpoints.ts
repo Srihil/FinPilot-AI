@@ -518,6 +518,14 @@ export const managementApi = {
     date?: string;
     amount?: number;
     narration?: string;
+    party_ledger?: string;
+    account_ledger?: string;
+    sales_ledger?: string;
+    purchase_ledger?: string;
+    dr_ledger?: string;
+    cr_ledger?: string;
+    from_account?: string;
+    to_account?: string;
   }) => {
     const res = await apiClient.patch(`/api/management/vouchers/${entityType}/${id}`, data);
     return res.data;

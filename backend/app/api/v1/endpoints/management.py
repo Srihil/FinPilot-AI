@@ -1822,6 +1822,14 @@ class VoucherUpdate(BaseModel):
     date: Optional[str] = None
     amount: Optional[float] = None
     narration: Optional[str] = None
+    party_ledger: Optional[str] = None
+    account_ledger: Optional[str] = None
+    sales_ledger: Optional[str] = None
+    purchase_ledger: Optional[str] = None
+    dr_ledger: Optional[str] = None
+    cr_ledger: Optional[str] = None
+    from_account: Optional[str] = None
+    to_account: Optional[str] = None
 
 
 def _parse_voucher_date(d_str: str) -> datetime:
@@ -2080,34 +2088,32 @@ def update_voucher(
             record.invoice_number = data.narration or record.invoice_number
 
         vref = record.tally_voucher_ref or ""
+        inv_type = record.invoice_type.value if record.invoice_type else "SALES"
+        op = "CREATE_SALES_VOUCHER" if inv_type == "SALES" else "CREATE_PURCHASE_VOUCHER"
+        ledger_key = "sales_ledger" if inv_type == "SALES" else "purchase_ledger"
+        ledger_default = "Sales" if inv_type == "SALES" else "Purchases"
+        ledger_val = (data.sales_ledger if inv_type == "SALES" else data.purchase_ledger) or ledger_default
+
+        tally_payload = {
+            "date": record.invoice_date.strftime("%Y%m%d"),
+            "party_ledger": data.party_ledger or "",
+            ledger_key: ledger_val,
+            "amount": str(int(float(record.total_amount or 0))),
+            "narration": record.invoice_number or "",
+            "voucher_number": vref,
+        }
+
         if record.tally_sync_status == "synced" and vref:
             record.tally_sync_status = "pending"
-            inv_type = record.invoice_type.value if record.invoice_type else "SALES"
-            op = "CREATE_SALES_VOUCHER" if inv_type == "SALES" else "CREATE_PURCHASE_VOUCHER"
-            ledger_key = "sales_ledger" if inv_type == "SALES" else "purchase_ledger"
-            ledger_val = "Sales" if inv_type == "SALES" else "Purchases"
-            queue_tally_write(db, cid, op, {
-                "date": record.invoice_date.strftime("%Y%m%d"),
-                "party_ledger": "",
-                ledger_key: ledger_val,
-                "amount": str(int(float(record.total_amount or 0))),
-                "narration": record.invoice_number or "",
-                "voucher_number": vref,
-            })
+            queue_tally_write(db, cid, op, tally_payload)
         elif record.tally_sync_status == "pending" and vref:
             for j in db.query(TallyIntegrationJob).filter(
                 TallyIntegrationJob.company_id == cid,
                 TallyIntegrationJob.status == JobStatus.PENDING,
             ).all():
                 if (j.payload or {}).get("voucher_number") == vref:
-                    new_payload = dict(j.payload or {})
-                    if data.date:
-                        new_payload["date"] = record.invoice_date.strftime("%Y%m%d")
-                    if data.amount is not None:
-                        new_payload["amount"] = str(int(float(data.amount)))
-                    if data.narration is not None:
-                        new_payload["narration"] = data.narration or ""
-                    j.payload = new_payload
+                    merged = {**dict(j.payload or {}), **{k: v for k, v in tally_payload.items() if v}}
+                    j.payload = merged
                     break
 
         record.updated_at = datetime.now(timezone.utc)
@@ -2134,6 +2140,16 @@ def update_voucher(
         if data.narration is not None:
             record.title = data.narration or record.title
 
+        # Update notes to reflect new ledger values when provided
+        notes = record.notes or ""
+        def _extract(key: str) -> str:
+            if f"{key}: " in notes:
+                try:
+                    return notes.split(f"{key}: ")[1].split(" |")[0].strip()
+                except Exception:
+                    pass
+            return ""
+
         vref = record.tally_voucher_ref or ""
         cat = record.category or "Payment"
         _CAT_OP = {
@@ -2144,71 +2160,81 @@ def update_voucher(
             "Credit Note": "CREATE_CREDIT_NOTE",
             "Debit Note": "CREATE_DEBIT_NOTE",
         }
+        op = _CAT_OP.get(cat, "CREATE_PAYMENT_VOUCHER")
+
+        # Resolve ledger values: prefer newly-submitted value, fall back to stored notes
+        party   = data.party_ledger   if data.party_ledger   is not None else _extract("Party")
+        account = data.account_ledger if data.account_ledger is not None else (_extract("Account") or "Cash")
+        dr      = data.dr_ledger      if data.dr_ledger      is not None else _extract("Dr")
+        cr      = data.cr_ledger      if data.cr_ledger      is not None else _extract("Cr")
+        frm     = data.from_account   if data.from_account   is not None else _extract("From")
+        to      = data.to_account     if data.to_account     is not None else _extract("To")
+        sales_l = data.sales_ledger   or "Sales"
+        purch_l = data.purchase_ledger or "Purchases"
+
+        # Rebuild notes with updated values
+        if cat in ("Receipt", "Payment"):
+            record.notes = f"Party: {party} | Account: {account}"
+        elif cat == "Journal":
+            record.notes = f"Dr: {dr} | Cr: {cr}"
+        elif cat == "Contra":
+            record.notes = f"From: {frm} | To: {to}"
+        elif cat in ("Credit Note", "Debit Note"):
+            record.notes = f"Party: {party}"
+
+        if cat in ("Receipt", "Payment"):
+            tally_payload = {
+                "date": record.expense_date.strftime("%Y%m%d"),
+                "party_ledger": party, "account_ledger": account,
+                "amount": str(int(float(record.amount or 0))),
+                "narration": record.title or "", "voucher_number": vref,
+            }
+        elif cat == "Journal":
+            tally_payload = {
+                "date": record.expense_date.strftime("%Y%m%d"),
+                "dr_ledger": dr, "cr_ledger": cr,
+                "amount": str(int(float(record.amount or 0))),
+                "narration": record.title or "", "voucher_number": vref,
+            }
+        elif cat == "Contra":
+            tally_payload = {
+                "date": record.expense_date.strftime("%Y%m%d"),
+                "from_account": frm, "to_account": to,
+                "amount": str(int(float(record.amount or 0))),
+                "narration": record.title or "", "voucher_number": vref,
+            }
+        elif cat == "Credit Note":
+            tally_payload = {
+                "date": record.expense_date.strftime("%Y%m%d"),
+                "party_ledger": party, "sales_ledger": sales_l,
+                "amount": str(int(float(record.amount or 0))),
+                "narration": record.title or "", "voucher_number": vref,
+            }
+        elif cat == "Debit Note":
+            tally_payload = {
+                "date": record.expense_date.strftime("%Y%m%d"),
+                "party_ledger": party, "purchase_ledger": purch_l,
+                "amount": str(int(float(record.amount or 0))),
+                "narration": record.title or "", "voucher_number": vref,
+            }
+        else:
+            tally_payload = {
+                "date": record.expense_date.strftime("%Y%m%d"),
+                "party_ledger": party,
+                "amount": str(int(float(record.amount or 0))),
+                "narration": record.title or "", "voucher_number": vref,
+            }
 
         if record.tally_sync_status == "synced" and vref:
             record.tally_sync_status = "pending"
-            op = _CAT_OP.get(cat, "CREATE_PAYMENT_VOUCHER")
-            notes = record.notes or ""
-
-            def _extract(key: str) -> str:
-                if f"{key}: " in notes:
-                    try:
-                        return notes.split(f"{key}: ")[1].split(" |")[0].strip()
-                    except Exception:
-                        pass
-                return ""
-
-            if cat in ("Receipt", "Payment"):
-                tally_payload = {
-                    "date": record.expense_date.strftime("%Y%m%d"),
-                    "party_ledger": _extract("Party"),
-                    "account_ledger": _extract("Account") or "Cash",
-                    "amount": str(int(float(record.amount or 0))),
-                    "narration": record.title or "",
-                    "voucher_number": vref,
-                }
-            elif cat == "Journal":
-                tally_payload = {
-                    "date": record.expense_date.strftime("%Y%m%d"),
-                    "dr_ledger": _extract("Dr"),
-                    "cr_ledger": _extract("Cr"),
-                    "amount": str(int(float(record.amount or 0))),
-                    "narration": record.title or "",
-                    "voucher_number": vref,
-                }
-            elif cat == "Contra":
-                tally_payload = {
-                    "date": record.expense_date.strftime("%Y%m%d"),
-                    "from_account": _extract("From"),
-                    "to_account": _extract("To"),
-                    "amount": str(int(float(record.amount or 0))),
-                    "narration": record.title or "",
-                    "voucher_number": vref,
-                }
-            else:
-                tally_payload = {
-                    "date": record.expense_date.strftime("%Y%m%d"),
-                    "party_ledger": _extract("Party"),
-                    "amount": str(int(float(record.amount or 0))),
-                    "narration": record.title or "",
-                    "voucher_number": vref,
-                }
             queue_tally_write(db, cid, op, tally_payload)
-
         elif record.tally_sync_status == "pending" and vref:
             for j in db.query(TallyIntegrationJob).filter(
                 TallyIntegrationJob.company_id == cid,
                 TallyIntegrationJob.status == JobStatus.PENDING,
             ).all():
                 if (j.payload or {}).get("voucher_number") == vref:
-                    new_payload = dict(j.payload or {})
-                    if data.date:
-                        new_payload["date"] = record.expense_date.strftime("%Y%m%d")
-                    if data.amount is not None:
-                        new_payload["amount"] = str(int(float(data.amount)))
-                    if data.narration is not None:
-                        new_payload["narration"] = data.narration or ""
-                    j.payload = new_payload
+                    j.payload = {**dict(j.payload or {}), **{k: v for k, v in tally_payload.items() if v}}
                     break
 
         record.updated_at = datetime.now(timezone.utc)

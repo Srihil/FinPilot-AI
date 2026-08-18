@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FileText, Search, Loader2, AlertCircle, Trash2, Filter, Eraser,
   Sparkles, ChevronRight, ChevronDown, Info, Plus, Pencil,
+  Receipt, CreditCard, TrendingUp, ShoppingCart, BookOpen, ArrowLeftRight,
+  RotateCcw, RotateCw, Zap,
 } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -19,7 +21,9 @@ import { formatCurrency, formatDate } from '../../utils/format';
 import { cn } from '../../utils/cn';
 import type { VoucherItem, TallyLedger, VoucherTypeItem } from '../../types';
 
-const VOUCHER_TYPES = [
+// ─── Type config ─────────────────────────────────────────────────────────────
+
+const VOUCHER_TYPE_TABS = [
   { label: 'All Vouchers', value: '' },
   { label: 'Sales', value: 'SALES' },
   { label: 'Purchase', value: 'PURCHASE' },
@@ -32,17 +36,38 @@ const VOUCHER_TYPES = [
   { label: '✨ Custom', value: 'CUSTOM' },
 ];
 
-const CREATE_TYPES = [
-  { label: 'Receipt', value: 'RECEIPT' },
-  { label: 'Payment', value: 'PAYMENT' },
-  { label: 'Sales', value: 'SALES' },
-  { label: 'Purchase', value: 'PURCHASE' },
-  { label: 'Journal', value: 'JOURNAL' },
-  { label: 'Contra', value: 'CONTRA' },
-  { label: 'Credit Note', value: 'CREDIT_NOTE' },
-  { label: 'Debit Note', value: 'DEBIT_NOTE' },
-  { label: '✨ Custom', value: 'CUSTOM' },
+const CREATE_TYPE_PILLS = [
+  { value: 'RECEIPT',     label: 'Receipt',     icon: Receipt,        color: 'bg-blue-50 border-blue-200 text-blue-700',    active: 'bg-blue-600 border-blue-600 text-white' },
+  { value: 'PAYMENT',     label: 'Payment',     icon: CreditCard,     color: 'bg-red-50 border-red-200 text-red-700',       active: 'bg-red-600 border-red-600 text-white' },
+  { value: 'SALES',       label: 'Sales',       icon: TrendingUp,     color: 'bg-green-50 border-green-200 text-green-700', active: 'bg-green-600 border-green-600 text-white' },
+  { value: 'PURCHASE',    label: 'Purchase',    icon: ShoppingCart,   color: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 border-orange-600 text-white' },
+  { value: 'JOURNAL',     label: 'Journal',     icon: BookOpen,       color: 'bg-purple-50 border-purple-200 text-purple-700', active: 'bg-purple-600 border-purple-600 text-white' },
+  { value: 'CONTRA',      label: 'Contra',      icon: ArrowLeftRight, color: 'bg-cyan-50 border-cyan-200 text-cyan-700',    active: 'bg-cyan-600 border-cyan-600 text-white' },
+  { value: 'CREDIT_NOTE', label: 'Credit Note', icon: RotateCcw,      color: 'bg-yellow-50 border-yellow-200 text-yellow-700', active: 'bg-yellow-500 border-yellow-500 text-white' },
+  { value: 'DEBIT_NOTE',  label: 'Debit Note',  icon: RotateCw,       color: 'bg-pink-50 border-pink-200 text-pink-700',   active: 'bg-pink-600 border-pink-600 text-white' },
+  { value: 'CUSTOM',      label: '✨ Custom',   icon: Zap,            color: 'bg-indigo-50 border-indigo-200 text-indigo-700', active: 'bg-indigo-600 border-indigo-600 text-white' },
 ];
+
+const TYPE_FIELDS: Record<string, {
+  showParty?: boolean;  partyLabel?: string;
+  showAccount?: boolean;
+  showSalesLedger?: boolean;
+  showPurchaseLedger?: boolean;
+  showDrCr?: boolean;
+  showFromTo?: boolean;
+  showCustomType?: boolean;
+  description: string;
+}> = {
+  RECEIPT:     { showParty: true, partyLabel: 'Party (from whom)',   showAccount: true, description: 'Money received into bank/cash' },
+  PAYMENT:     { showParty: true, partyLabel: 'Party (to whom)',     showAccount: true, description: 'Money paid out from bank/cash' },
+  SALES:       { showParty: true, partyLabel: 'Customer',            showSalesLedger: true, description: 'Records a sale transaction' },
+  PURCHASE:    { showParty: true, partyLabel: 'Vendor / Supplier',   showPurchaseLedger: true, description: 'Records a purchase transaction' },
+  JOURNAL:     { showDrCr: true,  description: 'Internal ledger adjustment — no cash movement' },
+  CONTRA:      { showFromTo: true, description: 'Transfer between your own bank/cash accounts' },
+  CREDIT_NOTE: { showParty: true, partyLabel: 'Customer',            showSalesLedger: true, description: 'Sales return — reverses a sale entry' },
+  DEBIT_NOTE:  { showParty: true, partyLabel: 'Vendor / Supplier',   showPurchaseLedger: true, description: 'Purchase return — reverses a purchase entry' },
+  CUSTOM:      { showCustomType: true, showParty: true, partyLabel: 'Party Ledger', description: 'Custom voucher type defined in TallyPrime' },
+};
 
 const PARENT_DESC: Record<string, { color: string; meaning: string }> = {
   Sales:        { color: 'bg-green-100 text-green-800',   meaning: 'Records a sale — increases customer receivable' },
@@ -55,16 +80,23 @@ const PARENT_DESC: Record<string, { color: string; meaning: string }> = {
   'Debit Note': { color: 'bg-pink-100 text-pink-800',     meaning: 'Purchase return — reverses a purchase entry' },
 };
 
+const VOUCHER_TYPE_BADGE: Record<string, string> = {
+  SALES: 'bg-green-100 text-green-800', PURCHASE: 'bg-orange-100 text-orange-800',
+  RECEIPT: 'bg-blue-100 text-blue-800', PAYMENT: 'bg-red-100 text-red-800',
+  JOURNAL: 'bg-purple-100 text-purple-800', CONTRA: 'bg-cyan-100 text-cyan-800',
+  CREDIT_NOTE: 'bg-yellow-100 text-yellow-800', DEBIT_NOTE: 'bg-pink-100 text-pink-800',
+};
+
 function statusColor(status: string) {
   const map: Record<string, string> = {
-    DRAFT: 'bg-slate-100 text-slate-600',
-    APPROVED: 'bg-green-100 text-green-700',
-    PAID: 'bg-emerald-100 text-emerald-700',
-    OVERDUE: 'bg-red-100 text-red-700',
+    DRAFT: 'bg-slate-100 text-slate-600', APPROVED: 'bg-green-100 text-green-700',
+    PAID: 'bg-emerald-100 text-emerald-700', OVERDUE: 'bg-red-100 text-red-700',
     SENT: 'bg-blue-100 text-blue-700',
   };
   return map[status] || 'bg-slate-100 text-slate-600';
 }
+
+// ─── Expanded row detail ──────────────────────────────────────────────────────
 
 function VoucherDetail({ v }: { v: VoucherItem }) {
   return (
@@ -83,8 +115,8 @@ function VoucherDetail({ v }: { v: VoucherItem }) {
           <p className="font-semibold text-slate-900">{formatCurrency(v.amount)}</p>
         </div>
         <div>
-          <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Type</p>
-          <p className="text-slate-700">{v.entity_type === 'invoice' ? 'Invoice' : 'Expense'}</p>
+          <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Record Type</p>
+          <p className="text-slate-700 capitalize">{v.entity_type}</p>
         </div>
         {v.party_name && (
           <div>
@@ -100,7 +132,7 @@ function VoucherDetail({ v }: { v: VoucherItem }) {
         )}
         <div>
           <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Source</p>
-          <p className="text-slate-600 capitalize">{v.source === 'tally_sync' ? 'TallyPrime' : 'FinPilot'}</p>
+          <p className="text-slate-600">{v.source === 'tally_sync' ? 'TallyPrime' : 'FinPilot'}</p>
         </div>
         <div>
           <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Created</p>
@@ -110,6 +142,21 @@ function VoucherDetail({ v }: { v: VoucherItem }) {
     </div>
   );
 }
+
+// ─── Date hint ───────────────────────────────────────────────────────────────
+
+function DateHint() {
+  return (
+    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-1.5">
+      <Info className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+      <p className="text-xs text-amber-700">
+        Use the <strong>Current Date</strong> from TallyPrime's Gateway of Tally — not your PC's date.
+      </p>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function VouchersPage() {
   const { type: urlType } = useParams<{ type?: string }>();
@@ -126,7 +173,7 @@ export default function VouchersPage() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Create form state
+  // ── Create form ──────────────────────────────────────────────────────────
   const [formType, setFormType] = useState('RECEIPT');
   const [formDate, setFormDate] = useState('');
   const [formAmount, setFormAmount] = useState('');
@@ -141,12 +188,22 @@ export default function VouchersPage() {
   const [formToAccount, setFormToAccount] = useState('');
   const [formCustomTypeName, setFormCustomTypeName] = useState('');
 
-  // Edit form state
+  // ── Edit form ────────────────────────────────────────────────────────────
   const [editDate, setEditDate] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [editNarration, setEditNarration] = useState('');
+  const [editPartyLedger, setEditPartyLedger] = useState('');
+  const [editAccountLedger, setEditAccountLedger] = useState('Cash');
+  const [editSalesLedger, setEditSalesLedger] = useState('Sales');
+  const [editPurchaseLedger, setEditPurchaseLedger] = useState('Purchases');
+  const [editDrLedger, setEditDrLedger] = useState('');
+  const [editCrLedger, setEditCrLedger] = useState('');
+  const [editFromAccount, setEditFromAccount] = useState('');
+  const [editToAccount, setEditToAccount] = useState('');
 
   const voucherType = urlType?.toUpperCase() || '';
+
+  // ── Queries ──────────────────────────────────────────────────────────────
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['vouchers', page, voucherType, search, dateFrom, dateTo],
@@ -176,10 +233,11 @@ export default function VouchersPage() {
   );
   const customTypeNames = useMemo(
     () => (voucherTypesData?.items ?? [] as VoucherTypeItem[])
-      .filter(vt => vt.parent != null)
-      .map(vt => vt.name),
+      .filter(vt => vt.parent != null).map(vt => vt.name),
     [voucherTypesData],
   );
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
 
   function resetForm() {
     setFormType('RECEIPT'); setFormDate(''); setFormAmount(''); setFormNarration('');
@@ -188,16 +246,31 @@ export default function VouchersPage() {
     setFormFromAccount(''); setFormToAccount(''); setFormCustomTypeName('');
   }
 
+  function openEdit(v: VoucherItem) {
+    setEditItem(v);
+    const rawDate = v.date?.slice(0, 10) ?? '';
+    setEditDate(rawDate);
+    setEditAmount(String(v.amount));
+    setEditNarration(v.title ?? v.party_name ?? '');
+    setEditPartyLedger(v.party_name ?? '');
+    setEditAccountLedger('Cash');
+    setEditSalesLedger('Sales');
+    setEditPurchaseLedger('Purchases');
+    setEditDrLedger(''); setEditCrLedger('');
+    setEditFromAccount(''); setEditToAccount('');
+  }
+
   function toggleExpand(id: string) {
     setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
 
   const createMut = useMutation({
     mutationFn: () => {
       const ft = formType.toUpperCase();
       return managementApi.createVoucher({
-        voucher_type: ft,
-        date: formDate,
+        voucher_type: ft, date: formDate,
         amount: parseFloat(formAmount) || 0,
         narration: formNarration || undefined,
         party_ledger: formPartyLedger || undefined,
@@ -214,8 +287,7 @@ export default function VouchersPage() {
     onSuccess: () => {
       toast({ title: 'Voucher created', description: 'Queued for TallyPrime sync.' });
       qc.invalidateQueries({ queryKey: ['vouchers'] });
-      setShowCreate(false);
-      resetForm();
+      setShowCreate(false); resetForm();
     },
     onError: (e: { response?: { data?: { detail?: string } } }) =>
       toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' }),
@@ -223,16 +295,23 @@ export default function VouchersPage() {
 
   const updateMut = useMutation({
     mutationFn: () => managementApi.updateVoucher(
-      editItem!.entity_type,
-      editItem!.id,
+      editItem!.entity_type, editItem!.id,
       {
         date: editDate || undefined,
         amount: editAmount ? parseFloat(editAmount) : undefined,
         narration: editNarration || undefined,
+        party_ledger: editPartyLedger || undefined,
+        account_ledger: editAccountLedger || undefined,
+        sales_ledger: editSalesLedger || undefined,
+        purchase_ledger: editPurchaseLedger || undefined,
+        dr_ledger: editDrLedger || undefined,
+        cr_ledger: editCrLedger || undefined,
+        from_account: editFromAccount || undefined,
+        to_account: editToAccount || undefined,
       },
     ),
     onSuccess: () => {
-      toast({ title: 'Updated' });
+      toast({ title: 'Voucher updated', description: 'Changes saved.' });
       qc.invalidateQueries({ queryKey: ['vouchers'] });
       setEditItem(null);
     },
@@ -242,40 +321,41 @@ export default function VouchersPage() {
 
   const deleteMut = useMutation({
     mutationFn: () => managementApi.deleteVoucher(
-      deleteItem!.entity_type as 'invoice' | 'expense',
-      deleteItem!.id,
+      deleteItem!.entity_type as 'invoice' | 'expense', deleteItem!.id,
     ),
     onSuccess: (res: { status?: string; message?: string }) => {
-      toast({
-        title: res.status === 'pending' ? 'Cancel sent to TallyPrime' : 'Deleted',
-        description: res.message,
-      });
-      qc.invalidateQueries({ queryKey: ['vouchers'] });
-      setDeleteItem(null);
+      toast({ title: res.status === 'pending' ? 'Cancel sent to TallyPrime' : 'Deleted', description: res.message });
+      qc.invalidateQueries({ queryKey: ['vouchers'] }); setDeleteItem(null);
     },
-    onError: (e: { response?: { data?: { detail?: string } } }) => {
-      toast({ title: 'Error', description: e.response?.data?.detail || 'Delete failed', variant: 'destructive' });
-    },
+    onError: (e: { response?: { data?: { detail?: string } } }) =>
+      toast({ title: 'Error', description: e.response?.data?.detail || 'Delete failed', variant: 'destructive' }),
   });
 
   const clearMut = useMutation({
     mutationFn: () => managementApi.clearLocalVouchers(),
     onSuccess: (res) => {
       toast({ title: 'Local data cleared', description: res.message });
-      qc.invalidateQueries({ queryKey: ['vouchers'] });
-      setShowClearConfirm(false);
+      qc.invalidateQueries({ queryKey: ['vouchers'] }); setShowClearConfirm(false);
     },
-    onError: () => {
-      toast({ title: 'Error', description: 'Failed to clear local data', variant: 'destructive' });
-    },
+    onError: () => toast({ title: 'Error', description: 'Failed to clear local data', variant: 'destructive' }),
   });
 
+  // ── Derived ───────────────────────────────────────────────────────────────
+
   const totalPages = data?.total_pages ?? 1;
-  const activeType = VOUCHER_TYPES.find(v => v.value === voucherType);
+  const activeType = VOUCHER_TYPE_TABS.find(v => v.value === voucherType);
   const ft = formType.toUpperCase();
+  const ftFields = TYPE_FIELDS[ft] ?? { description: '' };
+
+  // For edit dialog: determine fields from editItem's voucher_type
+  const editVT = editItem?.voucher_type?.toUpperCase().replace(' ', '_') ?? '';
+  const editFields = TYPE_FIELDS[editVT] ?? { showParty: true, partyLabel: 'Party', description: '' };
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="p-6 space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -289,24 +369,14 @@ export default function VouchersPage() {
         </Button>
       </div>
 
-      {/* Voucher type tabs */}
+      {/* Type tabs */}
       <div className="flex flex-wrap gap-2">
-        {VOUCHER_TYPES.map(vt => (
-          <button
-            key={vt.value}
-            onClick={() => {
-              setPage(1);
-              navigate(vt.value ? `/accounting/vouchers/${vt.value.toLowerCase()}` : '/accounting/vouchers');
-            }}
-            className={cn(
-              'px-3 py-1.5 rounded-full text-xs font-medium transition-all',
-              voucherType === vt.value
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-            )}
-          >
-            {vt.label}
-          </button>
+        {VOUCHER_TYPE_TABS.map(vt => (
+          <button key={vt.value}
+            onClick={() => { setPage(1); navigate(vt.value ? `/accounting/vouchers/${vt.value.toLowerCase()}` : '/accounting/vouchers'); }}
+            className={cn('px-3 py-1.5 rounded-full text-xs font-medium transition-all',
+              voucherType === vt.value ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
+          >{vt.label}</button>
         ))}
       </div>
 
@@ -322,32 +392,28 @@ export default function VouchersPage() {
           <span className="text-slate-400">to</span>
           <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-36 text-xs" />
           {(dateFrom || dateTo) && (
-            <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="text-slate-400 hover:text-slate-600">
-              Clear
-            </button>
+            <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="text-slate-400 hover:text-slate-600 text-xs">Clear</button>
           )}
         </div>
       </div>
 
       {voucherType === 'CUSTOM' ? (
-        /* ── Custom voucher cards view ──────────────────────────────────── */
+        /* ── Custom cards ─────────────────────────────────────────────── */
         <div className="space-y-3">
           {isLoading ? (
             [...Array(4)].map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)
           ) : isError ? (
             <div className="flex items-center gap-2 p-6 text-red-600"><AlertCircle className="w-5 h-5" /> Failed to load.</div>
           ) : data?.items.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
-                <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center">
-                  <Sparkles className="w-7 h-7 text-indigo-400" />
-                </div>
-                <p className="font-medium text-slate-700">No custom voucher entries yet</p>
-                <p className="text-sm text-slate-400 text-center max-w-sm">
-                  Use <strong>New Voucher</strong> above and select <strong>✨ Custom</strong> to create an entry using a custom voucher type.
-                </p>
-              </CardContent>
-            </Card>
+            <Card><CardContent className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center">
+                <Sparkles className="w-7 h-7 text-indigo-400" />
+              </div>
+              <p className="font-medium text-slate-700">No custom voucher entries yet</p>
+              <p className="text-sm text-slate-400 text-center max-w-sm">
+                Click <strong>New Voucher</strong> above and choose <strong>✨ Custom</strong> to create one.
+              </p>
+            </CardContent></Card>
           ) : data?.items.map(v => {
             const parentMeta = PARENT_DESC[v.parent_type || ''];
             return (
@@ -355,8 +421,7 @@ export default function VouchersPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-semibold shrink-0">
-                      <Sparkles className="w-3 h-3" />
-                      {v.custom_type_name || v.voucher_type}
+                      <Sparkles className="w-3 h-3" />{v.custom_type_name || v.voucher_type}
                     </span>
                     {v.parent_type && (
                       <>
@@ -367,62 +432,39 @@ export default function VouchersPage() {
                       </>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <SyncBadge status={v.tally_sync_status} source={v.source} />
                     {v.tally_sync_status === 'delete_pending' ? (
                       <span className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">Cancelling…</span>
                     ) : (
                       <>
-                        <button
-                          onClick={() => { setEditItem(v); setEditDate(v.date?.slice(0, 10) ?? ''); setEditAmount(String(v.amount)); setEditNarration(v.title ?? v.party_name ?? ''); }}
-                          className="p-1.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"
-                          title="Edit"
-                        >
+                        <button onClick={() => openEdit(v)} className="p-1.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600" title="Edit">
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
-                        <button
-                          onClick={() => setDeleteItem(v)}
-                          className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
-                          title="Delete"
-                        >
+                        <button onClick={() => setDeleteItem(v)} className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </>
                     )}
                   </div>
                 </div>
-
                 {parentMeta && (
                   <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
-                    <Info className="w-3 h-3 shrink-0" />
-                    <span>{parentMeta.meaning}</span>
+                    <Info className="w-3 h-3 shrink-0" /><span>{parentMeta.meaning}</span>
                   </div>
                 )}
-
                 <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Party</p>
-                    <p className="text-sm font-medium text-slate-800 truncate">{v.party_name || v.title || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Amount</p>
-                    <p className="text-sm font-semibold text-slate-900">{formatCurrency(v.amount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Date</p>
-                    <p className="text-sm text-slate-700">{v.date ? formatDate(v.date) : '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Narration</p>
-                    <p className="text-sm text-slate-600 truncate">{v.title || '—'}</p>
-                  </div>
+                  <div><p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Party</p><p className="text-sm font-medium text-slate-800 truncate">{v.party_name || v.title || '—'}</p></div>
+                  <div><p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Amount</p><p className="text-sm font-semibold text-slate-900">{formatCurrency(v.amount)}</p></div>
+                  <div><p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Date</p><p className="text-sm text-slate-700">{v.date ? formatDate(v.date) : '—'}</p></div>
+                  <div><p className="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">Narration</p><p className="text-sm text-slate-600 truncate">{v.title || '—'}</p></div>
                 </div>
               </div>
             );
           })}
         </div>
       ) : (
-        /* ── Standard table view ────────────────────────────────────────── */
+        /* ── Standard table ───────────────────────────────────────────── */
         <Card>
           <CardContent className="p-0">
             {isLoading ? (
@@ -451,20 +493,17 @@ export default function VouchersPage() {
                     const isOpen = expanded.has(v.id);
                     return (
                       <>
-                        <tr
-                          key={v.id}
-                          onClick={() => toggleExpand(v.id)}
-                          className={cn('border-b cursor-pointer transition-colors', isOpen ? 'bg-indigo-50/60' : 'hover:bg-slate-50')}
-                        >
+                        <tr key={v.id} onClick={() => toggleExpand(v.id)}
+                          className={cn('border-b cursor-pointer transition-colors', isOpen ? 'bg-indigo-50/60' : 'hover:bg-slate-50')}>
                           <td className="pl-3 pr-1 py-3 text-slate-400">
-                            {isOpen
-                              ? <ChevronDown className="w-4 h-4 text-indigo-500" />
-                              : <ChevronRight className="w-4 h-4" />}
+                            {isOpen ? <ChevronDown className="w-4 h-4 text-indigo-500" /> : <ChevronRight className="w-4 h-4" />}
                           </td>
                           <td className="px-4 py-3 font-mono text-xs text-slate-700">{v.voucher_number}</td>
                           <td className="px-4 py-3 text-slate-500 text-xs">{v.date ? formatDate(v.date) : '—'}</td>
                           <td className="px-4 py-3">
-                            <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs">{v.voucher_type}</span>
+                            <span className={cn('px-2 py-0.5 rounded text-xs font-medium', VOUCHER_TYPE_BADGE[v.voucher_type] || 'bg-slate-100 text-slate-600')}>
+                              {v.voucher_type}
+                            </span>
                           </td>
                           <td className="px-4 py-3 text-slate-700">{v.party_name || v.title || '—'}</td>
                           <td className="px-4 py-3 text-right font-medium">{formatCurrency(v.amount)}</td>
@@ -479,18 +518,10 @@ export default function VouchersPage() {
                               <span className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">Cancelling…</span>
                             ) : (
                               <div className="flex items-center justify-end gap-1">
-                                <button
-                                  onClick={() => { setEditItem(v); setEditDate(v.date?.slice(0, 10) ?? ''); setEditAmount(String(v.amount)); setEditNarration(v.title ?? v.party_name ?? ''); }}
-                                  className="p-1.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"
-                                  title="Edit voucher"
-                                >
+                                <button onClick={() => openEdit(v)} className="p-1.5 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600" title="Edit">
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>
-                                <button
-                                  onClick={() => setDeleteItem(v)}
-                                  className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
-                                  title="Delete voucher"
-                                >
+                                <button onClick={() => setDeleteItem(v)} className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
@@ -499,9 +530,7 @@ export default function VouchersPage() {
                         </tr>
                         {isOpen && (
                           <tr key={`${v.id}-detail`} className="border-b">
-                            <td colSpan={9} className="p-0">
-                              <VoucherDetail v={v} />
-                            </td>
+                            <td colSpan={9} className="p-0"><VoucherDetail v={v} /></td>
                           </tr>
                         )}
                       </>
@@ -524,197 +553,283 @@ export default function VouchersPage() {
         </div>
       )}
 
-      {/* ── Create Dialog ─────────────────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════════════
+          CREATE DIALOG
+      ═══════════════════════════════════════════════════════════════════ */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-lg" onPointerDownOutside={preventDropdownDismissal}>
-          <DialogHeader><DialogTitle>New Voucher</DialogTitle></DialogHeader>
-          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Plus className="w-5 h-5 text-indigo-600" /> New Voucher
+            </DialogTitle>
+          </DialogHeader>
 
+          <div className="space-y-5 max-h-[72vh] overflow-y-auto pr-1">
+
+            {/* ── Type selector pills ── */}
             <div>
-              <Label>Voucher Type *</Label>
-              <select
-                value={formType}
-                onChange={e => setFormType(e.target.value)}
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                {CREATE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
+              <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Voucher Type</Label>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                {CREATE_TYPE_PILLS.map(pill => {
+                  const Icon = pill.icon;
+                  const isActive = ft === pill.value;
+                  return (
+                    <button
+                      key={pill.value}
+                      type="button"
+                      onClick={() => setFormType(pill.value)}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-all',
+                        isActive ? pill.active : pill.color + ' hover:opacity-80',
+                      )}
+                    >
+                      <Icon className="w-3.5 h-3.5 shrink-0" />
+                      <span>{pill.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {ftFields.description && (
+                <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1.5">
+                  <Info className="w-3 h-3" />{ftFields.description}
+                </p>
+              )}
             </div>
 
-            <div>
-              <Label>Date *</Label>
-              <Input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="mt-1" />
-              <p className="text-xs text-amber-600 mt-1">
-                Use the <strong>Current Date</strong> shown in TallyPrime's Gateway of Tally — not your PC's date.
-              </p>
+            <div className="border-t border-slate-100" />
+
+            {/* ── Custom type name ── */}
+            {ftFields.showCustomType && (
+              <div>
+                <Label>Voucher Type Name <span className="text-red-500">*</span></Label>
+                <Combobox options={customTypeNames} value={formCustomTypeName} onChange={setFormCustomTypeName} placeholder="Select custom type…" className="mt-1.5" />
+              </div>
+            )}
+
+            {/* ── Date + Amount in 2-col grid ── */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Date <span className="text-red-500">*</span></Label>
+                <Input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="mt-1.5" />
+                <DateHint />
+              </div>
+              <div>
+                <Label>Amount <span className="text-red-500">*</span></Label>
+                <div className="relative mt-1.5">
+                  <span className="absolute left-3 top-2.5 text-slate-400 text-sm">₹</span>
+                  <Input
+                    type="number" min="0" step="0.01" placeholder="0.00"
+                    value={formAmount} onChange={e => setFormAmount(e.target.value)}
+                    className="pl-7"
+                  />
+                </div>
+              </div>
             </div>
 
-            {/* CUSTOM: voucher type name */}
-            {ft === 'CUSTOM' && (
+            {/* ── Party ledger ── */}
+            {ftFields.showParty && (
               <div>
-                <Label>Voucher Type Name *</Label>
-                <Combobox
-                  options={customTypeNames} value={formCustomTypeName} onChange={setFormCustomTypeName}
-                  placeholder="Select custom type…" className="mt-1"
-                />
+                <Label>{ftFields.partyLabel || 'Party Ledger'} <span className="text-red-500">*</span></Label>
+                <Combobox options={ledgerNames} value={formPartyLedger} onChange={setFormPartyLedger} placeholder="Select ledger…" className="mt-1.5" />
               </div>
             )}
 
-            {/* Party ledger — shown for most types */}
-            {['SALES', 'PURCHASE', 'RECEIPT', 'PAYMENT', 'CREDIT_NOTE', 'DEBIT_NOTE', 'CUSTOM'].includes(ft) && (
+            {/* ── Sales / Purchase ledger ── */}
+            {ftFields.showSalesLedger && (
               <div>
-                <Label>
-                  {ft === 'SALES' || ft === 'CREDIT_NOTE' ? 'Party (Customer) *'
-                    : ft === 'PURCHASE' || ft === 'DEBIT_NOTE' ? 'Party (Vendor) *'
-                    : ft === 'RECEIPT' ? 'Party (From whom) *'
-                    : ft === 'PAYMENT' ? 'Party (To whom) *'
-                    : 'Party Ledger *'}
-                </Label>
-                <Combobox
-                  options={ledgerNames} value={formPartyLedger} onChange={setFormPartyLedger}
-                  placeholder="Select party ledger…" className="mt-1"
-                />
+                <Label>Sales Ledger <span className="text-red-500">*</span></Label>
+                <Combobox options={ledgerNames} value={formSalesLedger} onChange={setFormSalesLedger} placeholder="Sales" className="mt-1.5" />
+              </div>
+            )}
+            {ftFields.showPurchaseLedger && (
+              <div>
+                <Label>Purchase Ledger <span className="text-red-500">*</span></Label>
+                <Combobox options={ledgerNames} value={formPurchaseLedger} onChange={setFormPurchaseLedger} placeholder="Purchases" className="mt-1.5" />
               </div>
             )}
 
-            {/* Sales ledger */}
-            {(ft === 'SALES' || ft === 'CREDIT_NOTE') && (
+            {/* ── Account (Bank / Cash) ── */}
+            {ftFields.showAccount && (
               <div>
-                <Label>Sales Ledger *</Label>
-                <Combobox
-                  options={ledgerNames} value={formSalesLedger} onChange={setFormSalesLedger}
-                  placeholder="Sales" className="mt-1"
-                />
+                <Label>Account (Bank / Cash) <span className="text-red-500">*</span></Label>
+                <Combobox options={ledgerNames} value={formAccountLedger} onChange={setFormAccountLedger} placeholder="Cash" className="mt-1.5" />
               </div>
             )}
 
-            {/* Purchase ledger */}
-            {(ft === 'PURCHASE' || ft === 'DEBIT_NOTE') && (
-              <div>
-                <Label>Purchase Ledger *</Label>
-                <Combobox
-                  options={ledgerNames} value={formPurchaseLedger} onChange={setFormPurchaseLedger}
-                  placeholder="Purchases" className="mt-1"
-                />
-              </div>
-            )}
-
-            {/* Account ledger (bank/cash) for Receipt and Payment */}
-            {(ft === 'RECEIPT' || ft === 'PAYMENT') && (
-              <div>
-                <Label>Account (Bank / Cash) *</Label>
-                <Combobox
-                  options={ledgerNames} value={formAccountLedger} onChange={setFormAccountLedger}
-                  placeholder="Cash" className="mt-1"
-                />
-              </div>
-            )}
-
-            {/* Journal: Dr/Cr ledgers */}
-            {ft === 'JOURNAL' && (
-              <>
+            {/* ── Journal: Dr + Cr ── */}
+            {ftFields.showDrCr && (
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Dr Ledger *</Label>
-                  <Combobox
-                    options={ledgerNames} value={formDrLedger} onChange={setFormDrLedger}
-                    placeholder="Select debit ledger…" className="mt-1"
-                  />
+                  <Label>Dr Ledger <span className="text-red-500">*</span></Label>
+                  <Combobox options={ledgerNames} value={formDrLedger} onChange={setFormDrLedger} placeholder="Debit ledger…" className="mt-1.5" />
                 </div>
                 <div>
-                  <Label>Cr Ledger *</Label>
-                  <Combobox
-                    options={ledgerNames} value={formCrLedger} onChange={setFormCrLedger}
-                    placeholder="Select credit ledger…" className="mt-1"
-                  />
+                  <Label>Cr Ledger <span className="text-red-500">*</span></Label>
+                  <Combobox options={ledgerNames} value={formCrLedger} onChange={setFormCrLedger} placeholder="Credit ledger…" className="mt-1.5" />
                 </div>
-              </>
+              </div>
             )}
 
-            {/* Contra: From/To accounts */}
-            {ft === 'CONTRA' && (
-              <>
+            {/* ── Contra: From + To ── */}
+            {ftFields.showFromTo && (
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>From Account *</Label>
-                  <Combobox
-                    options={ledgerNames} value={formFromAccount} onChange={setFormFromAccount}
-                    placeholder="Select source account…" className="mt-1"
-                  />
+                  <Label>From Account <span className="text-red-500">*</span></Label>
+                  <Combobox options={ledgerNames} value={formFromAccount} onChange={setFormFromAccount} placeholder="Source…" className="mt-1.5" />
                 </div>
                 <div>
-                  <Label>To Account *</Label>
-                  <Combobox
-                    options={ledgerNames} value={formToAccount} onChange={setFormToAccount}
-                    placeholder="Select destination account…" className="mt-1"
-                  />
+                  <Label>To Account <span className="text-red-500">*</span></Label>
+                  <Combobox options={ledgerNames} value={formToAccount} onChange={setFormToAccount} placeholder="Destination…" className="mt-1.5" />
                 </div>
-              </>
+              </div>
             )}
 
-            <div>
-              <Label>Amount *</Label>
-              <Input
-                type="number" min="0" step="0.01" placeholder="0.00"
-                value={formAmount} onChange={e => setFormAmount(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-
+            {/* ── Narration ── */}
             <div>
               <Label>Narration</Label>
-              <Input
-                value={formNarration} onChange={e => setFormNarration(e.target.value)}
-                placeholder="Description / remarks" className="mt-1"
-              />
+              <Input value={formNarration} onChange={e => setFormNarration(e.target.value)} placeholder="Description / remarks" className="mt-1.5" />
             </div>
           </div>
-          <DialogFooter className="mt-2">
+
+          <DialogFooter className="mt-3 gap-2">
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={() => createMut.mutate()} disabled={createMut.isPending}>
-              {createMut.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+            <Button onClick={() => createMut.mutate()} disabled={createMut.isPending} className="gap-2">
+              {createMut.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
               Create &amp; Sync
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Edit Dialog ───────────────────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════════════
+          EDIT DIALOG
+      ═══════════════════════════════════════════════════════════════════ */}
       <Dialog open={!!editItem} onOpenChange={() => setEditItem(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Edit Voucher</DialogTitle></DialogHeader>
-          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-            <div>
-              <Label>Date</Label>
-              <Input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="mt-1" />
-              <p className="text-xs text-amber-600 mt-1">
-                Use the <strong>Current Date</strong> shown in TallyPrime's Gateway of Tally — not your PC's date.
-              </p>
+        <DialogContent className="max-w-lg" onPointerDownOutside={preventDropdownDismissal}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Pencil className="w-4 h-4 text-indigo-600" /> Edit Voucher
+            </DialogTitle>
+          </DialogHeader>
+
+          {editItem && (
+            <div className="space-y-5 max-h-[72vh] overflow-y-auto pr-1">
+
+              {/* ── Voucher info badge ── */}
+              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-slate-400 mb-0.5">Voucher</p>
+                  <p className="font-mono font-semibold text-slate-800 text-sm truncate">{editItem.voucher_number}</p>
+                </div>
+                <span className={cn('px-2.5 py-1 rounded-full text-xs font-semibold shrink-0',
+                  VOUCHER_TYPE_BADGE[editVT] || 'bg-slate-100 text-slate-600')}>
+                  {editItem.voucher_type}
+                </span>
+                <SyncBadge status={editItem.tally_sync_status} source={editItem.source} />
+              </div>
+
+              <div className="border-t border-slate-100" />
+
+              {/* ── Date + Amount grid ── */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Date</Label>
+                  <Input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="mt-1.5" />
+                  <DateHint />
+                </div>
+                <div>
+                  <Label>Amount</Label>
+                  <div className="relative mt-1.5">
+                    <span className="absolute left-3 top-2.5 text-slate-400 text-sm">₹</span>
+                    <Input
+                      type="number" min="0" step="0.01" placeholder="0.00"
+                      value={editAmount} onChange={e => setEditAmount(e.target.value)}
+                      className="pl-7"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Narration ── */}
+              <div>
+                <Label>Narration</Label>
+                <Input value={editNarration} onChange={e => setEditNarration(e.target.value)} placeholder="Description / remarks" className="mt-1.5" />
+              </div>
+
+              <div className="border-t border-slate-100" />
+
+              {/* ── Type-specific ledger dropdowns ── */}
+              {editFields.showParty && (
+                <div>
+                  <Label>{editFields.partyLabel || 'Party Ledger'}</Label>
+                  <Combobox options={ledgerNames} value={editPartyLedger} onChange={setEditPartyLedger} placeholder="Select party ledger…" className="mt-1.5" />
+                </div>
+              )}
+
+              {editFields.showSalesLedger && (
+                <div>
+                  <Label>Sales Ledger</Label>
+                  <Combobox options={ledgerNames} value={editSalesLedger} onChange={setEditSalesLedger} placeholder="Sales" className="mt-1.5" />
+                </div>
+              )}
+              {editFields.showPurchaseLedger && (
+                <div>
+                  <Label>Purchase Ledger</Label>
+                  <Combobox options={ledgerNames} value={editPurchaseLedger} onChange={setEditPurchaseLedger} placeholder="Purchases" className="mt-1.5" />
+                </div>
+              )}
+
+              {editFields.showAccount && (
+                <div>
+                  <Label>Account (Bank / Cash)</Label>
+                  <Combobox options={ledgerNames} value={editAccountLedger} onChange={setEditAccountLedger} placeholder="Cash" className="mt-1.5" />
+                </div>
+              )}
+
+              {editFields.showDrCr && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Dr Ledger</Label>
+                    <Combobox options={ledgerNames} value={editDrLedger} onChange={setEditDrLedger} placeholder="Debit ledger…" className="mt-1.5" />
+                  </div>
+                  <div>
+                    <Label>Cr Ledger</Label>
+                    <Combobox options={ledgerNames} value={editCrLedger} onChange={setEditCrLedger} placeholder="Credit ledger…" className="mt-1.5" />
+                  </div>
+                </div>
+              )}
+
+              {editFields.showFromTo && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>From Account</Label>
+                    <Combobox options={ledgerNames} value={editFromAccount} onChange={setEditFromAccount} placeholder="Source…" className="mt-1.5" />
+                  </div>
+                  <div>
+                    <Label>To Account</Label>
+                    <Combobox options={ledgerNames} value={editToAccount} onChange={setEditToAccount} placeholder="Destination…" className="mt-1.5" />
+                  </div>
+                </div>
+              )}
+
+              {/* ── Sync warning ── */}
+              {editItem.tally_sync_status === 'synced' && (
+                <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <Info className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                  <div className="text-xs text-amber-700 space-y-0.5">
+                    <p className="font-semibold">Synced to TallyPrime</p>
+                    <p>Saving will re-queue this voucher for sync. TallyPrime will update the existing entry using its REMOTEID.</p>
+                  </div>
+                </div>
+              )}
             </div>
-            <div>
-              <Label>Amount</Label>
-              <Input
-                type="number" min="0" step="0.01" placeholder="0.00"
-                value={editAmount} onChange={e => setEditAmount(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label>Narration / Party</Label>
-              <Input
-                value={editNarration} onChange={e => setEditNarration(e.target.value)}
-                placeholder="Description / party name" className="mt-1"
-              />
-            </div>
-            {editItem?.tally_sync_status === 'synced' && (
-              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                This voucher is synced to TallyPrime. Saving will re-queue it for sync — TallyPrime will update the existing entry.
-              </p>
-            )}
-          </div>
-          <DialogFooter className="mt-2">
+          )}
+
+          <DialogFooter className="mt-3 gap-2">
             <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
-            <Button onClick={() => updateMut.mutate()} disabled={updateMut.isPending}>
-              {updateMut.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              Save
+            <Button onClick={() => updateMut.mutate()} disabled={updateMut.isPending} className="gap-2">
+              {updateMut.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+              Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -728,9 +843,8 @@ export default function VouchersPage() {
             <p>This will permanently delete all <strong>locally-created</strong> invoices and expenses that were never synced to or imported from TallyPrime.</p>
             <div className="bg-amber-50 border border-amber-200 p-3 rounded text-amber-700 text-xs space-y-1">
               <p className="font-semibold">Safe to run before a full sync.</p>
-              <p>Records already synced to TallyPrime or imported from TallyPrime will NOT be deleted.</p>
+              <p>Records already synced to TallyPrime will NOT be deleted.</p>
             </div>
-            <p className="text-xs text-slate-500">After clearing, go to <strong>TallyPrime → Sync Center</strong> and click Sync to pull real data.</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowClearConfirm(false)}>Cancel</Button>
@@ -751,24 +865,19 @@ export default function VouchersPage() {
             {deleteItem?.tally_sync_status === 'synced' ? (
               <div className="text-xs bg-amber-50 border border-amber-200 p-3 rounded space-y-1">
                 <p className="font-semibold text-amber-700">This voucher is synced to TallyPrime.</p>
-                <p className="text-amber-600">
-                  A cancellation request will be sent to TallyPrime. The voucher will be removed from
-                  FinPilot <strong>only after TallyPrime confirms</strong> the cancellation.
-                </p>
+                <p className="text-amber-600">A cancellation request will be sent. The voucher will be removed once TallyPrime confirms.</p>
               </div>
             ) : (
               <p className="text-xs text-slate-500 bg-slate-50 p-3 rounded">
-                This record is local-only — it will be removed from FinPilot immediately.
+                Local-only record — will be removed from FinPilot immediately.
                 {deleteItem?.tally_sync_status === 'pending' && (
-                  <span className="block mt-1 text-amber-600">Note: A Tally sync was pending. If it was already processed, cancel the voucher in TallyPrime manually.</span>
+                  <span className="block mt-1 text-amber-600">A Tally sync was pending. If already processed, cancel in TallyPrime manually.</span>
                 )}
               </p>
             )}
             {(deleteItem as { paid_amount?: number })?.paid_amount != null &&
               (deleteItem as { paid_amount?: number }).paid_amount! > 0 && (
-              <p className="text-xs text-red-600 bg-red-50 p-2 rounded">
-                ⚠ This invoice has payments recorded. Remove payments before deleting.
-              </p>
+              <p className="text-xs text-red-600 bg-red-50 p-2 rounded">⚠ This invoice has payments recorded. Remove payments before deleting.</p>
             )}
           </div>
           <DialogFooter>

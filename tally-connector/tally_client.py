@@ -203,6 +203,42 @@ class TallyClient:
 
     # ── Vouchers (all types) ──────────────────────────────────────────────────
 
+    def _get_daybook_remoteid_map(self) -> dict:
+        """Fetch the Day Book for TallyPrime's current active period and return a map
+        of (vchnum, vchtype_lower) -> FP-xxx REMOTEID for FinPilot-created vouchers.
+
+        Day Book is period-limited (ignores explicit date ranges) but it is the only
+        TallyPrime export that returns the actual FP-xxx REMOTEID stored on vouchers.
+        The TDL Collection approach only returns the internal SENDERID/GUID as REMOTEID,
+        which cannot be used for deletion.
+        """
+        import re as _re
+        xml = """<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>Day Book</ID></HEADER>
+  <BODY><DESC><STATICVARIABLES>
+    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+    <SVFROMDATE>20060101</SVFROMDATE>
+    <SVTODATE>20991231</SVTODATE>
+  </STATICVARIABLES></DESC></BODY>
+</ENVELOPE>"""
+        try:
+            raw = self._post_xml(xml)
+        except Exception:
+            return {}
+        remoteid_map: dict = {}
+        for m in _re.finditer(r'(<VOUCHER[^>]+>)(.*?)(</VOUCHER>)', raw, _re.DOTALL):
+            attrs = m.group(1)
+            body  = m.group(2)
+            rid_m   = _re.search(r'REMOTEID="([^"]+)"', attrs)
+            vtype_m = _re.search(r'VCHTYPE="([^"]+)"', attrs)
+            vnum_m  = _re.search(r'<VOUCHERNUMBER>(.*?)</VOUCHERNUMBER>', body)
+            rid   = rid_m.group(1) if rid_m else ""
+            vtype = (vtype_m.group(1) if vtype_m else "").lower().strip()
+            vnum  = (vnum_m.group(1) if vnum_m else "").strip()
+            if rid.startswith("FP-") and vnum and vtype:
+                remoteid_map[(vnum, vtype)] = rid
+        return remoteid_map
+
     def get_vouchers(self, from_date: str = "", to_date: str = "") -> list[dict]:
         # Day Book (TYPE=Data) only returns vouchers in TallyPrime's CURRENT PERIOD
         # setting, missing everything outside that window even with explicit dates.
@@ -228,7 +264,7 @@ class TallyClient:
           <COLLECTION NAME="FP Vouchers" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
             <BELONGSTO>Yes</BELONGSTO>
-            <FETCH>DATE,VOUCHERNUMBER,VOUCHERTYPENAME,NARRATION,PARTYLEDGERNAME,ALLLEDGERENTRIES.LIST</FETCH>
+            <FETCH>DATE,VOUCHERNUMBER,VOUCHERTYPENAME,NARRATION,PARTYLEDGERNAME,REMOTEID,ALLLEDGERENTRIES.LIST</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -240,6 +276,12 @@ class TallyClient:
 </ENVELOPE>"""
         raw = self._post_xml(xml)
         root = self._parse_response(raw)
+
+        # Build Day Book map first — this is the only source of FP-xxx REMOTEIDs.
+        # The Collection REMOTEID attribute returns TallyPrime's internal SENDERID/GUID
+        # which cannot be used for delete. Day Book returns the actual FP-xxx.
+        daybook_map = self._get_daybook_remoteid_map()
+
         vouchers = []
         for v in root.findall(".//VOUCHER"):
             date_el      = v.find("DATE")
@@ -247,6 +289,16 @@ class TallyClient:
             vtype_el     = v.find("VOUCHERTYPENAME")
             narration_el = v.find("NARRATION")
             party_el     = v.find("PARTYLEDGERNAME")
+
+            vnum  = vchno_el.text.strip()  if vchno_el  is not None and vchno_el.text  else ""
+            vtype = vtype_el.text.strip()  if vtype_el  is not None and vtype_el.text  else ""
+
+            # Prefer FP-xxx from Day Book (the real deletable REMOTEID).
+            # Fall back to the Collection's REMOTEID attribute (internal SENDERID/GUID —
+            # not usable for delete but kept so the backend can detect "synced from Tally").
+            fp_remoteid = daybook_map.get((vnum, vtype.lower()), "")
+            collection_guid = v.get("REMOTEID", "").strip()
+            remoteid = fp_remoteid or collection_guid
 
             # Amount: try ledger list → any descendant AMOUNT → default 0
             amount_raw = "0"
@@ -258,11 +310,12 @@ class TallyClient:
 
             vouchers.append({
                 "date":           date_el.text.strip()      if date_el      is not None and date_el.text      else "",
-                "voucher_number": vchno_el.text.strip()     if vchno_el     is not None and vchno_el.text     else "",
-                "voucher_type":   vtype_el.text.strip()     if vtype_el     is not None and vtype_el.text     else "",
+                "voucher_number": vnum,
+                "voucher_type":   vtype,
                 "party":          party_el.text.strip()     if party_el     is not None and party_el.text     else "",
                 "amount":         amount_raw.lstrip("-"),
                 "narration":      narration_el.text.strip() if narration_el is not None and narration_el.text else "",
+                "voucher_ref":    remoteid,
             })
         return vouchers
 

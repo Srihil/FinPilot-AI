@@ -1545,12 +1545,11 @@ def delete_voucher(
                 pass
 
         # Distinguish REMOTEID (FinPilot-created, "FP-xxxx") from Tally voucher number
-        # (Tally-native, stored in tally_voucher_ref after the sync-service fix, or
-        # embedded in notes for records synced before the fix).
-        is_tally_native = "[tally-sync]" in (record.notes or "")
+        # If tally_voucher_ref starts with "FP-" it was created by FinPilot (even if the
+        # record was re-synced from TallyPrime after a wipe — the REMOTEID is preserved).
+        # Otherwise treat as Tally-native and fall back to voucher number from notes.
+        is_tally_native = "[tally-sync]" in (record.notes or "") and not raw_vref.startswith("FP-")
         if is_tally_native:
-            # tally_voucher_ref holds the actual Tally voucher number (new syncs)
-            # or we fall back to extracting it from notes (pre-fix syncs).
             voucher_ref = ""
             tally_vnum  = raw_vref or _extract_tally_vnum_from_notes(record.notes or "")
         else:
@@ -1566,6 +1565,18 @@ def delete_voucher(
                     detail=(
                         "Cannot delete: invoice has no TallyPrime reference. "
                         "Cancel it in TallyPrime manually, then delete here."
+                    ),
+                )
+            # TallyPrime's XML import can only delete vouchers that were created via FinPilot
+            # (identified by REMOTEID = FP-xxx). Tally-native vouchers have no REMOTEID and
+            # cannot be deleted via XML — TallyPrime returns "Cannot delete unnamed object".
+            if is_tally_native and not voucher_ref:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Voucher #{tally_vnum} was created in TallyPrime and cannot be deleted "
+                        "through FinPilot. Delete it directly in TallyPrime, then run a Sync — "
+                        "FinPilot will remove it automatically."
                     ),
                 )
             record.tally_sync_status = "delete_pending"
@@ -1667,8 +1678,9 @@ def delete_voucher(
             except Exception:
                 pass
 
-        # Distinguish REMOTEID vs Tally voucher number (same logic as invoice branch)
-        is_tally_native_exp = "[tally-sync]" in (record.notes or "")
+        # If tally_voucher_ref starts with "FP-" the voucher was originally created by FinPilot
+        # (REMOTEID preserved through resync). Otherwise treat as Tally-native.
+        is_tally_native_exp = "[tally-sync]" in (record.notes or "") and not raw_vref_exp.startswith("FP-")
         if is_tally_native_exp:
             exp_voucher_ref = ""
             exp_tally_vnum  = raw_vref_exp or _extract_tally_vnum_from_notes(record.notes or "")
@@ -1692,6 +1704,18 @@ def delete_voucher(
                     detail=(
                         "Cannot delete: expense has no TallyPrime reference. "
                         "Cancel it in TallyPrime manually, then delete here."
+                    ),
+                )
+            # TallyPrime's XML import can only delete vouchers created via FinPilot (REMOTEID).
+            # Tally-native vouchers have no REMOTEID — deleting them always fails with
+            # "Cannot delete unnamed object: VOUCHER!" regardless of identifier used.
+            if is_tally_native_exp and not exp_voucher_ref:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Voucher #{exp_tally_vnum} was created in TallyPrime and cannot be deleted "
+                        "through FinPilot. Delete it directly in TallyPrime, then run a Sync — "
+                        "FinPilot will remove it automatically."
                     ),
                 )
             record.tally_sync_status = "delete_pending"

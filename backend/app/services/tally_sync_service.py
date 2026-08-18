@@ -538,6 +538,11 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
         date_str  = v.get("date", "")
         amount_raw = v.get("amount", "0").replace(",", "").strip().lstrip("-")
         vch_no    = v.get("voucher_number", "").strip()
+        remoteid  = v.get("voucher_ref", "").strip()
+
+        # If TallyPrime returns a FinPilot REMOTEID (FP-xxx), this voucher was
+        # originally created by FinPilot — preserve that ref so it can be deleted later.
+        fp_remoteid = remoteid if remoteid.startswith("FP-") else ""
 
         try:
             amount = abs(float(amount_raw)) if amount_raw else 0.0
@@ -595,7 +600,8 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
                 notes=notes_tag,
                 customer_id=customer.id if customer else None,
                 tally_sync_status="synced",
-                tally_voucher_ref=vch_no or None,  # actual Tally voucher number for cancel-via-VOUCHERNUMBER
+                # Prefer the FP- REMOTEID so FinPilot-created vouchers stay deletable after resync
+                tally_voucher_ref=fp_remoteid or vch_no or None,
             ))
             created_invoices += 1
 
@@ -615,7 +621,7 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
                 notes=notes_tag,
                 vendor_id=vendor.id if vendor else None,
                 tally_sync_status="synced",
-                tally_voucher_ref=vch_no or None,
+                tally_voucher_ref=fp_remoteid or vch_no or None,
             ))
             created_expenses += 1
 
@@ -644,7 +650,7 @@ def sync_vouchers(db: Session, company_id: uuid.UUID, vouchers: list[dict]) -> d
                 notes=notes_tag,
                 vendor_id=vendor.id if vendor else None,
                 tally_sync_status="synced",
-                tally_voucher_ref=vch_no or None,
+                tally_voucher_ref=fp_remoteid or vch_no or None,
             ))
             created_expenses += 1
 

@@ -1222,6 +1222,7 @@ class TallyClient:
 
     def create_ledger(self, payload: dict) -> dict:
         from xml.sax.saxutils import escape as _esc
+        from datetime import date as _date
         name = payload.get("name", "")
         id_name = payload.get("old_name") or name
         group = payload.get("group", "Sundry Debtors")
@@ -1238,26 +1239,40 @@ class TallyClient:
         is_party = group.strip() in ("Sundry Debtors", "Sundry Creditors")
         gst_type = "Regular" if gstin else "Unregistered"
 
-        # Build party XML in the order TallyPrime expects for import.
-        # Wrong order or unknown tags (e.g. LEDGERCONTACT.LIST) cause Tally to
-        # silently stop processing remaining fields — order matters.
+        # FY start date (Indian FY: Apr 1)
+        today = _date.today()
+        fy_year = today.year if today.month >= 4 else today.year - 1
+        fy_start = f"{fy_year}0401"
+
+        # Tested against TallyPrime directly: simple top-level tags (EMAIL, COUNTRYOFRESIDENCE,
+        # GSTREGISTRATIONTYPE, PARTYGSTIN, LEDGERMOBILE) work fine. MAILINGNAME and STATE
+        # must go inside LEDMAILINGDETAILS.LIST — top-level STATENAME/MAILINGNAME are silently ignored.
         party_xml = ""
         if is_party:
-            addr_block = (
-                f"          <ADDRESS.LIST TYPE=\"String\">\n"
-                f"            <ADDRESS>{address}</ADDRESS>\n"
-                f"          </ADDRESS.LIST>\n"
+            addr_list = (
+                f"            <ADDRESS.LIST TYPE=\"String\">\n"
+                f"              <ADDRESS>{address}</ADDRESS>\n"
+                f"            </ADDRESS.LIST>\n"
                 if address else ""
             )
+            mailing_list = (
+                f"          <LEDMAILINGDETAILS.LIST>\n"
+                f"            <APPLICABLEFROM>{fy_start}</APPLICABLEFROM>\n"
+                f"            <MAILINGNAME>{_esc(name)}</MAILINGNAME>\n"
+                f"{addr_list}"
+                f"            <STATE>{state}</STATE>\n"
+                f"            <CITY></CITY>\n"
+                f"            <COUNTRY>{country}</COUNTRY>\n"
+                f"            <PINCODE></PINCODE>\n"
+                f"          </LEDMAILINGDETAILS.LIST>\n"
+            )
             party_xml = (
-                f"          <MAILINGNAME>{_esc(name)}</MAILINGNAME>\n"
-                f"{addr_block}"
-                + (f"          <STATENAME>{state}</STATENAME>\n" if state else "")
+                (f"          <EMAIL>{email}</EMAIL>\n" if email else "")
                 + (f"          <COUNTRYOFRESIDENCE>{country}</COUNTRYOFRESIDENCE>\n" if country else "")
-                + (f"          <EMAIL>{email}</EMAIL>\n" if email else "")
                 + f"          <GSTREGISTRATIONTYPE>{gst_type}</GSTREGISTRATIONTYPE>\n"
                 + (f"          <PARTYGSTIN>{gstin}</PARTYGSTIN>\n" if gstin else "")
                 + (f"          <LEDGERMOBILE>{phone}</LEDGERMOBILE>\n" if phone else "")
+                + mailing_list
             )
 
         xml = f"""<ENVELOPE>
@@ -1275,7 +1290,7 @@ class TallyClient:
           <NAME>{_esc(name)}</NAME>
           <PARENT>{_esc(group)}</PARENT>
           <OPENINGBALANCE>{opening_balance}</OPENINGBALANCE>
-{party_xml}          </LEDGER>
+{party_xml}        </LEDGER>
       </TALLYMESSAGE>
     </DATA>
   </BODY>
@@ -1283,7 +1298,11 @@ class TallyClient:
         raw = self._post_xml(xml)
         root = self._parse_response(raw)
         created = root.find(".//CREATED")
-        return {"created": int(created.text) if created is not None and created.text else 0}
+        altered = root.find(".//ALTERED")
+        return {
+            "created": int(created.text) if created is not None and created.text else 0,
+            "altered": int(altered.text) if altered is not None and altered.text else 0,
+        }
 
     # ── Write: Create stock item ──────────────────────────────────────────────
 

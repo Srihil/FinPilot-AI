@@ -462,20 +462,20 @@ def delete_stock_transaction(
     ).first()
 
     if connector and txn.tally_sync_status == "synced":
-        # Transaction is in TallyPrime — cancel there first, then remove locally
+        # Transaction is in TallyPrime — delete there first, then remove locally
         txn.tally_sync_status = "delete_pending"
         vch_type = _TXN_TYPE_TO_VCH_NAME.get(txn.transaction_type, "Stock Journal")
         db.add(TallyIntegrationJob(
             company_id=current_user.company_id,
             connector_id=connector.id,
-            operation=TallyJobOperation.CANCEL_VOUCHER,
+            operation=TallyJobOperation.DELETE_VOUCHER,
             payload={
                 "voucher_ref":  txn.transaction_number,
                 "voucher_type": vch_type,
                 "entity_type":  "stock_transaction",
                 "txn_id":       str(txn.id),
             },
-            idempotency_key=f"cancel_stock_txn::{txn.id}::{_secrets.token_hex(4)}",
+            idempotency_key=f"delete_stock_txn::{txn.id}::{_secrets.token_hex(4)}",
         ))
         db.commit()
         audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,

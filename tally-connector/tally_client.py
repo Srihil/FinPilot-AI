@@ -744,42 +744,39 @@ class TallyClient:
     def delete_stock_category(self, payload: dict) -> dict:
         return self._delete_master("STOCKCATEGORY", payload.get("name", ""))
 
-    # ── Write: Cancel voucher (Tally-confirmed-first delete) ──────────────────
+    # ── Write: Delete voucher permanently from TallyPrime ────────────────────
 
-    def cancel_voucher(self, payload: dict) -> dict:
+    def delete_voucher(self, payload: dict) -> dict:
         """
-        Cancel a voucher in TallyPrime using its REMOTEID (FP-xxxx).
+        Permanently delete a voucher from TallyPrime using ACTION="Delete".
 
         payload:
-          voucher_ref:  the REMOTEID / VOUCHERNUMBER set when the voucher was created (FP-xxxx)
-          voucher_type: TallyPrime voucher type name ("Sales" | "Purchase" | "Receipt" | "Payment" | etc.)
+          voucher_ref:    REMOTEID (FP-xxxx) for FinPilot-created vouchers
+          voucher_number: TallyPrime voucher number for Tally-native vouchers
+          voucher_type:   TallyPrime voucher type name ("Sales" | "Purchase" | etc.)
+          date:           Original voucher date YYYYMMDD (required to avoid date 0-0-0 error)
 
-        TallyPrime allows cancelling a voucher via ACTION="Cancel" on its REMOTEID.
-        The voucher is marked as cancelled in Tally (preserving the voucher number in the sequence)
-        and the REMOTEID uniquely identifies it.
+        ACTION="Delete" completely removes the voucher from TallyPrime (no strikethrough,
+        no audit trail entry — the voucher is gone). Use ACTION="Cancel" only when you want
+        to preserve the number in sequence with a cancellation mark.
         """
         vref         = payload.get("voucher_ref", "").strip()
-        vnum         = payload.get("voucher_number", "").strip()  # fallback for Tally-native vouchers
+        vnum         = payload.get("voucher_number", "").strip()
         voucher_type = payload.get("voucher_type", "Sales")
 
         if not vref and not vnum:
-            raise TallyError("cancel_voucher: voucher_ref (REMOTEID) or voucher_number is required")
+            raise TallyError("delete_voucher: voucher_ref (REMOTEID) or voucher_number is required")
 
-        # TallyPrime requires a DATE in the Cancel action; omitting it causes
-        # "date 0-0-0 is Out of Range". Use the payload date if present,
-        # otherwise fall back to today (the cancel entry date, not the original).
+        # DATE is required even for Delete — omitting it causes "date 0-0-0 is Out of Range"
         from datetime import date as _date
         raw_date = str(payload.get("date", "")).strip()
         if raw_date and len(raw_date) == 8 and raw_date.isdigit():
-            cancel_date = raw_date
+            del_date = raw_date
         else:
-            cancel_date = _date.today().strftime("%Y%m%d")
-        # Use 1st of month to avoid mid-period split errors (same as create flow)
-        cancel_date = cancel_date[:6] + "01"
+            del_date = _date.today().strftime("%Y%m%d")
+        del_date = del_date[:6] + "01"
 
-        # Identify the voucher: prefer REMOTEID (FP-xxxx), fall back to VOUCHERNUMBER
-        # REMOTEID works for FinPilot-created vouchers.
-        # VOUCHERNUMBER works for TallyPrime-native vouchers imported into FinPilot.
+        # Prefer REMOTEID for FinPilot-created; fall back to VOUCHERNUMBER for Tally-native
         if vref:
             id_attr = f'REMOTEID="{vref}"'
         else:
@@ -789,25 +786,33 @@ class TallyClient:
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>Vouchers</ID></HEADER>
   <BODY><DESC/><DATA>
     <TALLYMESSAGE xmlns:UDF="TallyUDF">
-      <VOUCHER {id_attr} VCHTYPE="{voucher_type}" ACTION="Cancel">
-        <DATE>{cancel_date}</DATE>
+      <VOUCHER {id_attr} VCHTYPE="{voucher_type}" ACTION="Delete">
+        <DATE>{del_date}</DATE>
         <VOUCHERTYPENAME>{voucher_type}</VOUCHERTYPENAME>
-        <ISCANCELLED>Yes</ISCANCELLED>
       </VOUCHER>
     </TALLYMESSAGE>
   </DATA></BODY>
 </ENVELOPE>"""
         raw = self._post_xml(xml)
         root = self._parse_response(raw)
-        altered = root.find(".//ALTERED")
-        cancelled = root.find(".//CANCELLED")
-        errors = root.find(".//LINEERROR")
+        deleted  = root.find(".//DELETED")
+        altered  = root.find(".//ALTERED")
+        errors   = root.find(".//LINEERROR")
         if errors is not None and errors.text:
-            raise TallyError(f"TallyPrime refused cancel: {errors.text.strip()}")
+            raise TallyError(f"TallyPrime refused delete: {errors.text.strip()}")
+        deleted_count = int(deleted.text) if deleted is not None and deleted.text else 0
+        altered_count = int(altered.text) if altered is not None and altered.text else 0
+        if deleted_count == 0 and altered_count == 0:
+            raise TallyError(
+                f"TallyPrime did not delete the voucher "
+                f"(ref={vref or vnum!r}, type={voucher_type!r}). "
+                "It may not exist or the identifier is wrong."
+            )
         return {
-            "cancelled": int(cancelled.text) if cancelled is not None and cancelled.text else 0,
-            "altered": int(altered.text) if altered is not None and altered.text else 0,
+            "deleted": deleted_count,
+            "altered": altered_count,
             "voucher_ref": vref,
+            "voucher_number": vnum,
         }
 
     # ── Write: Create sales voucher ───────────────────────────────────────────

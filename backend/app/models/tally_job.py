@@ -63,8 +63,9 @@ class TallyJobOperation(str, enum.Enum):
     DELETE_GODOWN = "DELETE_GODOWN"
     DELETE_STOCK_CATEGORY = "DELETE_STOCK_CATEGORY"
     DELETE_VOUCHER_TYPE = "DELETE_VOUCHER_TYPE"
-    # Voucher cancel (Tally-confirmed-first)
-    CANCEL_VOUCHER = "CANCEL_VOUCHER"
+    # Permanent voucher delete in TallyPrime (Tally-confirmed-first)
+    DELETE_VOUCHER = "DELETE_VOUCHER"
+    CANCEL_VOUCHER = "CANCEL_VOUCHER"  # legacy alias kept for old jobs still in DB
     # Sync
     SYNC_FULL = "SYNC_FULL"
     SYNC_PARTIAL = "SYNC_PARTIAL"

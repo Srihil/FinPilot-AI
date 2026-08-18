@@ -56,6 +56,18 @@ SAMPLE_WRITE_OK_XML = """<ENVELOPE>
 </DATA></BODY>
 </ENVELOPE>"""
 
+SAMPLE_DELETE_OK_XML = """<ENVELOPE>
+<BODY><DATA>
+<IMPORTRESULT><CREATED>0</CREATED><ALTERED>0</ALTERED><DELETED>1</DELETED></IMPORTRESULT>
+</DATA></BODY>
+</ENVELOPE>"""
+
+SAMPLE_DELETE_ZERO_XML = """<ENVELOPE>
+<BODY><DATA>
+<IMPORTRESULT><CREATED>0</CREATED><ALTERED>0</ALTERED><DELETED>0</DELETED></IMPORTRESULT>
+</DATA></BODY>
+</ENVELOPE>"""
+
 SAMPLE_ERROR_XML = """<ENVELOPE>
 <BODY><DATA>
 <LINEERROR>Ledger not found</LINEERROR>
@@ -219,6 +231,106 @@ class TestCreateLedger:
                 "opening_balance": "0",
             })
         assert result["created"] == 1
+
+
+class TestDeleteVoucher:
+    def test_deletes_by_remoteid(self):
+        client = TallyClient()
+        with patch("httpx.Client", return_value=_mock_client(SAMPLE_DELETE_OK_XML)):
+            result = client.delete_voucher({
+                "voucher_ref": "FP-abc123",
+                "voucher_type": "Sales",
+                "date": "20260901",
+            })
+        assert result["deleted"] == 1
+        assert result["voucher_ref"] == "FP-abc123"
+
+    def test_deletes_by_voucher_number_when_no_remoteid(self):
+        client = TallyClient()
+        with patch("httpx.Client", return_value=_mock_client(SAMPLE_DELETE_OK_XML)):
+            result = client.delete_voucher({
+                "voucher_ref": "",
+                "voucher_number": "TALLY-0004",
+                "voucher_type": "Sales",
+                "date": "20260901",
+            })
+        assert result["deleted"] == 1
+        assert result["voucher_number"] == "TALLY-0004"
+
+    def test_raises_when_tally_deletes_zero(self):
+        """TallyPrime returned DELETED=0 — voucher not found or wrong identifier."""
+        client = TallyClient()
+        with patch("httpx.Client", return_value=_mock_client(SAMPLE_DELETE_ZERO_XML)):
+            with pytest.raises(TallyError, match="did not delete"):
+                client.delete_voucher({
+                    "voucher_ref": "FP-nonexistent",
+                    "voucher_type": "Sales",
+                    "date": "20260901",
+                })
+
+    def test_raises_on_tally_line_error(self):
+        # _parse_response raises TallyError("TallyPrime error: ...") on LINEERROR
+        client = TallyClient()
+        with patch("httpx.Client", return_value=_mock_client(SAMPLE_ERROR_XML)):
+            with pytest.raises(TallyError, match="Ledger not found"):
+                client.delete_voucher({
+                    "voucher_ref": "FP-001",
+                    "voucher_type": "Sales",
+                    "date": "20260901",
+                })
+
+    def test_raises_when_no_identifier_given(self):
+        client = TallyClient()
+        with patch("httpx.Client", return_value=_mock_client(SAMPLE_DELETE_OK_XML)):
+            with pytest.raises(TallyError, match="voucher_ref.*or.*voucher_number is required"):
+                client.delete_voucher({"voucher_type": "Sales"})
+
+    def test_falls_back_to_today_when_no_date(self):
+        """delete_voucher should not raise even if 'date' is missing — uses today."""
+        client = TallyClient()
+        with patch("httpx.Client", return_value=_mock_client(SAMPLE_DELETE_OK_XML)):
+            result = client.delete_voucher({
+                "voucher_ref": "FP-002",
+                "voucher_type": "Purchase",
+            })
+        assert result["deleted"] == 1
+
+    def test_xml_uses_action_delete_not_cancel(self):
+        """Verify the generated XML uses ACTION=Delete, not ACTION=Cancel."""
+        client = TallyClient()
+        posted_xml = []
+
+        def capture_post(xml):
+            posted_xml.append(xml)
+            return SAMPLE_DELETE_OK_XML
+
+        client._post_xml = capture_post
+        client.delete_voucher({
+            "voucher_ref": "FP-xyz",
+            "voucher_type": "Sales",
+            "date": "20260901",
+        })
+        assert posted_xml, "No XML was posted"
+        xml = posted_xml[0]
+        assert 'ACTION="Delete"' in xml
+        assert 'ACTION="Cancel"' not in xml
+        assert 'ISCANCELLED' not in xml
+        assert 'REMOTEID="FP-xyz"' in xml
+
+    def test_xml_uses_vouchernumber_for_tally_native(self):
+        """Verify the generated XML uses VOUCHERNUMBER when no REMOTEID."""
+        client = TallyClient()
+        posted_xml = []
+        client._post_xml = lambda xml: (posted_xml.append(xml), SAMPLE_DELETE_OK_XML)[1]
+        client.delete_voucher({
+            "voucher_ref": "",
+            "voucher_number": "TALLY-0004",
+            "voucher_type": "Sales",
+            "date": "20260901",
+        })
+        xml = posted_xml[0]
+        assert 'VOUCHERNUMBER="TALLY-0004"' in xml
+        assert 'REMOTEID' not in xml
 
 
 class TestTimeout:

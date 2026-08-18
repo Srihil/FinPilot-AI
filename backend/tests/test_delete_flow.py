@@ -1,21 +1,35 @@
 # -*- coding: utf-8 -*-
 """
-Full create-then-delete test for every entity type in FinPilot.
+Delete flow integration tests for every entity type in FinPilot.
 
-Creates TEST entries via the AI Create API, then immediately deletes them.
-Does NOT touch TallyPrime data (entries stay in 'pending' state = local delete only).
+TWO test suites:
+
+  Suite A — Pending-state delete (local-only)
+    Creates entries via AI Create, then immediately deletes while still
+    in "pending" state (connector hasn't confirmed the create in TallyPrime yet).
+    No TallyPrime data is modified.
+
+    Vouchers (invoice/expense):  expect HTTP 200, {"status": "deleted", "tally_confirmed": False}
+    Stock transactions:          expect HTTP 200, {"deleted": True}
+    Master entities:             expect HTTP 200, {"status": "deleted", ...}  or  204
+
+  Suite B — Synced-state delete (Tally-confirmed-first)
+    Marks an entry as "synced" via the debug endpoint, then deletes.
+    If connector active:   HTTP 200, {"status": "pending"}  (queued for Tally DELETE)
+    If connector missing:  HTTP 409  (record protected, user told to connect Tally)
 
 Run: python -X utf8 backend/tests/test_delete_flow.py
 """
-import sys, io, time, json
+import sys, io, json, time
 import urllib.request, urllib.error
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-BASE = "http://localhost:8000"
-EMAIL = "sahil@gmail.com"
+BASE     = "http://localhost:8000"
+EMAIL    = "sahil@gmail.com"
 PASSWORD = "sahil2709"
-RS = chr(0x20B9)  # ₹
+RS       = chr(0x20B9)  # ₹
+TS       = str(int(time.time()))[-5:]   # 5-digit suffix so test names are unique per run
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -30,13 +44,18 @@ def api(method, path, body=None, token=None):
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
-            return r.status, json.loads(r.read())
+            raw = r.read()
+            try:
+                return r.status, json.loads(raw)
+            except Exception:
+                return r.status, {}
     except urllib.error.HTTPError as e:
         try:
             detail = json.loads(e.read()).get("detail", str(e))
         except Exception:
             detail = str(e)
         return e.code, {"error": detail}
+
 
 def login():
     status, body = api("POST", "/api/auth/login",
@@ -46,8 +65,8 @@ def login():
         sys.exit(1)
     return body["access_token"]
 
+
 def ai_create(token, text):
-    """Extract entity then create it. Returns (entity_type, entity_id)."""
     s, ext = api("POST", "/api/assistant/extract-entity", {"text": text}, token)
     if s != 200:
         return None, None, f"extract failed {s}: {ext}"
@@ -59,164 +78,233 @@ def ai_create(token, text):
         return entity_type, None, f"create failed {s2}: {created}"
     return entity_type, created.get("id"), None
 
-# ---------------------------------------------------------------------------
-# Delete routing — maps entity_type to the right DELETE endpoint
-# ---------------------------------------------------------------------------
 
-def delete_entity(token, entity_type, entity_id):
-    voucher_expense_types = {
+def delete_path(entity_type, entity_id):
+    voucher_expense = {
         "receipt", "payment", "journal", "credit_note", "debit_note",
         "contra", "custom_voucher", "expense",
     }
-    voucher_invoice_types = {"invoice", "sales_invoice", "purchase_bill"}
-    stock_txn_types = {
+    voucher_invoice = {"invoice", "sales_invoice", "purchase_bill"}
+    stock_txn = {
         "stock_journal", "physical_stock", "delivery_note",
         "receipt_note", "rejection_in", "rejection_out",
     }
+    if entity_type in voucher_invoice:
+        return f"/api/management/vouchers/invoice/{entity_id}", "voucher"
+    if entity_type in voucher_expense:
+        return f"/api/management/vouchers/expense/{entity_id}", "voucher"
+    if entity_type in stock_txn:
+        return f"/api/inventory/stock-transactions/{entity_id}", "stock_txn"
+    paths = {
+        "ledger":       (f"/api/management/ledgers/{entity_id}",      "master"),
+        "group":        (f"/api/management/groups/{entity_id}",       "master"),
+        "unit":         (f"/api/management/units/{entity_id}",        "master"),
+        "godown":       (f"/api/management/godowns/{entity_id}",      "master"),
+        "stock_item":   (f"/api/management/stock-items/{entity_id}",  "master"),
+        "stock_group":  (f"/api/management/stock-groups/{entity_id}", "master"),
+        "customer":     (f"/api/customers/{entity_id}",               "other"),
+        "vendor":       (f"/api/vendors/{entity_id}",                 "other"),
+        "product":      (f"/api/products/{entity_id}",                "other"),
+    }
+    p = paths.get(entity_type)
+    return p if p else (None, None)
 
-    if entity_type in voucher_invoice_types:
-        path = f"/api/management/vouchers/invoice/{entity_id}"
-    elif entity_type in voucher_expense_types:
-        path = f"/api/management/vouchers/expense/{entity_id}"
-    elif entity_type in stock_txn_types:
-        path = f"/api/inventory/stock-transactions/{entity_id}"
-    elif entity_type == "ledger":
-        path = f"/api/management/ledgers/{entity_id}"
-    elif entity_type == "group":
-        path = f"/api/management/groups/{entity_id}"
-    elif entity_type == "unit":
-        path = f"/api/management/units/{entity_id}"
-    elif entity_type == "godown":
-        path = f"/api/management/godowns/{entity_id}"
-    elif entity_type == "stock_item":
-        path = f"/api/management/stock-items/{entity_id}"
-    elif entity_type == "stock_group":
-        path = f"/api/management/stock-groups/{entity_id}"
-    elif entity_type == "customer":
-        path = f"/api/customers/{entity_id}"
-    elif entity_type == "vendor":
-        path = f"/api/vendors/{entity_id}"
-    elif entity_type == "product":
-        path = f"/api/products/{entity_id}"
-    else:
-        return False, f"unknown entity_type '{entity_type}'"
 
-    status, body = api("DELETE", path, token=token)
-    if status in (200, 204):
-        msg = body.get("message") or body.get("status") or "deleted" if isinstance(body, dict) else "deleted"
-        return True, msg
-    return False, f"HTTP {status}: {body}"
+def check_delete_response(entity_kind, status, body):
+    """
+    Returns (ok, detail_msg).
+
+    entity_kind:
+      "voucher"   — expect status=deleted + tally_confirmed=False
+      "stock_txn" — expect HTTP 200 with deleted=True in body
+      "master"    — expect HTTP 200/204 with status=deleted (may lack tally_confirmed)
+      "other"     — expect HTTP 200/204, any success body
+    """
+    if status not in (200, 204):
+        return False, f"HTTP {status}: {body.get('error', body)}"
+
+    if entity_kind == "voucher":
+        resp_status = body.get("status", "")
+        tally_conf  = body.get("tally_confirmed", True)
+        if resp_status == "deleted" and tally_conf is False:
+            return True, f"status=deleted  tally_confirmed=False"
+        return False, f"wrong response: status={resp_status!r} tally_confirmed={tally_conf!r}"
+
+    if entity_kind == "stock_txn":
+        if body.get("deleted") is True:
+            return True, "deleted=True"
+        return False, f"wrong response: {body}"
+
+    if entity_kind == "master":
+        resp_status = body.get("status", "")
+        if resp_status == "deleted" or status == 204:
+            return True, f"status={resp_status or 'ok'}"
+        return False, f"wrong response: {body}"
+
+    # "other" — just check HTTP success
+    return True, f"HTTP {status}"
+
 
 # ---------------------------------------------------------------------------
-# Test cases: (label, prompt_text)
+# Suite A test cases
 # ---------------------------------------------------------------------------
 
-TESTS = [
+SUITE_A_TESTS = [
     # ── ACCOUNTING VOUCHERS ──────────────────────────────────────────────
-    ("Sales Invoice",
-     f"Sales invoice for Kumar Enterprises {RS}1000 on 1 Sept 2026"),
-    ("Purchase Bill",
-     f"Purchase bill from Kapoor Suppliers {RS}1000 on 1 Sept 2026"),
-    ("Receipt",
-     f"Receipt from Kumar Enterprises {RS}1000 in Cash on 1 Sept 2026"),
-    ("Payment",
-     f"Payment to Kapoor Suppliers {RS}1000 from Cash on 1 Sept 2026"),
-    ("Journal",
-     f"Journal entry debit Salary Payable credit Cash {RS}1000 on 1 Sept 2026"),
-    ("Credit Note",
-     f"Credit note for Kumar Enterprises {RS}500 on 1 Sept 2026"),
-    ("Debit Note",
-     f"Debit note for Kapoor Suppliers {RS}500 on 1 Sept 2026"),
-    ("Contra",
-     f"Contra transfer {RS}1000 from Cash to HDFC Bank on 1 Sept 2026"),
-    # ── CUSTOM VOUCHERS ──────────────────────────────────────────────────
-    ("Custom - GST Bill",
-     f"Create a GST Bill for Kumar Enterprises {RS}1000 on 1 Sept 2026"),
-    ("Custom - Petty Cash",
-     f"Create a Petty Cash entry {RS}200 on 1 Sept 2026"),
+    ("Sales Invoice",   f"Sales invoice for Kumar Enterprises {RS}1000 on 1 Sept 2026"),
+    ("Purchase Bill",   f"Purchase bill from Kapoor Suppliers {RS}1000 on 1 Sept 2026"),
+    ("Receipt",         f"Receipt from Kumar Enterprises {RS}1000 in Cash on 1 Sept 2026"),
+    ("Payment",         f"Payment to Kapoor Suppliers {RS}1000 from Cash on 1 Sept 2026"),
+    ("Journal",         f"Journal entry debit Salary Payable credit Cash {RS}1000 on 1 Sept 2026"),
+    ("Credit Note",     f"Credit note for Kumar Enterprises {RS}500 on 1 Sept 2026"),
+    ("Debit Note",      f"Debit note for Kapoor Suppliers {RS}500 on 1 Sept 2026"),
+    ("Contra",          f"Contra transfer {RS}1000 from Cash to HDFC Bank on 1 Sept 2026"),
+    ("Custom GST Bill", f"Create a GST Bill for Kumar Enterprises {RS}1000 on 1 Sept 2026"),
+    ("Custom Petty Cash", f"Create a Petty Cash entry {RS}200 on 1 Sept 2026"),
     # ── STOCK TRANSACTIONS ───────────────────────────────────────────────
-    ("Stock Journal",
-     "Transfer 1 Remote from Main Location to Chennai on 1 Sept 2026"),
-    ("Physical Stock",
-     "Physical stock count 1 Remote at Main Location on 1 Sept 2026"),
-    ("Delivery Note",
-     "Delivery Note for Kumar Enterprises 1 Remote from Main Location on 1 Sept 2026"),
-    ("Receipt Note",
-     "Receipt Note from Kapoor Suppliers 1 Remote at Main Location on 1 Sept 2026"),
-    ("Rejection In",
-     "Rejection In from Kumar Enterprises 1 Remote at Main Location on 1 Sept 2026"),
-    ("Rejection Out",
-     "Rejection Out to Kapoor Suppliers 1 Remote from Main Location on 1 Sept 2026"),
-    # ── MASTER ENTITIES ──────────────────────────────────────────────────
-    ("Godown",
-     "Add Godown TEST_DEL_Godown_X1 under Main Location"),
-    ("Unit",
-     "Add unit TEST_DEL_Unit_X1 symbol TDUX"),
-    ("Stock Group",
-     "Add stock group TEST_DEL_StockGroup_X1 under Primary"),
-    ("Stock Item",
-     f"Add stock item TEST_DEL_Item_X1 unit Nos rate 100"),
-    ("Account Group",
-     "Add group TEST_DEL_AccGroup_X1 under Indirect Expenses"),
-    ("Ledger",
-     "Add ledger TEST_DEL_Ledger_X1 under Sundry Debtors"),
-    ("Customer",
-     "Add customer TEST_DEL_Customer_X1 phone 9999999999"),
-    ("Vendor",
-     "Add vendor TEST_DEL_Vendor_X1 phone 9999999999"),
+    ("Stock Journal",   "Transfer 1 Remote from Main Location to Chennai on 1 Sept 2026"),
+    ("Physical Stock",  "Physical stock count 1 Remote at Main Location on 1 Sept 2026"),
+    ("Delivery Note",   "Delivery Note for Kumar Enterprises 1 Remote from Main Location on 1 Sept 2026"),
+    ("Receipt Note",    "Receipt Note from Kapoor Suppliers 1 Remote at Main Location on 1 Sept 2026"),
+    ("Rejection In",    "Rejection In from Kumar Enterprises 1 Remote at Main Location on 1 Sept 2026"),
+    ("Rejection Out",   "Rejection Out to Kapoor Suppliers 1 Remote from Main Location on 1 Sept 2026"),
+    # ── MASTER ENTITIES (unique names per run via TS suffix) ─────────────
+    ("Godown",      f"Add Godown TD_Godown_{TS} under Main Location"),
+    ("Unit",        f"Add unit TD_Unit_{TS} symbol TDU{TS}"),
+    ("Stock Group", f"Add stock group TD_SG_{TS} under Primary"),
+    ("Stock Item",  f"Add stock item TD_Item_{TS} unit Nos rate 100"),
+    ("Acct Group",  f"Add group TD_AG_{TS} under Indirect Expenses"),
+    ("Ledger",      f"Add ledger TD_Ledger_{TS} under Sundry Debtors"),
+    ("Customer",    f"Add customer TD_Cust_{TS} phone 9999999999"),
+    ("Vendor",      f"Add vendor TD_Vend_{TS} phone 9999999999"),
 ]
+
+# ---------------------------------------------------------------------------
+# Suite B test cases
+# ---------------------------------------------------------------------------
+
+SUITE_B_VOUCHERS = [
+    ("Sales Invoice [synced]",  f"Sales invoice for Kumar Enterprises {RS}500 on 2 Sept 2026",  "invoice"),
+    ("Purchase Bill [synced]",  f"Purchase bill from Kapoor Suppliers {RS}500 on 2 Sept 2026",  "expense"),
+    ("Payment [synced]",        f"Payment to Kapoor Suppliers {RS}500 from Cash on 2 Sept 2026","expense"),
+    ("Receipt [synced]",        f"Receipt from Kumar Enterprises {RS}500 in Cash on 2 Sept 2026","expense"),
+]
+
+
+def mark_as_synced(token, entity_type, entity_id):
+    path = "/api/management/debug/mark-synced"
+    status, _ = api("POST", path, {"entity_type": entity_type, "entity_id": entity_id}, token)
+    return status in (200, 201, 204)
 
 
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
-def main():
-    print(f"\n  Logging in as {EMAIL}...")
-    token = login()
-    print(f"  Logged in. Running {len(TESTS)} create+delete tests.\n")
-    print(f"  NOTE: Entries are deleted immediately (pending state = local-only delete,")
-    print(f"        no TallyPrime data modified).\n")
+def run_suite_a(token):
+    print("\n" + "=" * 64)
+    print("  SUITE A — Pending-state delete (local-only, no TallyPrime)")
+    print("=" * 64)
 
     passed = failed = 0
     failures = []
 
-    for label, prompt in TESTS:
-        # Step 1: Create
+    for label, prompt in SUITE_A_TESTS:
         entity_type, entity_id, err = ai_create(token, prompt)
-
         if err or not entity_id:
-            status = "FAIL"
-            reason = f"CREATE failed — {err}"
             failed += 1
+            reason = f"CREATE failed — {err}"
             failures.append((label, reason))
             print(f"  FAIL  [{label:30s}]  {reason}")
             continue
 
-        # Step 2: Delete immediately (while still pending → local delete only)
-        ok, msg = delete_entity(token, entity_type, entity_id)
+        path, kind = delete_path(entity_type, entity_id)
+        if path is None:
+            failed += 1
+            reason = f"unknown entity_type '{entity_type}'"
+            failures.append((label, reason))
+            print(f"  FAIL  [{label:30s}]  {reason}")
+            continue
 
+        status, body = api("DELETE", path, token=token)
+        ok, detail = check_delete_response(kind, status, body)
         if ok:
             passed += 1
-            print(f"  PASS  [{label:30s}]  type={entity_type}  del: {str(msg)[:60]}")
+            print(f"  PASS  [{label:30s}]  {detail}")
         else:
             failed += 1
-            reason = f"DELETE failed — {msg}"
+            failures.append((label, detail))
+            print(f"  FAIL  [{label:30s}]  {detail}")
+
+    return passed, failed, failures
+
+
+def run_suite_b(token):
+    print("\n" + "=" * 64)
+    print("  SUITE B — Synced-state delete (Tally-confirmed-first)")
+    print("  Expected: status=pending (connector active)  OR  HTTP 409 (no connector)")
+    print("=" * 64)
+
+    passed = failed = 0
+    failures = []
+
+    for label, prompt, expected_entity in SUITE_B_VOUCHERS:
+        entity_type, entity_id, err = ai_create(token, prompt)
+        if err or not entity_id:
+            failed += 1
+            reason = f"CREATE failed — {err}"
             failures.append((label, reason))
-            print(f"  FAIL  [{label:30s}]  type={entity_type}  {reason}")
+            print(f"  FAIL  [{label:30s}]  {reason}")
+            continue
+
+        synced = mark_as_synced(token, expected_entity, entity_id)
+        if not synced:
+            print(f"  SKIP  [{label:30s}]  mark-synced endpoint unavailable")
+            continue
+
+        path, kind = delete_path(entity_type, entity_id)
+        status, body = api("DELETE", path, token=token)
+
+        if status == 200 and body.get("status") == "pending":
+            passed += 1
+            print(f"  PASS  [{label:30s}]  status=pending (connector active, queued for Tally DELETE)")
+        elif status == 409:
+            passed += 1
+            print(f"  PASS  [{label:30s}]  HTTP 409 (no connector — record protected, not deleted)")
+        else:
+            failed += 1
+            reason = f"HTTP {status}: {body}"
+            failures.append((label, reason))
+            print(f"  FAIL  [{label:30s}]  {reason}")
+
+    return passed, failed, failures
+
+
+def main():
+    print(f"\n  Logging in as {EMAIL}...")
+    token = login()
+    print(f"  OK  (run suffix: {TS})")
+
+    tp = tf = 0
+    all_fail = []
+
+    a_p, a_f, a_fail = run_suite_a(token)
+    tp += a_p; tf += a_f; all_fail.extend(a_fail)
+
+    b_p, b_f, b_fail = run_suite_b(token)
+    tp += b_p; tf += b_f; all_fail.extend(b_fail)
 
     print(f"\n{'=' * 64}")
-    print(f"  RESULT: {passed} PASSED   {failed} FAILED   out of {passed + failed}")
+    print(f"  RESULT: {tp} PASSED   {tf} FAILED   out of {tp + tf}")
     print(f"{'=' * 64}")
 
-    if failures:
+    if all_fail:
         print("\n  Failures:")
-        for label, reason in failures:
+        for label, reason in all_fail:
             print(f"    - {label}: {reason}")
 
-    return failed == 0
+    return tf == 0
 
 
 if __name__ == "__main__":
-    ok = main()
-    sys.exit(0 if ok else 1)
+    sys.exit(0 if main() else 1)

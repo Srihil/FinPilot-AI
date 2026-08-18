@@ -1452,7 +1452,7 @@ def _extract_tally_vnum_from_notes(notes: str) -> str:
     return vnum if "::" not in vnum else ""
 
 
-def _queue_tally_cancel_voucher(
+def _queue_tally_delete_voucher(
     db: Session,
     company_id: uuid.UUID,
     voucher_ref: str,
@@ -1462,13 +1462,12 @@ def _queue_tally_cancel_voucher(
     voucher_number: str = "",
     entity_id: str = "",
 ) -> bool:
-    """Queue a CANCEL_VOUCHER job. Returns True if queued, False if no active connector.
+    """Queue a DELETE_VOUCHER job to permanently remove the voucher from TallyPrime.
+    Returns True if queued, False if no active connector.
 
-    voucher_ref    – REMOTEID (FP-xxxx) set when the voucher was created from FinPilot.
-    voucher_number – Fallback for TallyPrime-native vouchers (e.g. TALLY-0004) that were
-                     imported into FinPilot and have no REMOTEID.
-    entity_id      – UUID of the FinPilot record; included in payload so the callback
-                     can soft-delete by ID when neither REMOTEID nor voucher_number matches.
+    voucher_ref    – REMOTEID (FP-xxxx) for FinPilot-created vouchers.
+    voucher_number – TallyPrime voucher number for Tally-native vouchers.
+    entity_id      – FinPilot record UUID so the callback can find the record by ID.
     """
     connector = db.query(TallyConnector).filter(
         TallyConnector.company_id == company_id,
@@ -1478,18 +1477,18 @@ def _queue_tally_cancel_voucher(
         return False
     import secrets as _sec
     ref_key = voucher_ref or voucher_number or "unknown"
-    ikey = f"cancel_voucher::{ref_key}::{_sec.token_hex(4)}"
+    ikey = f"delete_voucher::{ref_key}::{_sec.token_hex(4)}"
     db.add(TallyIntegrationJob(
         company_id=company_id,
         connector_id=connector.id,
-        operation=TallyJobOperation.CANCEL_VOUCHER,
+        operation=TallyJobOperation.DELETE_VOUCHER,
         payload={
-            "voucher_ref":    voucher_ref,     # REMOTEID if available
-            "voucher_number": voucher_number,  # VOUCHERNUMBER fallback for Tally-native
+            "voucher_ref":    voucher_ref,
+            "voucher_number": voucher_number,
             "voucher_type":   voucher_type,
             "entity_type":    entity_type,
             "date":           voucher_date,
-            "entity_id":      entity_id,       # FinPilot record UUID for callback lookup
+            "entity_id":      entity_id,
         },
         idempotency_key=ikey,
     ))
@@ -1507,9 +1506,9 @@ def delete_voucher(
     Tally-confirmed-first delete for vouchers.
 
     Flow for Tally-synced records:
-      1. Queue CANCEL_VOUCHER job → connector → TallyPrime
+      1. Queue DELETE_VOUCHER job → connector → TallyPrime (permanent delete, not just cancel)
       2. Mark record as delete_pending (still visible in FinPilot)
-      3. When TallyPrime confirms cancellation → tally.py result handler soft-deletes the FinPilot record
+      3. When TallyPrime confirms deletion → tally.py result handler soft-deletes the FinPilot record
 
     Flow for local-only records (never sent to Tally):
       Immediate soft-delete in FinPilot.
@@ -1571,7 +1570,7 @@ def delete_voucher(
                 )
             record.tally_sync_status = "delete_pending"
             db.flush()
-            queued = _queue_tally_cancel_voucher(
+            queued = _queue_tally_delete_voucher(
                 db, cid,
                 voucher_ref=voucher_ref,
                 voucher_type=voucher_type_tally,
@@ -1697,7 +1696,7 @@ def delete_voucher(
                 )
             record.tally_sync_status = "delete_pending"
             db.flush()
-            queued = _queue_tally_cancel_voucher(
+            queued = _queue_tally_delete_voucher(
                 db, cid,
                 voucher_ref=exp_voucher_ref,
                 voucher_type=exp_voucher_type,

@@ -133,8 +133,8 @@ ALLOWED_OPERATIONS = {
     "CREATE_STOCK_JOURNAL", "CREATE_PHYSICAL_STOCK",
     "CREATE_DELIVERY_NOTE", "CREATE_RECEIPT_NOTE",
     "CREATE_REJECTION_IN", "CREATE_REJECTION_OUT",
-    # Voucher cancel (Tally-confirmed-first delete)
-    "CANCEL_VOUCHER",
+    # Permanent voucher delete in TallyPrime (Tally-confirmed-first)
+    "DELETE_VOUCHER",
     # Sync
     "SYNC_FULL", "SYNC_PARTIAL",
 }
@@ -235,8 +235,8 @@ def execute_job(tally: TallyClient, job: dict) -> tuple[Optional[dict], Optional
             return tally.delete_stock_category(payload), None
         if op == "DELETE_VOUCHER_TYPE":
             return tally.delete_voucher_type(payload), None
-        if op == "CANCEL_VOUCHER":
-            return tally.cancel_voucher(payload), None
+        if op == "DELETE_VOUCHER":
+            return tally.delete_voucher(payload), None
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
             ledgers      = tally.get_ledgers()
             vouchers     = tally.get_vouchers()

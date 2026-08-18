@@ -765,8 +765,9 @@ def submit_job_result(
                 if master:
                     master.is_active = False  # record confirmed deleted in Tally, now hide in FinPilot
 
-        # CANCEL_VOUCHER confirmed → soft-delete the record in FinPilot
-        elif job.operation == TallyJobOperation.CANCEL_VOUCHER:
+        # DELETE_VOUCHER confirmed → soft-delete the record in FinPilot
+        # CANCEL_VOUCHER kept as legacy alias for old jobs still in DB
+        elif job.operation in (TallyJobOperation.DELETE_VOUCHER, TallyJobOperation.CANCEL_VOUCHER):
             payload_c   = job.payload or {}
             vref        = payload_c.get("voucher_ref", "")
             entity_type = payload_c.get("entity_type", "")
@@ -902,8 +903,8 @@ def submit_job_result(
             job.retry_count = (job.retry_count or 0) + 1
             job.status = JobStatus.FAILED if job.retry_count >= MAX_RETRY else JobStatus.RETRYING
 
-        # Handle CANCEL_VOUCHER failure → restore delete_failed so user can retry
-        if job.status == JobStatus.FAILED and job.operation == TallyJobOperation.CANCEL_VOUCHER:
+        # Handle DELETE_VOUCHER failure → restore delete_failed so user can retry
+        if job.status == JobStatus.FAILED and job.operation in (TallyJobOperation.DELETE_VOUCHER, TallyJobOperation.CANCEL_VOUCHER):
             payload_f   = job.payload or {}
             vref_f      = payload_f.get("voucher_ref", "")
             entity_type_f = payload_f.get("entity_type", "")

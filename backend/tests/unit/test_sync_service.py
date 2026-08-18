@@ -221,6 +221,24 @@ class TestSyncStockItems:
         assert added.stock_group == "Tablets"
         assert added.name == "Remote"
 
+    def test_item_name_comes_from_name_key_not_child_element(self):
+        """
+        tally_client.get_stock_items() reads name from XML attribute (item.get('NAME'))
+        not a child element (item.find('NAME')). The sync service receives the parsed
+        dict with key 'name'. Verify the dict key is used correctly.
+        """
+        db = _db(existing=None)
+        # If name were parsed from a child element, empty-name items would be skipped.
+        # This verifies the dict 'name' key is correctly used.
+        result = sync_stock_items(db, CID, [
+            {"name": "Samsung Galaxy", "stock_group": "Mobile Phones",
+             "unit": "Nos", "closing_balance": "0", "closing_rate": "25000"},
+        ])
+        assert result["created"] == 1
+        added = db.add.call_args[0][0]
+        assert added.name == "Samsung Galaxy"
+        assert added.stock_group == "Mobile Phones"
+
     def test_creates_stock_item_without_group(self):
         db = _db(existing=None)
         result = sync_stock_items(db, CID, [

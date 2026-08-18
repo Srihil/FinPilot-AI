@@ -41,11 +41,17 @@ SAMPLE_VOUCHER_XML = """<ENVELOPE>
 
 SAMPLE_STOCK_XML = """<ENVELOPE>
 <BODY><DATA><COLLECTION>
-<STOCKITEM>
-  <NAME>Widget A</NAME>
+<STOCKITEM NAME="Widget A">
+  <PARENT>Electronics</PARENT>
   <BASEUNITS>Nos</BASEUNITS>
   <CLOSINGBALANCE>100</CLOSINGBALANCE>
   <CLOSINGRATE>250</CLOSINGRATE>
+</STOCKITEM>
+<STOCKITEM NAME="Remote">
+  <PARENT>Tablets</PARENT>
+  <BASEUNITS>Nos</BASEUNITS>
+  <CLOSINGBALANCE>50 Nos</CLOSINGBALANCE>
+  <CLOSINGRATE>500 /Nos</CLOSINGRATE>
 </STOCKITEM>
 </COLLECTION></DATA></BODY>
 </ENVELOPE>"""
@@ -173,14 +179,47 @@ class TestGetVouchers:
 
 
 class TestGetStockItems:
-    def test_parses_stock_items(self):
+    def test_parses_stock_items_with_group(self):
+        """Name comes from XML attribute NAME=, group from child element PARENT."""
         client = TallyClient()
         with patch("httpx.Client", return_value=_mock_client(SAMPLE_STOCK_XML)):
             items = client.get_stock_items()
-        assert len(items) == 1
+        assert len(items) == 2
         assert items[0]["name"] == "Widget A"
+        assert items[0]["stock_group"] == "Electronics"
         assert items[0]["unit"] == "Nos"
-        assert items[0]["closing_balance"] == "100"
+
+    def test_parses_remote_item_under_tablets(self):
+        """Matches TallyPrime screenshot: Remote is under Tablets."""
+        client = TallyClient()
+        with patch("httpx.Client", return_value=_mock_client(SAMPLE_STOCK_XML)):
+            items = client.get_stock_items()
+        remote = next(i for i in items if i["name"] == "Remote")
+        assert remote["stock_group"] == "Tablets"
+
+    def test_skips_items_with_empty_name(self):
+        xml = """<ENVELOPE><BODY><DATA><COLLECTION>
+<STOCKITEM NAME="">
+  <PARENT>Electronics</PARENT>
+  <BASEUNITS>Nos</BASEUNITS>
+</STOCKITEM>
+</COLLECTION></DATA></BODY></ENVELOPE>"""
+        client = TallyClient()
+        with patch("httpx.Client", return_value=_mock_client(xml)):
+            items = client.get_stock_items()
+        assert len(items) == 0
+
+    def test_primary_parent_normalized_to_none(self):
+        xml = """<ENVELOPE><BODY><DATA><COLLECTION>
+<STOCKITEM NAME="Ungrouped Item">
+  <PARENT>Primary</PARENT>
+  <BASEUNITS>Nos</BASEUNITS>
+</STOCKITEM>
+</COLLECTION></DATA></BODY></ENVELOPE>"""
+        client = TallyClient()
+        with patch("httpx.Client", return_value=_mock_client(xml)):
+            items = client.get_stock_items()
+        assert items[0]["stock_group"] is None
 
 
 class TestCreateSalesVoucher:

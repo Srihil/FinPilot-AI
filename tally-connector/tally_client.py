@@ -394,13 +394,13 @@ class TallyClient:
         root = self._parse_response(raw)
         items = []
         for item in root.findall(".//STOCKITEM"):
-            name_el   = item.find("NAME")
+            # NAME is an XML attribute in TDL FETCH collections (same as GODOWN, STOCKGROUP, etc.)
+            name      = (item.get("NAME") or "").strip()
             parent_el = item.find("PARENT")
             unit_el   = item.find("BASEUNITS")
             qty_el    = item.find("CLOSINGBALANCE")
             rate_el   = item.find("CLOSINGRATE")
 
-            name  = (name_el.text or "").strip()   if name_el   is not None else ""
             group = (parent_el.text or "").strip() if parent_el is not None else ""
             unit  = (unit_el.text or "").strip()   if unit_el   is not None else ""
             qty   = (qty_el.text or "0").strip()   if qty_el    is not None else "0"

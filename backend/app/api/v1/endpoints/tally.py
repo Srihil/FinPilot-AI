@@ -138,6 +138,12 @@ def _translate_tally_error(error: str) -> str:
             f"TallyPrime could not find '{missing}'. "
             "Check the name matches exactly (case-sensitive) what is in TallyPrime."
         )
+    if "unnamed" in e or "cannot delete unnamed" in e:
+        return (
+            "TallyPrime could not find this voucher to delete. "
+            "It was likely already deleted from TallyPrime directly, or was never successfully created there. "
+            "Run a Sync from the TallyPrime page — this will clean up entries that no longer exist in TallyPrime."
+        )
     if "invalid name" in e:
         return "TallyPrime rejected the name — check for special characters or length."
     if "not a known" in e or "not found" in e or ("group" in e and ("primary" in e or "unknown" in e)):
@@ -888,6 +894,7 @@ def submit_job_result(
             "refused delete", "closed the connection unexpectedly",
             "bad unit name", "duplicate original name", "invalid name",
             "not found", "does not exist",
+            "unnamed",          # "Cannot delete unnamed object" — voucher not in Tally
             # Date errors: date won't change between retries — fail immediately
             "date is missing", "voucher date",
             # Our own validation errors: connector already checked, no point retrying

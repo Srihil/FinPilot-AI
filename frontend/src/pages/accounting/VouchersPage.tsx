@@ -601,7 +601,7 @@ export default function VouchersPage() {
           CREATE DIALOG
       ═══════════════════════════════════════════════════════════════════ */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-xl" onPointerDownOutside={preventDropdownDismissal}>
+        <DialogContent className="max-w-2xl" onPointerDownOutside={preventDropdownDismissal}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg">
               <Plus className="w-5 h-5 text-indigo-600" /> New Voucher

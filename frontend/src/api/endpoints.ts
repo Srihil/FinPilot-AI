@@ -323,6 +323,7 @@ export type TallyJobItem = {
   completed_at: string | null;
   error_message: string | null;
   retry_count: number;
+  payload?: Record<string, unknown>;
 };
 
 export const tallyApi = {

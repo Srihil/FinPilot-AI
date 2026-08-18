@@ -78,30 +78,33 @@ const ENTITY_COLORS: Record<string, string> = {
 
 // ─── Tally activity helpers ───────────────────────────────────────────────────
 
-const OP_LABELS: Record<string, string> = {
-  CREATE_LEDGER: 'Create Ledger',
-  CREATE_STOCK_ITEM: 'Create Stock Item',
-  CREATE_STOCK_GROUP: 'Create Stock Group',
-  CREATE_UNIT: 'Create Unit',
-  CREATE_GODOWN: 'Create Godown',
-  CREATE_GROUP: 'Create Account Group',
-  CREATE_SALES_VOUCHER: 'Create Sales Invoice',
-  CREATE_PURCHASE_VOUCHER: 'Create Purchase Bill',
-  CREATE_RECEIPT_VOUCHER: 'Create Receipt',
-  CREATE_PAYMENT_VOUCHER: 'Create Payment',
-  CREATE_JOURNAL_VOUCHER: 'Create Journal Entry',
-  CREATE_CREDIT_NOTE: 'Create Credit Note',
-  CREATE_DEBIT_NOTE: 'Create Debit Note',
-  CREATE_CONTRA_VOUCHER: 'Bank / Cash Transfer',
-  SYNC_FULL: 'Full Sync',
-  SYNC_PARTIAL: 'Partial Sync',
-  CREATE_STOCK_JOURNAL:  'Create Stock Journal',
-  CREATE_PHYSICAL_STOCK: 'Create Physical Stock',
-  CREATE_DELIVERY_NOTE:  'Create Delivery Note',
-  CREATE_RECEIPT_NOTE:   'Create Receipt Note',
-  CREATE_REJECTION_IN:   'Create Rejection In',
-  CREATE_REJECTION_OUT:  'Create Rejection Out',
+const OP_ENTITY: Record<string, string> = {
+  CREATE_LEDGER: 'Ledger', CREATE_GROUP: 'Account Group', CREATE_STOCK_ITEM: 'Stock Item',
+  CREATE_STOCK_GROUP: 'Stock Group', CREATE_UNIT: 'Unit', CREATE_GODOWN: 'Godown',
+  CREATE_STOCK_CATEGORY: 'Stock Category', CREATE_VOUCHER_TYPE: 'Voucher Type',
+  CREATE_SALES_VOUCHER: 'Sales Voucher', CREATE_PURCHASE_VOUCHER: 'Purchase Voucher',
+  CREATE_RECEIPT_VOUCHER: 'Receipt', CREATE_PAYMENT_VOUCHER: 'Payment',
+  CREATE_JOURNAL_VOUCHER: 'Journal Entry', CREATE_CREDIT_NOTE: 'Credit Note',
+  CREATE_DEBIT_NOTE: 'Debit Note', CREATE_CONTRA_VOUCHER: 'Contra (Bank/Cash Transfer)',
+  CREATE_STOCK_JOURNAL: 'Stock Journal', CREATE_PHYSICAL_STOCK: 'Physical Stock',
+  CREATE_DELIVERY_NOTE: 'Delivery Note', CREATE_RECEIPT_NOTE: 'Receipt Note',
+  CREATE_REJECTION_IN: 'Rejection In', CREATE_REJECTION_OUT: 'Rejection Out',
+  DELETE_LEDGER: 'Ledger', DELETE_STOCK_ITEM: 'Stock Item', DELETE_VOUCHER: 'Voucher',
+  SYNC_FULL: 'Full Sync', SYNC_PARTIAL: 'Partial Sync',
 };
+
+function smartLabel(job: TallyJobItem): { verb: string; entity: string; name: string; verbColor: string } {
+  const op = job.operation;
+  const p = (job as TallyJobItem & { payload?: Record<string, unknown> }).payload ?? {};
+  const isUpdate = !!(p.is_update);
+  const isDelete = op.startsWith('DELETE_') || op === 'CANCEL_VOUCHER';
+  const isRead   = op.startsWith('READ_') || op.startsWith('SYNC_');
+  const verb = isRead ? 'Sync' : isDelete ? 'Delete' : isUpdate ? 'Update' : 'Create';
+  const verbColor = isDelete ? 'text-red-600' : isUpdate ? 'text-indigo-600' : isRead ? 'text-slate-500' : 'text-emerald-700';
+  const entity = OP_ENTITY[op] ?? op.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase());
+  const name = ((p.name as string) || (p.narration as string) || (p.voucher_number as string) || '');
+  return { verb, entity, name, verbColor };
+}
 
 function timeAgo(iso: string): string {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -179,9 +182,9 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function JobCard({ job, onRetry }: { job: TallyJobItem; onRetry?: (id: string) => void }) {
-  const opLabel = OP_LABELS[job.operation] ?? job.operation.replace(/_/g, ' ');
+  const { verb, entity, name, verbColor } = smartLabel(job);
   const smart = interpretError(job.error_message, job.operation);
-  const isActive = job.status === 'PENDING' || job.status === 'CLAIMED' || job.status === 'RETRYING';
+  const isActive = ['PENDING', 'CLAIMED', 'RUNNING', 'RETRYING'].includes(job.status);
 
   return (
     <div className={`rounded-xl border p-3.5 space-y-2 transition-all
@@ -191,7 +194,13 @@ function JobCard({ job, onRetry }: { job: TallyJobItem; onRetry?: (id: string) =
         'border-slate-200 bg-white'}`}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-800 leading-tight">{opLabel}</p>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-800 leading-snug">
+            <span className={verbColor}>{verb}</span>
+            <span className="text-slate-600 font-normal"> {entity}</span>
+          </p>
+          {name && <p className="text-xs text-slate-400 mt-0.5 truncate">· {name}</p>}
+        </div>
         <StatusBadge status={job.status} />
       </div>
 
@@ -245,9 +254,9 @@ function ActivityDrawer({
 }) {
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop with blur */}
       <div
-        className={`fixed inset-0 bg-black/40 z-40 transition-opacity duration-300
+        className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity duration-300
           ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
       />

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Menu, ChevronDown, LogOut, User, Settings, Search, X } from 'lucide-react';
+import { ActivityTriggerButton } from '../ui/TallyActivityDrawer';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { getInitials } from '../../utils/format';
@@ -11,6 +12,7 @@ import { Avatar, AvatarFallback } from '../ui/avatar';
 
 interface TopBarProps {
   onMenuClick: () => void;
+  onActivityClick: () => void;
 }
 
 const pageTitles: Record<string, string> = {
@@ -89,7 +91,7 @@ function GlobalSearch() {
   );
 }
 
-export function TopBar({ onMenuClick }: TopBarProps) {
+export function TopBar({ onMenuClick, onActivityClick }: TopBarProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -112,6 +114,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
 
       <div className="flex items-center gap-3">
         <GlobalSearch />
+        <ActivityTriggerButton onClick={onActivityClick} />
         {/* User menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

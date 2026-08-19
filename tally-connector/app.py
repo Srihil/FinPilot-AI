@@ -23,7 +23,7 @@ except Exception as _e:
     _mb.showerror("FinPilot Connector", f"Startup failed:\n\n{type(_e).__name__}: {_e}")
     sys.exit(1)
 
-VERSION = "2.0.0"
+VERSION = "2.1.1"
 FINPILOT_URL = "https://finpilot-frontend-vbdf.onrender.com/tally"  # live website
 
 ENV_FILE = BASE_DIR / ".env"

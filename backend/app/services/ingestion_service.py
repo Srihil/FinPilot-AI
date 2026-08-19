@@ -1151,6 +1151,9 @@ def commit_rows(
     # One batch_id for all Tally jobs in this bulk import so they show as a single activity entry
     bulk_batch_id = uuid.uuid4() if sync_to_tally else None
 
+    # Track which row_ids were actually committed so resync only replays those
+    committed_row_ids: list[int] = []
+
     for row_data in to_commit:
         mapped: dict = row_data.get('mapped', {})
         try:
@@ -1159,6 +1162,7 @@ def commit_rows(
             )
             result.imported += 1
             result.tally_queued += 1 if queued else 0
+            committed_row_ids.append(row_data['row_id'])
 
             # Update progress in DB after each successful row
             upload.imported_rows = result.imported
@@ -1173,6 +1177,7 @@ def commit_rows(
         'tally_queued': result.tally_queued,
         'skipped': result.skipped,
         'errors': result.errors[:50],
+        'committed_row_ids': committed_row_ids,
     }
     upload.completed_at = now
     db.commit()

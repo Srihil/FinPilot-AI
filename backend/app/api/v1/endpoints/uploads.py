@@ -995,12 +995,22 @@ def ingest_resync_tally(
     entity_type = record.detected_entity_type or ""
     row_report: list[dict] = record.row_report or []
 
+    # Only resync rows that were actually committed (stored in commit_summary)
+    committed_ids: set = set((record.commit_summary or {}).get("committed_row_ids", []))
+    # Fall back to all non-error rows for older uploads that don't have committed_row_ids
+    use_committed_filter = len(committed_ids) > 0
+
     batch_id = uuid.uuid4()
     queued = 0
 
     for row in row_report:
-        if row.get("status") == "error":
-            continue
+        row_id = row.get("row_id")
+        if use_committed_filter:
+            if row_id not in committed_ids:
+                continue
+        else:
+            if row.get("status") == "error":
+                continue
         mapped: dict = row.get("mapped", {})
         name = str(mapped.get("name", "")).strip()
 

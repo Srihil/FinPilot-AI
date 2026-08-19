@@ -232,9 +232,17 @@ function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) 
   const downloadFile = async (type: 'remaining' | 'report') => {
     try {
       const res = await apiClient.get(`/api/uploads/ingest/${u.id}/${type}`, { responseType: 'blob' });
+      // Prefer server-supplied filename (needs Content-Disposition exposed via CORS).
+      // Fall back to original filename base + correct extension so format always matches.
       const cd = res.headers['content-disposition'] || '';
-      const match = cd.match(/filename=([^;]+)/);
-      const filename = match ? match[1].trim() : `${type}.csv`;
+      const cdMatch = cd.match(/filename="?([^";]+)"?/);
+      let filename = cdMatch ? cdMatch[1].trim() : '';
+      if (!filename) {
+        const origExt = (u.original_filename || '').split('.').pop()?.toLowerCase() || 'csv';
+        const base = (u.original_filename || 'upload').replace(/\.[^.]+$/, '');
+        const ts = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+        filename = `${base}_${type === 'remaining' ? 'remaining' : 'report'}_${ts}.${origExt}`;
+      }
       const url = URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
       URL.revokeObjectURL(url);

@@ -1230,7 +1230,7 @@ def download_remaining(
     media_type = _build_file(rows_out, columns, file_format, include_status=False, buffer=buf)
     buf.seek(0)
     return StreamingResponse(buf, media_type=media_type,
-                             headers={"Content-Disposition": f"attachment; filename={filename}"})
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.get("/ingest/{upload_id}/report")
@@ -1281,7 +1281,7 @@ def download_report(
     media_type = _build_file(rows, columns, file_format, include_status=True, buffer=buf)
     buf.seek(0)
     return StreamingResponse(buf, media_type=media_type,
-                             headers={"Content-Disposition": f"attachment; filename={filename}"})
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.get("/ingest/{upload_id}/restore")

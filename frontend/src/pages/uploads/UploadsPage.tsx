@@ -243,31 +243,33 @@ function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) 
   return (
     <div className="border-b border-slate-100 last:border-0">
       <div
-        className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-4 py-3.5 px-5 hover:bg-slate-50/70 cursor-pointer transition-colors group"
+        className="flex items-center gap-4 py-3.5 px-5 hover:bg-slate-50/70 cursor-pointer transition-colors group"
         onClick={() => setExpanded(e => !e)}
       >
         <FileSpreadsheet className="w-4 h-4 text-slate-400 shrink-0" />
-        <div className="min-w-0">
+        <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-slate-900 truncate">{u.original_filename}</p>
           <p className="text-xs text-slate-400 mt-0.5">{u.upload_type?.replace(/_/g, ' ') || 'Unknown type'} · {relTime(u.created_at)}</p>
         </div>
-        <div className="hidden sm:flex items-center gap-1.5 w-32">
+        <div className="hidden sm:flex items-center gap-1.5 w-32 shrink-0">
           <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
             <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
           </div>
           <span className="text-xs text-slate-500 shrink-0">{pct}%</span>
         </div>
-        <span className="text-xs text-slate-500 hidden md:block">{u.imported_rows} / {u.total_rows} rows</span>
-        <span className={cn("px-2.5 py-0.5 rounded-full text-xs font-medium ring-1", st.cls)}>{st.label}</span>
-        {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-          title="Delete history entry"
-        >
-          {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-        </button>
+        <span className="text-xs text-slate-500 hidden md:block shrink-0">{u.imported_rows} / {u.total_rows} rows</span>
+        <span className={cn("px-2.5 py-0.5 rounded-full text-xs font-medium ring-1 shrink-0", st.cls)}>{st.label}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+            title="Delete history entry"
+          >
+            {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+          </button>
+        </div>
       </div>
 
       {expanded && (
@@ -343,12 +345,71 @@ export default function UploadsPage() {
 
   useEffect(() => () => { if (pollInterval) clearInterval(pollInterval); }, [pollInterval]);
 
-  const resetWizard = () => {
+  // ── Session restore on mount ───────────────────────────────────────────────
+  useEffect(() => {
+    const savedId = sessionStorage.getItem('fp_wizard_upload_id');
+    if (!savedId) return;
+    apiClient.get(`/api/uploads/ingest/${savedId}/restore`)
+      .then(({ data }) => {
+        setUploadId(data.upload_id);
+        setEntityType(data.entity_type);
+        setColMapping(data.column_mapping || {});
+        if (data.wizard_step === 'mapping' && data.parse_result) {
+          setParseResult(data.parse_result);
+          setStep('mapping');
+          toast({ title: 'Session restored', description: 'Continue mapping your columns.' });
+        } else if (data.wizard_step === 'preview' && data.validate_result) {
+          setParseResult(data.parse_result);
+          setValidateResult(data.validate_result);
+          const autoSel = new Set<number>(
+            data.validate_result.rows.filter((r: { check_default: boolean; status: string }) => r.check_default && r.status !== 'error').map((r: { row_id: number }) => r.row_id)
+          );
+          setSelectedIds(autoSel);
+          setStep('preview');
+          toast({ title: 'Session restored', description: 'Continue reviewing your rows.' });
+        } else if (data.wizard_step === 'progress') {
+          setStatusData(data.status_data);
+          setStep('progress');
+        } else if (data.wizard_step === 'done') {
+          setStatusData(data.status_data);
+          setStep('done');
+        }
+      })
+      .catch(() => sessionStorage.removeItem('fp_wizard_upload_id'));
+  }, []);
+
+  // Save uploadId to sessionStorage whenever it changes
+  useEffect(() => {
+    if (uploadId) sessionStorage.setItem('fp_wizard_upload_id', uploadId);
+  }, [uploadId]);
+
+  const deleteCurrentUpload = async (id: string | null) => {
+    if (!id) return;
+    try { await apiClient.delete(`/api/uploads/${id}`); } catch { /* best effort */ }
+    qc.invalidateQueries({ queryKey: ['upload-history'] });
+  };
+
+  const resetWizard = (keepHistory = false) => {
+    if (!keepHistory && uploadId) deleteCurrentUpload(uploadId);
+    sessionStorage.removeItem('fp_wizard_upload_id');
     setStep('drop'); setFile(null); setParseResult(null); setEntityType('');
     setColMapping({}); setValidateResult(null); setSelectedIds(new Set());
     setRowFilter('all'); setCommitting(false); setStatusData(null); setUploadId(null);
     setSyncFreshness(null);
     if (pollInterval) { clearInterval(pollInterval); setPollInterval(null); }
+  };
+
+  const goBackToUpload = () => {
+    // Delete the upload record so no orphan remains in history
+    if (uploadId) deleteCurrentUpload(uploadId);
+    sessionStorage.removeItem('fp_wizard_upload_id');
+    setStep('drop'); setFile(null); setParseResult(null); setEntityType('');
+    setColMapping({}); setUploadId(null); setSyncFreshness(null);
+  };
+
+  const goBackToMapping = () => {
+    // Keep the upload (rows are still valid), just go back one step
+    setStep('mapping'); setValidateResult(null); setSelectedIds(new Set()); setRowFilter('all');
   };
 
   // ── Drag & Drop ────────────────────────────────────────────────────────────
@@ -503,6 +564,7 @@ export default function UploadsPage() {
           setStatusData(data);
           if (['COMPLETED', 'PARTIAL', 'FAILED'].includes(data.status)) {
             clearInterval(interval); setPollInterval(null);
+            sessionStorage.removeItem('fp_wizard_upload_id'); // import done — clear session
             setStep('done');
             // Invalidate all pages that may show bulk-imported data
             [
@@ -845,7 +907,7 @@ export default function UploadsPage() {
               </div>
 
               <div className="flex gap-3">
-                <Button variant="outline" onClick={() => setStep('drop')} className="gap-2 rounded-xl">
+                <Button variant="outline" onClick={goBackToUpload} className="gap-2 rounded-xl">
                   <ArrowLeft className="w-4 h-4" /> Back
                 </Button>
                 <Button onClick={handleValidate} disabled={!entityType || validating} className="gap-2 flex-1 rounded-xl h-11">
@@ -1153,7 +1215,7 @@ export default function UploadsPage() {
 
               {/* Footer actions */}
               <div className="flex gap-3 pt-1 border-t border-slate-100">
-                <Button variant="outline" onClick={() => setStep('mapping')} className="gap-2 rounded-xl">
+                <Button variant="outline" onClick={goBackToMapping} className="gap-2 rounded-xl">
                   <ArrowLeft className="w-4 h-4" /> Back
                 </Button>
                 <Button
@@ -1243,7 +1305,7 @@ export default function UploadsPage() {
                   <Button variant="outline" onClick={() => setTab('history')} className="flex-1 gap-2 rounded-xl">
                     <History className="w-4 h-4" /> View History
                   </Button>
-                  <Button onClick={resetWizard} className="flex-1 gap-2 rounded-xl">
+                  <Button onClick={() => resetWizard(true)} className="flex-1 gap-2 rounded-xl">
                     <Upload className="w-4 h-4" /> Import Another File
                   </Button>
                 </div>

@@ -1008,6 +1008,102 @@ def sync_freshness(
     }
 
 
+@router.get("/ingest/{upload_id}/restore")
+def ingest_restore(
+    upload_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return enough data to rebuild the wizard UI after a page reload."""
+    record = db.query(Upload).filter(
+        Upload.id == upload_id,
+        Upload.company_id == current_user.company_id,
+    ).first()
+    if not record:
+        raise HTTPException(404, "Upload not found")
+
+    from app.services.ingestion_service import SCHEMA_FIELDS
+
+    # Derive which wizard step this upload is at
+    if record.status == UploadStatus.PENDING:
+        wizard_step = "mapping"
+    elif record.status == UploadStatus.PROCESSING:
+        if record.row_report and (record.imported_rows or 0) == 0 and not record.completed_at:
+            wizard_step = "preview"
+        else:
+            wizard_step = "progress"
+    elif record.status in (UploadStatus.COMPLETED, UploadStatus.PARTIAL, UploadStatus.FAILED):
+        wizard_step = "done"
+    else:
+        wizard_step = "mapping"
+
+    entity_type = record.detected_entity_type or ""
+    result: dict = {
+        "upload_id": str(record.id),
+        "wizard_step": wizard_step,
+        "entity_type": entity_type,
+        "entity_confidence": record.entity_confidence or "low",
+        "entity_subtype": record.entity_subtype or "",
+        "column_mapping": record.column_mapping or {},
+        "total_rows": record.total_rows or 0,
+        "file_format": record.file_type or "csv",
+    }
+
+    # Reconstruct parse_result for the mapping step
+    pending = record.pending_rows or []
+    file_columns = list(pending[0].keys()) if pending else []
+    result["parse_result"] = {
+        "upload_id": str(record.id),
+        "detected_entity_type": entity_type,
+        "entity_subtype": record.entity_subtype or "",
+        "entity_confidence": record.entity_confidence or "low",
+        "from_cache": False,
+        "file_columns": file_columns,
+        "mapping_suggestions": record.column_mapping or {},
+        "schema_fields": list((SCHEMA_FIELDS.get(entity_type) or {}).keys()),
+        "sample_rows": pending[:5],
+        "total_rows": record.total_rows or 0,
+        "file_format": record.file_type or "csv",
+    }
+
+    # Reconstruct validate_result for the preview step
+    if wizard_step == "preview" and record.row_report:
+        rr = record.row_report
+        summary = {"valid": 0, "warnings": 0, "errors": 0, "total": len(rr)}
+        for r in rr:
+            s = r.get("status", "")
+            if s == "error":
+                summary["errors"] += 1
+            elif s in ("warning", "duplicate_fuzzy", "ref_similar"):
+                summary["warnings"] += 1
+            elif s == "duplicate_exact":
+                summary["errors"] += 1
+            else:
+                summary["valid"] += 1
+        result["validate_result"] = {
+            "upload_id": str(record.id),
+            "summary": summary,
+            "rows": rr,
+        }
+
+    # Status data for progress/done step
+    if wizard_step in ("progress", "done"):
+        result["status_data"] = {
+            "upload_id": str(record.id),
+            "status": record.status.value,
+            "entity_type": entity_type,
+            "total_rows": record.total_rows or 0,
+            "valid_rows": record.valid_rows or 0,
+            "invalid_rows": record.invalid_rows or 0,
+            "imported_rows": record.imported_rows or 0,
+            "tally_queued": (record.commit_summary or {}).get("tally_queued", 0),
+            "commit_summary": record.commit_summary,
+            "completed_at": record.completed_at.isoformat() if record.completed_at else None,
+        }
+
+    return result
+
+
 @router.get("/ingest/{upload_id}/status")
 def ingest_status(
     upload_id: str,

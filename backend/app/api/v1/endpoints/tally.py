@@ -460,9 +460,36 @@ def get_activity(
         TallyIntegrationJob.company_id == current_user.company_id,
     ).order_by(TallyIntegrationJob.created_at.desc()).limit(limit).all()
 
-    return {
-        "items": [
-            {
+    # Group jobs that share a batch_id into a single summary item
+    seen_batches: dict = {}
+    items = []
+    for j in jobs:
+        if j.batch_id:
+            bid = str(j.batch_id)
+            if bid in seen_batches:
+                b = seen_batches[bid]
+                b['total'] += 1
+                b[j.status.value.lower()] = b.get(j.status.value.lower(), 0) + 1
+                if j.status.value in ('PENDING', 'CLAIMED', 'RUNNING', 'RETRYING'):
+                    b['active'] = b.get('active', 0) + 1
+                if j.status.value == 'FAILED':
+                    b['failed'] = b.get('failed', 0) + 1
+            else:
+                b = {
+                    'id': f'batch_{bid}',
+                    'is_batch': True,
+                    'batch_id': bid,
+                    'operation': j.operation.value,
+                    'total': 1,
+                    'success': 1 if j.status.value == 'SUCCESS' else 0,
+                    'failed': 1 if j.status.value == 'FAILED' else 0,
+                    'active': 1 if j.status.value in ('PENDING', 'CLAIMED', 'RUNNING', 'RETRYING') else 0,
+                    'created_at': j.created_at.isoformat(),
+                }
+                seen_batches[bid] = b
+                items.append(b)
+        else:
+            items.append({
                 "id": str(j.id),
                 "operation": j.operation.value,
                 "status": j.status.value,
@@ -471,10 +498,9 @@ def get_activity(
                 "error_message": j.error_message,
                 "retry_count": j.retry_count,
                 "payload": j.payload or {},
-            }
-            for j in jobs
-        ]
-    }
+            })
+
+    return {"items": items}
 
 
 # ─── User-facing: create a Tally write job (requires approved approval) ─────

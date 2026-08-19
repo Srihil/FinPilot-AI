@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, X, Clock, CheckCircle2, XCircle, RotateCcw,
-  Loader2, AlertCircle,
+  Loader2, AlertCircle, Package,
 } from 'lucide-react';
 import { tallyApi, type TallyJobItem } from '../../api/endpoints';
 import { Skeleton } from './skeleton';
@@ -133,6 +133,60 @@ function StatusBadge({ status }: { status: string }) {
       <Icon className={`w-3 h-3 ${c.spin ? 'animate-spin' : ''}`} />
       {c.label}
     </span>
+  );
+}
+
+// ─── Batch summary card ───────────────────────────────────────────────────────
+
+function BatchJobCard({ item }: { item: TallyJobItem }) {
+  const entity = OP_ENTITY[item.operation] ?? 'Record';
+  const total   = (item as any).total   ?? 0;
+  const success = (item as any).success ?? 0;
+  const failed  = (item as any).failed  ?? 0;
+  const active  = (item as any).active  ?? 0;
+  const pending = total - success - failed;
+
+  const overallStatus = failed > 0 && active === 0 ? 'PARTIAL'
+    : active > 0 ? 'RUNNING'
+    : 'SUCCESS';
+
+  return (
+    <div className={`rounded-xl border p-3.5 space-y-2.5 transition-all ${
+      overallStatus === 'PARTIAL' ? 'border-amber-200 bg-amber-50/40' :
+      overallStatus === 'RUNNING' ? 'border-indigo-200 bg-indigo-50/40' :
+      'border-emerald-200 bg-emerald-50/40'
+    }`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Package className="w-4 h-4 text-indigo-500 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-800">Bulk Import</p>
+            <p className="text-xs text-slate-500 mt-0.5">{total} {entity}{total !== 1 ? 's' : ''}</p>
+          </div>
+        </div>
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold shrink-0 ${
+          overallStatus === 'RUNNING' ? 'bg-blue-100 text-blue-800' :
+          overallStatus === 'PARTIAL' ? 'bg-amber-100 text-amber-800' :
+          'bg-emerald-100 text-emerald-800'
+        }`}>
+          {overallStatus === 'RUNNING'
+            ? <><Loader2 className="w-3 h-3 animate-spin" /> In progress</>
+            : overallStatus === 'PARTIAL'
+            ? <><AlertCircle className="w-3 h-3" /> Partial</>
+            : <><CheckCircle2 className="w-3 h-3" /> Done</>
+          }
+        </span>
+      </div>
+      <div className="flex items-center gap-3 text-xs">
+        {success > 0 && <span className="text-emerald-700 font-medium">{success} synced</span>}
+        {pending > 0 && <span className="text-blue-600 font-medium">{pending} pending</span>}
+        {failed  > 0 && <span className="text-red-600 font-medium">{failed} failed</span>}
+      </div>
+      <div className="flex items-center gap-1.5 text-xs text-slate-400">
+        <Clock className="w-3 h-3 shrink-0" />
+        <span>{timeAgo(item.created_at)}</span>
+      </div>
+    </div>
   );
 }
 
@@ -289,9 +343,11 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
               </div>
             </div>
           ) : (
-            jobs.map(job => (
-              <JobCard key={job.id} job={job} onRetry={id => retryMut.mutate(id)} />
-            ))
+            jobs.map(job =>
+              (job as any).is_batch
+                ? <BatchJobCard key={job.id} item={job} />
+                : <JobCard key={job.id} job={job} onRetry={id => retryMut.mutate(id)} />
+            )
           )}
         </div>
 

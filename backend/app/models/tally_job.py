@@ -123,6 +123,7 @@ class TallyIntegrationJob(Base):
     error_message = Column(Text)
     retry_count = Column(Integer, default=0)
     idempotency_key = Column(String(255), unique=True, index=True)  # prevents duplicate writes
+    batch_id = Column(UUID(as_uuid=True), nullable=True, index=True)  # groups bulk-import jobs
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     claimed_at = Column(DateTime(timezone=True))

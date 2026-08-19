@@ -1148,12 +1148,14 @@ def commit_rows(
 
     result = CommitResult()
     now = datetime.now(timezone.utc)
+    # One batch_id for all Tally jobs in this bulk import so they show as a single activity entry
+    bulk_batch_id = uuid.uuid4() if sync_to_tally else None
 
     for row_data in to_commit:
         mapped: dict = row_data.get('mapped', {})
         try:
             queued = _commit_single(
-                entity_type, mapped, company_id, user_id, connector, sync_to_tally, db, now
+                entity_type, mapped, company_id, user_id, connector, sync_to_tally, db, now, bulk_batch_id
             )
             result.imported += 1
             result.tally_queued += 1 if queued else 0
@@ -1185,6 +1187,7 @@ def _tally_key(company_id: Any, name: str) -> str:
 def _queue_tally_job(
     db: Session, company_id: Any, connector_id: Any,
     operation: TallyJobOperation, payload: dict, ikey: str,
+    batch_id: Any = None,
 ) -> bool:
     from app.models.tally_job import TallyIntegrationJob
     if db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
@@ -1195,6 +1198,7 @@ def _queue_tally_job(
         operation=operation,
         payload=payload,
         idempotency_key=ikey,
+        batch_id=batch_id,
     ))
     return True
 
@@ -1208,22 +1212,23 @@ def _commit_single(
     sync_to_tally: bool,
     db: Session,
     now: datetime,
+    batch_id: Any = None,
 ) -> bool:
     """Commit one row; returns True if a Tally job was queued."""
     if entity_type == 'Ledger':
-        return _commit_ledger(mapped, company_id, connector, sync_to_tally, db)
+        return _commit_ledger(mapped, company_id, connector, sync_to_tally, db, batch_id)
     if entity_type == 'Stock Item':
-        return _commit_stock_item(mapped, company_id, connector, sync_to_tally, db)
+        return _commit_stock_item(mapped, company_id, connector, sync_to_tally, db, batch_id)
     if entity_type == 'Stock Group':
-        return _commit_stock_group(mapped, company_id, connector, sync_to_tally, db)
+        return _commit_stock_group(mapped, company_id, connector, sync_to_tally, db, batch_id)
     if entity_type == 'Stock Category':
         return _commit_stock_category(mapped, company_id, db)
     if entity_type == 'Voucher':
-        return _commit_voucher(mapped, company_id, connector, sync_to_tally, db)
+        return _commit_voucher(mapped, company_id, connector, sync_to_tally, db, batch_id)
     return False
 
 
-def _commit_ledger(mapped: dict, company_id, connector, sync_to_tally: bool, db: Session) -> bool:
+def _commit_ledger(mapped: dict, company_id, connector, sync_to_tally: bool, db: Session, batch_id=None) -> bool:
     from app.models.tally_masters import TallyLedger
     name = str(mapped.get('name') or '').strip()
     if not name:
@@ -1248,11 +1253,11 @@ def _commit_ledger(mapped: dict, company_id, connector, sync_to_tally: bool, db:
     if connector and sync_to_tally:
         ikey = f"ingest_ledger::{key}"
         return _queue_tally_job(db, company_id, connector.id, TallyJobOperation.CREATE_LEDGER,
-                                {'name': name, 'group': group, 'opening_balance': str(int(ob))}, ikey)
+                                {'name': name, 'group': group, 'opening_balance': str(int(ob))}, ikey, batch_id)
     return False
 
 
-def _commit_stock_item(mapped: dict, company_id, connector, sync_to_tally: bool, db: Session) -> bool:
+def _commit_stock_item(mapped: dict, company_id, connector, sync_to_tally: bool, db: Session, batch_id=None) -> bool:
     from app.models.tally_masters import TallyStockItem
     name = str(mapped.get('name') or '').strip()
     if not name:
@@ -1280,11 +1285,11 @@ def _commit_stock_item(mapped: dict, company_id, connector, sync_to_tally: bool,
             payload['unit'] = mapped['unit']
         if mapped.get('rate'):
             payload['rate'] = str(mapped['rate'])
-        return _queue_tally_job(db, company_id, connector.id, TallyJobOperation.CREATE_STOCK_ITEM, payload, ikey)
+        return _queue_tally_job(db, company_id, connector.id, TallyJobOperation.CREATE_STOCK_ITEM, payload, ikey, batch_id)
     return False
 
 
-def _commit_stock_group(mapped: dict, company_id, connector, sync_to_tally: bool, db: Session) -> bool:
+def _commit_stock_group(mapped: dict, company_id, connector, sync_to_tally: bool, db: Session, batch_id=None) -> bool:
     from app.models.tally_masters import TallyStockGroup
     name = str(mapped.get('name') or '').strip()
     if not name or name.lower() == 'primary':
@@ -1306,7 +1311,7 @@ def _commit_stock_group(mapped: dict, company_id, connector, sync_to_tally: bool
         payload = {'name': name}
         if parent:
             payload['parent'] = parent
-        return _queue_tally_job(db, company_id, connector.id, TallyJobOperation.CREATE_STOCK_GROUP, payload, ikey)
+        return _queue_tally_job(db, company_id, connector.id, TallyJobOperation.CREATE_STOCK_GROUP, payload, ikey, batch_id)
     return False
 
 
@@ -1331,7 +1336,7 @@ def _commit_stock_category(mapped: dict, company_id, db: Session) -> bool:
     return False  # no Tally sync for stock categories
 
 
-def _commit_voucher(mapped: dict, company_id, connector, sync_to_tally: bool, db: Session) -> bool:
+def _commit_voucher(mapped: dict, company_id, connector, sync_to_tally: bool, db: Session, batch_id=None) -> bool:
     """Queue a Tally job for the voucher; create an Invoice record for Sales/Purchase."""
     if not connector or not sync_to_tally:
         return False
@@ -1344,4 +1349,4 @@ def _commit_voucher(mapped: dict, company_id, connector, sync_to_tally: bool, db
 
     payload = {k: (str(v) if v is not None else None) for k, v in mapped.items() if v is not None}
     ikey = f"ingest_vch::{company_id}::{vtype}::{payload.get('date', '')}::{payload.get('amount', '')}::{payload.get('party_ledger', '')}"
-    return _queue_tally_job(db, company_id, connector.id, op, payload, ikey)
+    return _queue_tally_job(db, company_id, connector.id, op, payload, ikey, batch_id)

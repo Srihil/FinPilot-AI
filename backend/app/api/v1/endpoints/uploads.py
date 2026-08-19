@@ -707,10 +707,90 @@ def ingest_commit(
             if result.imported > 0 and entity_type and fingerprint:
                 ingest.save_mapping_cache(company_id, fingerprint, entity_type, col_map, bg_db)
 
+            # Queue Tally jobs after ALL rows are committed (avoids rollback losing jobs)
+            tally_queued = 0
+            if sync_to_tally and result.imported > 0:
+                try:
+                    connector = bg_db.query(TallyConnector).filter(
+                        TallyConnector.company_id == company_id,
+                        TallyConnector.status == ConnectorStatus.ACTIVE,
+                    ).first()
+                    if connector:
+                        upload_rec = bg_db.query(Upload).filter(Upload.id == upload_id).first()
+                        committed_ids = set((upload_rec.commit_summary or {}).get("committed_row_ids", []))
+                        row_report = upload_rec.row_report or []
+                        batch_id = uuid.uuid4()
+                        for row in row_report:
+                            if row.get("row_id") not in committed_ids:
+                                continue
+                            mapped = row.get("mapped", {})
+                            name = str(mapped.get("name", "")).strip()
+                            if entity_type == "Ledger" and name:
+                                group = str(mapped.get("parent_group") or "Sundry Debtors").strip()
+                                ob = str(int(float(mapped.get("opening_balance") or 0)))
+                                ikey = f"commit_ledger::{upload_id}::{row['row_id']}"
+                                if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
+                                    bg_db.add(TallyIntegrationJob(
+                                        company_id=company_id, connector_id=connector.id,
+                                        operation=TallyJobOperation.CREATE_LEDGER,
+                                        payload={"name": name, "group": group, "opening_balance": ob},
+                                        idempotency_key=ikey, batch_id=batch_id,
+                                    ))
+                                    tally_queued += 1
+                            elif entity_type == "Stock Item" and name:
+                                payload = {"name": name}
+                                if mapped.get("stock_group"): payload["stock_group"] = str(mapped["stock_group"])
+                                if mapped.get("unit"): payload["unit"] = str(mapped["unit"])
+                                if mapped.get("rate") is not None: payload["rate"] = str(mapped["rate"])
+                                ikey = f"commit_si::{upload_id}::{row['row_id']}"
+                                if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
+                                    bg_db.add(TallyIntegrationJob(
+                                        company_id=company_id, connector_id=connector.id,
+                                        operation=TallyJobOperation.CREATE_STOCK_ITEM,
+                                        payload=payload, idempotency_key=ikey, batch_id=batch_id,
+                                    ))
+                                    tally_queued += 1
+                            elif entity_type == "Stock Group" and name:
+                                payload = {"name": name}
+                                if mapped.get("parent"): payload["parent"] = str(mapped["parent"])
+                                ikey = f"commit_sg::{upload_id}::{row['row_id']}"
+                                if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
+                                    bg_db.add(TallyIntegrationJob(
+                                        company_id=company_id, connector_id=connector.id,
+                                        operation=TallyJobOperation.CREATE_STOCK_GROUP,
+                                        payload=payload, idempotency_key=ikey, batch_id=batch_id,
+                                    ))
+                                    tally_queued += 1
+                            elif entity_type == "Voucher":
+                                from app.services.ingestion_service import VOUCHER_SUBTYPE_OP
+                                vtype = str(mapped.get("voucher_type", "")).strip().title()
+                                op = VOUCHER_SUBTYPE_OP.get(vtype)
+                                if op:
+                                    payload = {k: (str(v) if v is not None else None) for k, v in mapped.items() if v is not None}
+                                    ikey = f"commit_vch::{upload_id}::{row['row_id']}"
+                                    if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
+                                        bg_db.add(TallyIntegrationJob(
+                                            company_id=company_id, connector_id=connector.id,
+                                            operation=op, payload=payload,
+                                            idempotency_key=ikey, batch_id=batch_id,
+                                        ))
+                                        tally_queued += 1
+                        if tally_queued > 0:
+                            # Update commit_summary with actual tally_queued count
+                            if upload_rec and upload_rec.commit_summary:
+                                summary = dict(upload_rec.commit_summary)
+                                summary["tally_queued"] = tally_queued
+                                upload_rec.commit_summary = summary
+                            bg_db.commit()
+                except Exception as tally_exc:
+                    import logging
+                    logging.getLogger(__name__).error(f"Tally sync error after commit: {tally_exc}", exc_info=True)
+                    bg_db.rollback()
+
             audit_service.log(
                 bg_db, company_id, user_id, AuditAction.UPLOAD,
                 entity_type="upload", entity_id=upload_id,
-                description=f"Smart import {entity_type}: {result.imported} rows committed, {result.tally_queued} Tally jobs queued",
+                description=f"Smart import {entity_type}: {result.imported} rows committed, {tally_queued} Tally jobs queued",
             )
         finally:
             bg_db.close()
@@ -1071,26 +1151,54 @@ def ingest_resync_tally(
 
 @router.get("")
 def list_uploads(
+    page: int = 1,
+    page_size: int = 10,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    uploads = db.query(Upload).filter(
+    q = db.query(Upload).filter(
         Upload.company_id == current_user.company_id
-    ).order_by(Upload.created_at.desc()).limit(50).all()
+    ).order_by(Upload.created_at.desc())
 
-    return [
-        {
-            "id": str(u.id),
-            "original_filename": u.original_filename,
-            "upload_type": u.upload_type.value if u.upload_type else None,
-            "status": u.status.value,
-            "total_rows": u.total_rows or 0,
-            "valid_rows": u.valid_rows or 0,
-            "invalid_rows": u.invalid_rows or 0,
-            "imported_rows": u.imported_rows or 0,
-            "created_at": u.created_at.isoformat() if u.created_at else None,
-            "completed_at": u.completed_at.isoformat() if u.completed_at else None,
-            "errors": (u.error_summary or {}).get("errors", [])[:5],
-        }
-        for u in uploads
-    ]
+    total = q.count()
+    uploads = q.offset((page - 1) * page_size).limit(page_size).all()
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": max(1, -(-total // page_size)),  # ceiling division
+        "items": [
+            {
+                "id": str(u.id),
+                "original_filename": u.original_filename,
+                "upload_type": u.upload_type.value if u.upload_type else None,
+                "status": u.status.value,
+                "total_rows": u.total_rows or 0,
+                "valid_rows": u.valid_rows or 0,
+                "invalid_rows": u.invalid_rows or 0,
+                "imported_rows": u.imported_rows or 0,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "completed_at": u.completed_at.isoformat() if u.completed_at else None,
+                "errors": (u.error_summary or {}).get("errors", [])[:5],
+            }
+            for u in uploads
+        ],
+    }
+
+
+@router.delete("/{upload_id}")
+def delete_upload(
+    upload_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    record = db.query(Upload).filter(
+        Upload.id == upload_id,
+        Upload.company_id == current_user.company_id,
+    ).first()
+    if not record:
+        raise HTTPException(404, "Upload not found")
+    db.delete(record)
+    db.commit()
+    return {"deleted": True}

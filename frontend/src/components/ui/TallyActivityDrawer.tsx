@@ -263,7 +263,7 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['tally-activity'],
+    queryKey: ['tally-activity', 30],
     queryFn: () => tallyApi.activity(30),
     refetchInterval: open ? 5000 : false,
     staleTime: 3000,
@@ -366,7 +366,7 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
 
 export function ActivityTriggerButton({ onClick }: { onClick: () => void }) {
   const { data } = useQuery({
-    queryKey: ['tally-activity'],
+    queryKey: ['tally-activity', 10],
     queryFn: () => tallyApi.activity(10),
     refetchInterval: 10_000,
     staleTime: 5_000,

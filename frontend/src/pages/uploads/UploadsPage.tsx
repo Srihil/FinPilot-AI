@@ -6,6 +6,7 @@ import {
   ArrowRight, ArrowLeft, Table2, Info, XCircle,
   CheckSquare, Square, AlertCircle, Sparkles, Database,
   ShieldCheck, TrendingUp, FileSpreadsheet, Pencil, Save, X, Send,
+  Trash2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import apiClient from '../../api/client';
 import { Button } from '../../components/ui/button';
@@ -102,6 +103,14 @@ interface UploadHistory {
   created_at: string;
   completed_at: string | null;
   errors: Array<{ row: number; field: string; message: string }>;
+}
+
+interface UploadHistoryPage {
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+  items: UploadHistory[];
 }
 
 type WizardStep = 'drop' | 'mapping' | 'preview' | 'progress' | 'done';
@@ -212,12 +221,26 @@ function StepIndicator({ current }: { current: WizardStep }) {
 
 // ─── History Row ──────────────────────────────────────────────────────────────
 
-function HistoryRow({ u }: { u: UploadHistory }) {
+function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const st = HISTORY_STATUS[u.status] ?? HISTORY_STATUS.PENDING;
   const pct = u.total_rows > 0 ? Math.round((u.imported_rows / u.total_rows) * 100) : 0;
   const canSync = u.status === 'COMPLETED' || u.status === 'PARTIAL';
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete import "${u.original_filename}"? This only removes the history entry — imported data remains.`)) return;
+    setDeleting(true);
+    try {
+      await apiClient.delete(`/api/uploads/${u.id}`);
+      onDelete(u.id);
+      toast({ title: 'Import entry deleted', variant: 'success' });
+    } catch {
+      toast({ title: 'Delete failed', variant: 'destructive' });
+    } finally { setDeleting(false); }
+  };
 
   const handleSyncToTally = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -263,6 +286,14 @@ function HistoryRow({ u }: { u: UploadHistory }) {
             Sync to Tally
           </button>
         )}
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+          title="Delete this history entry"
+        >
+          {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+        </button>
         {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
       </div>
 
@@ -304,6 +335,7 @@ function HistoryRow({ u }: { u: UploadHistory }) {
 
 export default function UploadsPage() {
   const [tab, setTab] = useState<'import' | 'history'>('import');
+  const [historyPage, setHistoryPage] = useState(1);
   const [step, setStep] = useState<WizardStep>('drop');
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -328,11 +360,14 @@ export default function UploadsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
 
-  const { data: history, isLoading: historyLoading } = useQuery<UploadHistory[]>({
-    queryKey: ['upload-history'],
-    queryFn: () => apiClient.get('/api/uploads').then(r => r.data),
+  const { data: historyData, isLoading: historyLoading } = useQuery<UploadHistoryPage>({
+    queryKey: ['upload-history', historyPage],
+    queryFn: () => apiClient.get('/api/uploads', { params: { page: historyPage, page_size: 10 } }).then(r => r.data),
     refetchInterval: tab === 'history' ? 15_000 : false,
   });
+  const history = historyData?.items ?? [];
+  const historyTotal = historyData?.total ?? 0;
+  const historyPages = historyData?.pages ?? 1;
 
   useEffect(() => () => { if (pollInterval) clearInterval(pollInterval); }, [pollInterval]);
 
@@ -1300,7 +1335,7 @@ export default function UploadsPage() {
                 <History className="w-5 h-5 text-indigo-600" />
                 <div>
                   <p className="text-sm font-semibold text-slate-800">Upload History</p>
-                  <p className="text-xs text-slate-500">{history?.length ?? 0} total imports</p>
+                  <p className="text-xs text-slate-500">{historyTotal} total imports</p>
                 </div>
               </div>
             </div>
@@ -1332,7 +1367,49 @@ export default function UploadsPage() {
                   <div>Status</div>
                   <div />
                 </div>
-                {history.map(u => <HistoryRow key={u.id} u={u} />)}
+                {history.map(u => (
+                  <HistoryRow
+                    key={u.id}
+                    u={u}
+                    onDelete={() => qc.invalidateQueries({ queryKey: ['upload-history'] })}
+                  />
+                ))}
+              </div>
+            )}
+            {/* Pagination */}
+            {historyPages > 1 && (
+              <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 bg-slate-50">
+                <p className="text-xs text-slate-500">
+                  Page {historyPage} of {historyPages} · {historyTotal} imports
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                    disabled={historyPage === 1}
+                    className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 disabled:opacity-40 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  {Array.from({ length: historyPages }, (_, i) => i + 1).map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setHistoryPage(p)}
+                      className={cn(
+                        "w-7 h-7 rounded-lg text-xs font-medium transition-colors",
+                        p === historyPage ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-200",
+                      )}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setHistoryPage(p => Math.min(historyPages, p + 1))}
+                    disabled={historyPage === historyPages}
+                    className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 disabled:opacity-40 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             )}
           </div>

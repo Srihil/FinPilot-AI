@@ -1157,11 +1157,13 @@ def commit_rows(
     for row_data in to_commit:
         mapped: dict = row_data.get('mapped', {})
         try:
+            # Pass sync_to_tally=False here — Tally jobs are queued separately
+            # after all rows are committed, to avoid partial rollback losing jobs.
             queued = _commit_single(
-                entity_type, mapped, company_id, user_id, connector, sync_to_tally, db, now, bulk_batch_id
+                entity_type, mapped, company_id, user_id, connector,
+                False, db, now, bulk_batch_id
             )
             result.imported += 1
-            result.tally_queued += 1 if queued else 0
             committed_row_ids.append(row_data['row_id'])
 
             # Update progress in DB after each successful row

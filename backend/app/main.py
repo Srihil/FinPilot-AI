@@ -49,7 +49,13 @@ def health_check():
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    origin = request.headers.get("origin", "")
+    cors_headers = {}
+    if origin and (origin in settings.cors_origins_list or "*" in settings.cors_origins_list):
+        cors_headers["Access-Control-Allow-Origin"] = origin
+        cors_headers["Access-Control-Allow-Credentials"] = "true"
     return JSONResponse(
         status_code=500,
-        content={"detail": "An internal error occurred. Please try again."},
+        content={"detail": f"An internal error occurred: {str(exc)[:200]}"},
+        headers=cors_headers,
     )

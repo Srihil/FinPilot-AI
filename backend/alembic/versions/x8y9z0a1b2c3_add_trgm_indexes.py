@@ -25,16 +25,17 @@ TRGM_TARGETS = [
 
 
 def upgrade() -> None:
-    # pg_trgm enables word_similarity() and GIN indexes used for fuzzy name matching.
-    # The extension must be created by a superuser; this is a no-op if already present.
-    op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-
-    for table, col in TRGM_TARGETS:
-        idx_name = f"idx_trgm_{table}_{col}"
-        op.execute(
-            f"CREATE INDEX IF NOT EXISTS {idx_name} "
-            f"ON {table} USING gin(lower({col}) gin_trgm_ops)"
-        )
+    # pg_trgm requires superuser on some hosted DBs — skip gracefully if unavailable.
+    try:
+        op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+        for table, col in TRGM_TARGETS:
+            idx_name = f"idx_trgm_{table}_{col}"
+            op.execute(
+                f"CREATE INDEX IF NOT EXISTS {idx_name} "
+                f"ON {table} USING gin(lower({col}) gin_trgm_ops)"
+            )
+    except Exception:
+        pass
 
 
 def downgrade() -> None:

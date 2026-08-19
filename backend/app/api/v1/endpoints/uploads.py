@@ -477,54 +477,60 @@ async def ingest_parse(
     except Exception as exc:
         raise HTTPException(500, f"Failed to parse file: {exc}")
 
-    fingerprint = ingest.header_fingerprint(parsed.columns)
-
-    # Check cache first — may skip detection entirely
-    cached = ingest._get_cached_mapping(current_user.company_id, fingerprint, db)
-    if cached:
-        detection = ingest.DetectionResult(
-            entity_type=cached['entity_type'],
-            subtype='',
-            confidence='high',
-            score=999,
-            from_cache=True,
-        )
-        mapping = cached['column_mapping']
-    else:
-        detection = ingest.detect_entity_type(parsed.columns, parsed.rows[:3], current_user.company_id, db)
-        mapping = ingest.suggest_column_mapping(parsed.columns, detection.entity_type)
-
-    # Determine upload_type for the record
-    ut_str = ingest.ENTITY_TO_UPLOAD_TYPE.get(detection.entity_type)
     try:
-        ut = UploadType(ut_str) if ut_str else None
-    except ValueError:
-        ut = None
+        fingerprint = ingest.header_fingerprint(parsed.columns)
 
-    # Create upload record and store pending rows
-    record = Upload(
-        company_id=current_user.company_id,
-        uploaded_by=current_user.id,
-        filename=f"{uuid.uuid4()}_{file.filename}",
-        original_filename=file.filename,
-        file_size=len(content),
-        file_type=ext.lstrip('.'),
-        upload_type=ut,
-        status=UploadStatus.PENDING,
-        detected_entity_type=detection.entity_type,
-        entity_confidence=detection.confidence,
-        entity_subtype=detection.subtype,
-        column_mapping=mapping,
-        header_pattern_key=fingerprint,
-        total_rows=parsed.total,
-        pending_rows=[
-            {k: (v if not hasattr(v, 'isoformat') else v.isoformat()) for k, v in row.items()}
-            for row in parsed.rows
-        ],
-    )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
+        # Check cache first — may skip detection entirely
+        cached = ingest._get_cached_mapping(current_user.company_id, fingerprint, db)
+        if cached:
+            detection = ingest.DetectionResult(
+                entity_type=cached['entity_type'],
+                subtype='',
+                confidence='high',
+                score=999,
+                from_cache=True,
+            )
+            mapping = cached['column_mapping']
+        else:
+            detection = ingest.detect_entity_type(parsed.columns, parsed.rows[:3], current_user.company_id, db)
+            mapping = ingest.suggest_column_mapping(parsed.columns, detection.entity_type)
+
+        # Determine upload_type for the record
+        ut_str = ingest.ENTITY_TO_UPLOAD_TYPE.get(detection.entity_type)
+        try:
+            ut = UploadType(ut_str) if ut_str else None
+        except ValueError:
+            ut = None
+
+        # Create upload record and store pending rows
+        record = Upload(
+            company_id=current_user.company_id,
+            uploaded_by=current_user.id,
+            filename=f"{uuid.uuid4()}_{file.filename}",
+            original_filename=file.filename,
+            file_size=len(content),
+            file_type=ext.lstrip('.'),
+            upload_type=ut,
+            status=UploadStatus.PENDING,
+            detected_entity_type=detection.entity_type,
+            entity_confidence=detection.confidence,
+            entity_subtype=detection.subtype,
+            column_mapping=mapping,
+            header_pattern_key=fingerprint,
+            total_rows=parsed.total,
+            pending_rows=[
+                {k: (v if not hasattr(v, 'isoformat') else v.isoformat()) for k, v in row.items()}
+                for row in parsed.rows
+            ],
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(500, f"Failed to process file: {exc}")
 
     return {
         "upload_id": str(record.id),

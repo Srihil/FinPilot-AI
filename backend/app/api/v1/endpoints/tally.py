@@ -760,10 +760,18 @@ def submit_job_result(
 
     now = datetime.now(timezone.utc)
 
+    # Update linked upload_row if any
+    from app.models.upload_row import UploadRow, UploadRowStatus
+    upload_row = db.query(UploadRow).filter(UploadRow.tally_job_id == job.id).first()
+
     if body.status == "SUCCESS":
         job.status = JobStatus.SUCCESS
         job.result = body.result
         job.error_message = None
+        if upload_row:
+            upload_row.status = UploadRowStatus.IMPORTED
+            upload_row.error_reason = None
+            upload_row.updated_at = now
 
         if job.operation in (TallyJobOperation.SYNC_FULL, TallyJobOperation.SYNC_PARTIAL):
             connector.last_sync_at = now
@@ -1013,6 +1021,12 @@ def submit_job_result(
                 ).first()
                 if txn:
                     txn.is_active = False
+
+        # Update linked upload_row on final failure
+        if job.status == JobStatus.FAILED and upload_row:
+            upload_row.status = UploadRowStatus.FAILED
+            upload_row.error_reason = job.error_message
+            upload_row.updated_at = now
     else:
         raise HTTPException(status_code=400, detail="status must be SUCCESS or FAILED")
 

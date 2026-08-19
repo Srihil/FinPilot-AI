@@ -9,6 +9,7 @@ from app.models.expense import Expense
 from app.models.payment import Payment
 from app.models.inventory import InventoryTransaction
 from app.models.upload import Upload, UploadColumnCache
+from app.models.upload_row import UploadRow, UploadRowStatus
 from app.models.approval import Approval
 from app.models.audit_log import AuditLog
 from app.models.report import Report
@@ -23,7 +24,7 @@ from app.models.stock_transaction import StockTransaction
 __all__ = [
     "Company", "User", "Customer", "Vendor", "Product", "Account",
     "Invoice", "InvoiceItem", "Expense", "Payment", "InventoryTransaction",
-    "Upload", "UploadColumnCache", "Approval", "AuditLog", "Report", "AIConversation", "AIMessage",
+    "Upload", "UploadColumnCache", "UploadRow", "UploadRowStatus", "Approval", "AuditLog", "Report", "AIConversation", "AIMessage",
     "TallyConnector", "TallyPairingCode", "TallyIntegrationJob",
     "TallyLedger", "TallyStockGroup", "TallyUnit", "TallyGodown", "TallyGroup",
     "Order", "OrderItem", "StockCategory", "StockTransaction",

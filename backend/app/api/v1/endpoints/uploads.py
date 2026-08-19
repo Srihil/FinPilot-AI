@@ -692,7 +692,11 @@ def ingest_commit(
     fingerprint = record.header_pattern_key
 
     def _run_commit():
+        import logging
         from app.db.base import SessionLocal
+        from app.models.upload_row import UploadRow, UploadRowStatus
+        from datetime import datetime, timezone as tz
+        log = logging.getLogger(__name__)
         bg_db = SessionLocal()
         try:
             result = ingest.commit_rows(
@@ -703,11 +707,45 @@ def ingest_commit(
                 user_id=user_id,
                 db=bg_db,
             )
-            # Save mapping cache on successful commit (any rows imported)
             if result.imported > 0 and entity_type and fingerprint:
                 ingest.save_mapping_cache(company_id, fingerprint, entity_type, col_map, bg_db)
 
-            # Queue Tally jobs after ALL rows are committed (avoids rollback losing jobs)
+            # ── Create upload_rows for every committed row ───────────────────
+            upload_rec = bg_db.query(Upload).filter(Upload.id == upload_id).first()
+            committed_ids = set((upload_rec.commit_summary or {}).get("committed_row_ids", []))
+            error_by_row  = {e["row_id"]: e["message"] for e in (upload_rec.commit_summary or {}).get("errors", [])}
+            row_report    = upload_rec.row_report or []
+            now_dt        = datetime.now(tz.utc)
+
+            # Rows that failed at DB commit level
+            failed_ids = set(error_by_row.keys())
+            for rid in failed_ids:
+                row = next((r for r in row_report if r.get("row_id") == rid), {})
+                bg_db.add(UploadRow(
+                    upload_id=upload_id, row_number=rid + 2,
+                    entity_type=entity_type, status=UploadRowStatus.FAILED,
+                    error_reason=error_by_row[rid],
+                    raw_data=row.get("mapped"), created_at=now_dt, updated_at=now_dt,
+                ))
+
+            # Rows that were successfully committed to local DB
+            # Status starts as IMPORTED; if Tally job is queued it becomes PENDING
+            row_id_to_upload_row: dict = {}
+            for row in row_report:
+                rid = row.get("row_id")
+                if rid not in committed_ids:
+                    continue
+                ur = UploadRow(
+                    upload_id=upload_id, row_number=rid + 2,
+                    entity_type=entity_type, status=UploadRowStatus.IMPORTED,
+                    raw_data=row.get("mapped"), created_at=now_dt, updated_at=now_dt,
+                )
+                bg_db.add(ur)
+                row_id_to_upload_row[rid] = ur
+
+            bg_db.flush()  # get IDs for upload_rows before linking tally jobs
+
+            # ── Queue Tally jobs & link to upload_rows ───────────────────────
             tally_queued = 0
             if sync_to_tally and result.imported > 0:
                 try:
@@ -716,82 +754,82 @@ def ingest_commit(
                         TallyConnector.status == ConnectorStatus.ACTIVE,
                     ).first()
                     if connector:
-                        upload_rec = bg_db.query(Upload).filter(Upload.id == upload_id).first()
-                        committed_ids = set((upload_rec.commit_summary or {}).get("committed_row_ids", []))
-                        row_report = upload_rec.row_report or []
                         batch_id = uuid.uuid4()
                         for row in row_report:
-                            if row.get("row_id") not in committed_ids:
+                            rid = row.get("row_id")
+                            if rid not in committed_ids:
                                 continue
                             mapped = row.get("mapped", {})
                             name = str(mapped.get("name", "")).strip()
+                            job_obj = None
+
                             if entity_type == "Ledger" and name:
                                 group = str(mapped.get("parent_group") or "Sundry Debtors").strip()
                                 ob = str(int(float(mapped.get("opening_balance") or 0)))
-                                ikey = f"commit_ledger::{upload_id}::{row['row_id']}"
+                                ikey = f"commit_ledger::{upload_id}::{rid}"
                                 if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-                                    bg_db.add(TallyIntegrationJob(
-                                        company_id=company_id, connector_id=connector.id,
+                                    job_obj = TallyIntegrationJob(company_id=company_id, connector_id=connector.id,
                                         operation=TallyJobOperation.CREATE_LEDGER,
                                         payload={"name": name, "group": group, "opening_balance": ob},
-                                        idempotency_key=ikey, batch_id=batch_id,
-                                    ))
-                                    tally_queued += 1
+                                        idempotency_key=ikey, batch_id=batch_id)
                             elif entity_type == "Stock Item" and name:
-                                payload = {"name": name}
-                                if mapped.get("stock_group"): payload["stock_group"] = str(mapped["stock_group"])
-                                if mapped.get("unit"): payload["unit"] = str(mapped["unit"])
-                                if mapped.get("rate") is not None: payload["rate"] = str(mapped["rate"])
-                                ikey = f"commit_si::{upload_id}::{row['row_id']}"
+                                pl = {"name": name}
+                                if mapped.get("stock_group"): pl["stock_group"] = str(mapped["stock_group"])
+                                if mapped.get("unit"): pl["unit"] = str(mapped["unit"])
+                                if mapped.get("rate") is not None: pl["rate"] = str(mapped["rate"])
+                                ikey = f"commit_si::{upload_id}::{rid}"
                                 if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-                                    bg_db.add(TallyIntegrationJob(
-                                        company_id=company_id, connector_id=connector.id,
+                                    job_obj = TallyIntegrationJob(company_id=company_id, connector_id=connector.id,
                                         operation=TallyJobOperation.CREATE_STOCK_ITEM,
-                                        payload=payload, idempotency_key=ikey, batch_id=batch_id,
-                                    ))
-                                    tally_queued += 1
+                                        payload=pl, idempotency_key=ikey, batch_id=batch_id)
                             elif entity_type == "Stock Group" and name:
-                                payload = {"name": name}
-                                if mapped.get("parent"): payload["parent"] = str(mapped["parent"])
-                                ikey = f"commit_sg::{upload_id}::{row['row_id']}"
+                                pl = {"name": name}
+                                if mapped.get("parent"): pl["parent"] = str(mapped["parent"])
+                                ikey = f"commit_sg::{upload_id}::{rid}"
                                 if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-                                    bg_db.add(TallyIntegrationJob(
-                                        company_id=company_id, connector_id=connector.id,
+                                    job_obj = TallyIntegrationJob(company_id=company_id, connector_id=connector.id,
                                         operation=TallyJobOperation.CREATE_STOCK_GROUP,
-                                        payload=payload, idempotency_key=ikey, batch_id=batch_id,
-                                    ))
-                                    tally_queued += 1
+                                        payload=pl, idempotency_key=ikey, batch_id=batch_id)
                             elif entity_type == "Voucher":
                                 from app.services.ingestion_service import VOUCHER_SUBTYPE_OP
                                 vtype = str(mapped.get("voucher_type", "")).strip().title()
-                                op = VOUCHER_SUBTYPE_OP.get(vtype)
-                                if op:
-                                    payload = {k: (str(v) if v is not None else None) for k, v in mapped.items() if v is not None}
-                                    ikey = f"commit_vch::{upload_id}::{row['row_id']}"
+                                op_v = VOUCHER_SUBTYPE_OP.get(vtype)
+                                if op_v:
+                                    pl = {k: (str(v) if v is not None else None) for k, v in mapped.items() if v is not None}
+                                    ikey = f"commit_vch::{upload_id}::{rid}"
                                     if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-                                        bg_db.add(TallyIntegrationJob(
-                                            company_id=company_id, connector_id=connector.id,
-                                            operation=op, payload=payload,
-                                            idempotency_key=ikey, batch_id=batch_id,
-                                        ))
-                                        tally_queued += 1
-                        if tally_queued > 0:
-                            # Update commit_summary with actual tally_queued count
-                            if upload_rec and upload_rec.commit_summary:
-                                summary = dict(upload_rec.commit_summary)
-                                summary["tally_queued"] = tally_queued
-                                upload_rec.commit_summary = summary
-                            bg_db.commit()
-                except Exception as tally_exc:
-                    import logging
-                    logging.getLogger(__name__).error(f"Tally sync error after commit: {tally_exc}", exc_info=True)
-                    bg_db.rollback()
+                                        job_obj = TallyIntegrationJob(company_id=company_id, connector_id=connector.id,
+                                            operation=op_v, payload=pl, idempotency_key=ikey, batch_id=batch_id)
 
+                            if job_obj:
+                                bg_db.add(job_obj)
+                                bg_db.flush()  # get job id
+                                tally_queued += 1
+                                # Link and mark upload_row as pending Tally confirmation
+                                ur = row_id_to_upload_row.get(rid)
+                                if ur:
+                                    ur.tally_job_id = job_obj.id
+                                    ur.status = UploadRowStatus.PENDING
+                                    ur.updated_at = now_dt
+
+                        if tally_queued > 0 and upload_rec and upload_rec.commit_summary:
+                            summary = dict(upload_rec.commit_summary)
+                            summary["tally_queued"] = tally_queued
+                            upload_rec.commit_summary = summary
+
+                except Exception as tally_exc:
+                    log.error(f"Tally sync error after commit: {tally_exc}", exc_info=True)
+                    bg_db.rollback()
+                    tally_queued = 0
+
+            bg_db.commit()
             audit_service.log(
                 bg_db, company_id, user_id, AuditAction.UPLOAD,
                 entity_type="upload", entity_id=upload_id,
                 description=f"Smart import {entity_type}: {result.imported} rows committed, {tally_queued} Tally jobs queued",
             )
+        except Exception as exc:
+            log.error(f"_run_commit error: {exc}", exc_info=True)
         finally:
             bg_db.close()
 
@@ -1006,6 +1044,167 @@ def sync_freshness(
         "connector_online": connector is not None,
         "connector_id": str(connector.id) if connector else None,
     }
+
+
+# ─── Download remaining / full report ────────────────────────────────────────
+
+def _build_file(rows: list[dict], columns: list[str], file_format: str,
+                include_status: bool, buffer: io.BytesIO) -> str:
+    """Generate CSV, XLSX, or JSON file; returns media_type string."""
+    if file_format in ("xlsx", "xls"):
+        import openpyxl
+        from openpyxl.comments import Comment
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        # header
+        hdr = columns + (["status", "error_reason"] if include_status else [])
+        ws.append(hdr)
+        for row in rows:
+            vals = [row.get("data", {}).get(c) for c in columns]
+            if include_status:
+                vals += [row.get("status", ""), row.get("error_reason", "") or ""]
+            ws.append(vals)
+            # For remaining-rows XLSX, add comment to first cell of failed rows
+            if not include_status and row.get("error_reason"):
+                cell = ws.cell(row=ws.max_row, column=1)
+                c = Comment(row["error_reason"], "FinPilot")
+                c.width, c.height = 250, 60
+                cell.comment = c
+        wb.save(buffer)
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    elif file_format == "json":
+        data = []
+        for row in rows:
+            entry = {k: v for k, v in row.get("data", {}).items()}
+            if include_status:
+                entry["_status"] = row.get("status", "")
+                entry["_error_reason"] = row.get("error_reason", "") or ""
+            data.append(entry)
+        buffer.write(json.dumps(data, indent=2, default=str).encode())
+        return "application/json"
+
+    else:  # csv
+        hdr = columns + (["status", "error_reason"] if include_status else [])
+        import csv as csv_mod
+        import io as io2
+        text_buf = io2.StringIO()
+        writer = csv_mod.DictWriter(text_buf, fieldnames=hdr, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            entry = {c: row.get("data", {}).get(c, "") for c in columns}
+            if include_status:
+                entry["status"] = row.get("status", "")
+                entry["error_reason"] = row.get("error_reason", "") or ""
+            writer.writerow(entry)
+        buffer.write(text_buf.getvalue().encode("utf-8"))
+        return "text/csv"
+
+
+def _get_upload_rows_data(upload_id: str, company_id, db, statuses: list | None = None):
+    """Return rows + column order + file format for an upload."""
+    from app.models.upload_row import UploadRow
+    q = db.query(UploadRow).filter(UploadRow.upload_id == upload_id)
+    if statuses:
+        q = q.filter(UploadRow.status.in_(statuses))
+    ur_rows = q.order_by(UploadRow.row_number).all()
+
+    record = db.query(Upload).filter(
+        Upload.id == upload_id, Upload.company_id == company_id,
+    ).first()
+
+    # Derive column order from first pending_row
+    pending = (record.pending_rows or []) if record else []
+    columns = list(pending[0].keys()) if pending else []
+    # Remap from pending_rows keys → column_mapping reverse lookup
+    col_map = record.column_mapping or {} if record else {}
+    reverse = {v: k for k, v in col_map.items()}  # schema_field → file_col
+    # Build ordered column list matching original file
+    ordered = []
+    for file_col in (list(pending[0].keys()) if pending else []):
+        if file_col not in ordered:
+            ordered.append(file_col)
+    if not ordered:
+        # Fall back to schema fields
+        ordered = list({sf for row in ur_rows for sf in (row.raw_data or {}).keys()})
+
+    file_format = (record.file_type or "csv").lower() if record else "csv"
+
+    rows_out = []
+    for ur in ur_rows:
+        raw = ur.raw_data or {}
+        # Map schema_field values back to file column names
+        file_row = {}
+        for file_col in ordered:
+            schema_field = col_map.get(file_col)
+            file_row[file_col] = raw.get(schema_field) if schema_field else raw.get(file_col)
+        rows_out.append({
+            "data": file_row,
+            "status": ur.status.value,
+            "error_reason": ur.error_reason,
+        })
+
+    return rows_out, ordered, file_format
+
+
+@router.get("/ingest/{upload_id}/remaining")
+def download_remaining(
+    upload_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Download failed + pending rows in original file format, re-upload-ready."""
+    from app.models.upload_row import UploadRowStatus
+    record = db.query(Upload).filter(Upload.id == upload_id, Upload.company_id == current_user.company_id).first()
+    if not record:
+        raise HTTPException(404, "Upload not found")
+
+    rows, columns, file_format = _get_upload_rows_data(
+        upload_id, current_user.company_id, db,
+        statuses=[UploadRowStatus.FAILED, UploadRowStatus.PENDING],
+    )
+    if not rows:
+        raise HTTPException(404, "No failed or pending rows")
+
+    import datetime as _dt
+    ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    orig = (record.original_filename or "upload").rsplit(".", 1)[0]
+    ext = file_format if file_format != "xlsx" else "xlsx"
+    filename = f"{orig}_remaining_{ts}.{ext}"
+
+    buf = io.BytesIO()
+    media_type = _build_file(rows, columns, file_format, include_status=False, buffer=buf)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type=media_type,
+                             headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+@router.get("/ingest/{upload_id}/report")
+def download_report(
+    upload_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Download full audit report with status + error_reason columns."""
+    record = db.query(Upload).filter(Upload.id == upload_id, Upload.company_id == current_user.company_id).first()
+    if not record:
+        raise HTTPException(404, "Upload not found")
+
+    rows, columns, file_format = _get_upload_rows_data(upload_id, current_user.company_id, db)
+    if not rows:
+        raise HTTPException(404, "No row data available")
+
+    import datetime as _dt
+    ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    orig = (record.original_filename or "upload").rsplit(".", 1)[0]
+    ext = file_format if file_format != "xlsx" else "xlsx"
+    filename = f"{orig}_report_{ts}.{ext}"
+
+    buf = io.BytesIO()
+    media_type = _build_file(rows, columns, file_format, include_status=True, buffer=buf)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type=media_type,
+                             headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 
 @router.get("/ingest/{upload_id}/restore")
@@ -1259,11 +1458,29 @@ def list_uploads(
     total = q.count()
     uploads = q.offset((page - 1) * page_size).limit(page_size).all()
 
+    from app.models.upload_row import UploadRow, UploadRowStatus
+    from sqlalchemy import func as sqlfunc
+
+    # Row-level counts per upload
+    row_counts_q = db.query(
+        UploadRow.upload_id,
+        UploadRow.status,
+        sqlfunc.count().label("cnt"),
+    ).filter(
+        UploadRow.upload_id.in_([u.id for u in uploads])
+    ).group_by(UploadRow.upload_id, UploadRow.status).all()
+
+    counts: dict = {}
+    for rc in row_counts_q:
+        uid = str(rc.upload_id)
+        counts.setdefault(uid, {})
+        counts[uid][rc.status.value] = rc.cnt
+
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "pages": max(1, -(-total // page_size)),  # ceiling division
+        "pages": max(1, -(-total // page_size)),
         "items": [
             {
                 "id": str(u.id),
@@ -1277,6 +1494,7 @@ def list_uploads(
                 "created_at": u.created_at.isoformat() if u.created_at else None,
                 "completed_at": u.completed_at.isoformat() if u.completed_at else None,
                 "errors": (u.error_summary or {}).get("errors", [])[:5],
+                "row_counts": counts.get(str(u.id), {}),
             }
             for u in uploads
         ],

@@ -166,11 +166,6 @@ export default function LedgersPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelectedIds(new Set());
-  const leafIds = useMemo(() => rows.filter(r => r.kind === 'ledger').map(r => (r as Extract<typeof r, {kind:'ledger'}>).ledger.id), [rows]);
-  const allLeafSelected = leafIds.length > 0 && leafIds.every(id => selectedIds.has(id));
-  const toggleSelectAll = () => allLeafSelected
-    ? setSelectedIds(prev => { const n = new Set(prev); leafIds.forEach(id => n.delete(id)); return n; })
-    : setSelectedIds(prev => new Set([...prev, ...leafIds]));
 
   const [formName, setFormName] = useState('');
   const [formGroup, setFormGroup] = useState('Sundry Debtors');
@@ -216,6 +211,12 @@ export default function LedgersPage() {
     () => buildRows(filteredLedgers, collapsed, search),
     [filteredLedgers, collapsed, search]
   );
+
+  const leafIds = useMemo(() => rows.filter(r => r.kind === 'ledger').map(r => (r as Extract<typeof r, {kind:'ledger'}>).ledger.id), [rows]);
+  const allLeafSelected = leafIds.length > 0 && leafIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allLeafSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); leafIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...leafIds]));
 
   const toggle = (groupName: string) => {
     const key = normalise(groupName);

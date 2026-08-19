@@ -24,11 +24,6 @@ export default function GodownsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelectedIds(new Set());
-  const pageIds = data?.items?.map(g => g.id) ?? [];
-  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
-  const toggleSelectAll = () => allPageSelected
-    ? setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.delete(id)); return n; })
-    : setSelectedIds(prev => new Set([...prev, ...pageIds]));
   const [formName, setFormName] = useState('');
   const [formParent, setFormParent] = useState('');
 
@@ -37,6 +32,12 @@ export default function GodownsPage() {
     queryFn: () => managementApi.godowns({ page, page_size: 20, search: search || undefined }),
     refetchInterval: 5000,
   });
+
+  const pageIds = data?.items?.map(g => g.id) ?? [];
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allPageSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...pageIds]));
 
   const createMut = useMutation({
     mutationFn: () => managementApi.createGodown({ name: formName.trim(), parent: formParent || undefined }),

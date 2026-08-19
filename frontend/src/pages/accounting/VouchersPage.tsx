@@ -216,11 +216,6 @@ export default function VouchersPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelectedIds(new Set());
-  const pageIds = data?.items?.map(v => v.id) ?? [];
-  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
-  const toggleSelectAll = () => allPageSelected
-    ? setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.delete(id)); return n; })
-    : setSelectedIds(prev => new Set([...prev, ...pageIds]));
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -267,6 +262,12 @@ export default function VouchersPage() {
     }),
     refetchInterval: 5000,
   });
+
+  const pageIds = data?.items?.map(v => v.id) ?? [];
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allPageSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...pageIds]));
 
   const { data: ledgersData } = useQuery({
     queryKey: ['ledgers-all'],

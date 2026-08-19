@@ -23,7 +23,7 @@ except Exception as _e:
     _mb.showerror("FinPilot Connector", f"Startup failed:\n\n{type(_e).__name__}: {_e}")
     sys.exit(1)
 
-VERSION = "1.9.0"
+VERSION = "2.0.0"
 FINPILOT_URL = "https://finpilot-frontend-vbdf.onrender.com/tally"  # live website
 
 ENV_FILE = BASE_DIR / ".env"
@@ -192,7 +192,7 @@ def _heartbeat(tally: TallyClient) -> None:
             company = info.get("name", "")
     _state["tally_online"] = reachable
     _state["company"] = company or ""
-    with httpx.Client(timeout=10) as c:
+    with httpx.Client(timeout=30) as c:
         c.post(_url("/api/tally/connector/heartbeat"),
                json={"tally_reachable": reachable, "tally_company_name": company,
                      "tally_host": config.TALLY_HOST, "tally_port": config.TALLY_PORT},
@@ -343,7 +343,9 @@ def _execute_job(tally: TallyClient, job: dict):
 
 
 def _poll(tally: TallyClient) -> None:
-    with httpx.Client(timeout=15) as c:
+    import logging as _log
+    log = _log.getLogger(__name__)
+    with httpx.Client(timeout=30) as c:
         r = c.get(_url("/api/tally/connector/jobs"), headers=_h())
         r.raise_for_status()
         jobs = r.json().get("jobs", [])
@@ -354,9 +356,12 @@ def _poll(tally: TallyClient) -> None:
             payload["result"] = result
         if error:
             payload["error_message"] = error
-        with httpx.Client(timeout=15) as c:
-            c.post(_url(f"/api/tally/connector/jobs/{job['id']}/result"),
-                   json=payload, headers=_h())
+        try:
+            with httpx.Client(timeout=30) as c:
+                c.post(_url(f"/api/tally/connector/jobs/{job['id']}/result"),
+                       json=payload, headers=_h())
+        except Exception as e:
+            log.error("Failed to post result for job %s: %s", job.get("id"), e)
 
 
 # ── Worker ────────────────────────────────────────────────────────────────────

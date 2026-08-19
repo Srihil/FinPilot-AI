@@ -28,6 +28,7 @@ COLUMN_MAPS = {
     "expenses":     ["title", "category", "expense_date", "amount", "tax_amount", "description"],
     "ledgers":      ["name", "parent_group", "opening_balance"],
     "stock_groups": ["name", "parent"],
+    "stock_items":  ["name", "stock_group", "stock_category", "unit", "rate", "opening_qty", "hsn_code", "gst_rate"],
     "units":        ["name", "symbol", "decimal_places"],
     "godowns":      ["name", "parent"],
 }
@@ -428,6 +429,17 @@ def download_template(upload_type: str):
         sample_data = {"name": ["ABC Traders"], "parent_group": ["Sundry Debtors"], "opening_balance": [0]}
     elif upload_type == "stock_groups":
         sample_data = {"name": ["Electronics"], "parent": [""]}
+    elif upload_type == "stock_items":
+        sample_data = {
+            "name":           ["Samsung Galaxy S24", "Dell Laptop 15in", "Office Chair Ergonomic"],
+            "stock_group":    ["Electronics",        "Electronics",      "Furniture"],
+            "stock_category": ["",                   "",                 ""],
+            "unit":           ["Nos",                "Nos",              "Nos"],
+            "rate":           [25000,                55000,              8500],
+            "opening_qty":    [10,                   5,                  20],
+            "hsn_code":       ["8517",               "8471",             "9401"],
+            "gst_rate":       [18,                   18,                 18],
+        }
     elif upload_type == "units":
         sample_data = {"name": ["Pieces"], "symbol": ["Pcs"], "decimal_places": [0]}
     elif upload_type == "godowns":

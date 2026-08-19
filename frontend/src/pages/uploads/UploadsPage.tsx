@@ -1002,10 +1002,10 @@ export default function UploadsPage() {
                                 ) : (
                                   <button
                                     onClick={() => startEdit(row)}
-                                    className="p-1.5 rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors opacity-0 group-hover:opacity-100"
-                                    title="Edit row"
+                                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors whitespace-nowrap"
+                                    title="Edit row values"
                                   >
-                                    <Pencil className="w-3.5 h-3.5" />
+                                    <Pencil className="w-3 h-3" /> Edit
                                   </button>
                                 )}
                               </td>

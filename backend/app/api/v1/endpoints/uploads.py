@@ -964,6 +964,99 @@ def ingest_status(
     }
 
 
+# ─── Re-sync a completed upload to TallyPrime ────────────────────────────────
+
+@router.post("/ingest/{upload_id}/sync-to-tally")
+def ingest_resync_tally(
+    upload_id: str,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    """Queue Tally jobs for all non-error rows of a previously committed upload."""
+    record = db.query(Upload).filter(
+        Upload.id == upload_id,
+        Upload.company_id == current_user.company_id,
+    ).first()
+    if not record:
+        raise HTTPException(404, "Upload not found")
+    if record.status not in (UploadStatus.COMPLETED, UploadStatus.PARTIAL):
+        raise HTTPException(400, "Upload has not been committed yet")
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+    if not connector:
+        raise HTTPException(400, "No active TallyPrime connector found")
+
+    from app.services.ingestion_service import VOUCHER_SUBTYPE_OP, ENTITY_TALLY_OP
+    from app.models.tally_job import TallyIntegrationJob as TJI
+
+    entity_type = record.detected_entity_type or ""
+    row_report: list[dict] = record.row_report or []
+
+    batch_id = uuid.uuid4()
+    queued = 0
+
+    for row in row_report:
+        if row.get("status") == "error":
+            continue
+        mapped: dict = row.get("mapped", {})
+        name = str(mapped.get("name", "")).strip()
+
+        # Build operation + payload per entity type
+        if entity_type == "Ledger":
+            if not name:
+                continue
+            op = TallyJobOperation.CREATE_LEDGER
+            payload = {
+                "name": name,
+                "group": str(mapped.get("parent_group") or "Sundry Debtors").strip(),
+                "opening_balance": str(int(float(mapped.get("opening_balance") or 0))),
+            }
+        elif entity_type == "Stock Item":
+            if not name:
+                continue
+            op = TallyJobOperation.CREATE_STOCK_ITEM
+            payload = {"name": name}
+            if mapped.get("stock_group"):
+                payload["stock_group"] = str(mapped["stock_group"])
+            if mapped.get("unit"):
+                payload["unit"] = str(mapped["unit"])
+            if mapped.get("rate") is not None:
+                payload["rate"] = str(mapped["rate"])
+        elif entity_type == "Stock Group":
+            if not name:
+                continue
+            op = TallyJobOperation.CREATE_STOCK_GROUP
+            payload = {"name": name}
+            if mapped.get("parent"):
+                payload["parent"] = str(mapped["parent"])
+        elif entity_type == "Voucher":
+            vtype = str(mapped.get("voucher_type", "")).strip().title()
+            op = VOUCHER_SUBTYPE_OP.get(vtype)
+            if not op:
+                continue
+            payload = {k: (str(v) if v is not None else None) for k, v in mapped.items() if v is not None}
+        else:
+            continue
+
+        ikey = f"resync_{upload_id}_{row['row_id']}"
+        if not db.query(TJI).filter(TJI.idempotency_key == ikey).first():
+            db.add(TJI(
+                company_id=current_user.company_id,
+                connector_id=connector.id,
+                operation=op,
+                payload=payload,
+                idempotency_key=ikey,
+                batch_id=batch_id,
+            ))
+            queued += 1
+
+    db.commit()
+    return {"queued": queued, "batch_id": str(batch_id)}
+
+
 # ─── Upload history ───────────────────────────────────────────────────────────
 
 @router.get("")

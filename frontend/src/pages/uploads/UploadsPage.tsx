@@ -5,7 +5,7 @@ import {
   Clock, RefreshCw, ChevronDown, ChevronUp, History, Zap,
   ArrowRight, ArrowLeft, Table2, Info, XCircle,
   CheckSquare, Square, AlertCircle, Sparkles, Database,
-  ShieldCheck, TrendingUp, FileSpreadsheet, Pencil, Save, X,
+  ShieldCheck, TrendingUp, FileSpreadsheet, Pencil, Save, X, Send,
 } from 'lucide-react';
 import apiClient from '../../api/client';
 import { Button } from '../../components/ui/button';
@@ -214,8 +214,24 @@ function StepIndicator({ current }: { current: WizardStep }) {
 
 function HistoryRow({ u }: { u: UploadHistory }) {
   const [expanded, setExpanded] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const st = HISTORY_STATUS[u.status] ?? HISTORY_STATUS.PENDING;
   const pct = u.total_rows > 0 ? Math.round((u.imported_rows / u.total_rows) * 100) : 0;
+  const canSync = u.status === 'COMPLETED' || u.status === 'PARTIAL';
+
+  const handleSyncToTally = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSyncing(true);
+    try {
+      const { data } = await apiClient.post(`/api/uploads/ingest/${u.id}/sync-to-tally`);
+      toast({ title: `${data.queued} job${data.queued !== 1 ? 's' : ''} queued for TallyPrime`, variant: 'success' });
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      toast({ title: 'Sync failed', description: e?.response?.data?.detail || 'Could not queue Tally jobs', variant: 'destructive' });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <div className="border-b border-slate-100 last:border-0">
@@ -236,6 +252,17 @@ function HistoryRow({ u }: { u: UploadHistory }) {
         </div>
         <span className="text-xs text-slate-500 hidden md:block">{u.imported_rows} / {u.total_rows} rows</span>
         <span className={cn("px-2.5 py-0.5 rounded-full text-xs font-medium ring-1", st.cls)}>{st.label}</span>
+        {canSync && (
+          <button
+            onClick={handleSyncToTally}
+            disabled={syncing}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors whitespace-nowrap"
+            title="Sync this import to TallyPrime"
+          >
+            {syncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+            Sync to Tally
+          </button>
+        )}
         {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
       </div>
 
@@ -288,7 +315,7 @@ export default function UploadsPage() {
   const [validateResult, setValidateResult] = useState<ValidateResponse | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [rowFilter, setRowFilter] = useState<RowFilter>('all');
-  const [syncToTally, setSyncToTally] = useState(false);
+  const [syncToTally, setSyncToTally] = useState(true);
   const [committing, setCommitting] = useState(false);
   const [statusData, setStatusData] = useState<StatusResponse | null>(null);
   const [uploadId, setUploadId] = useState<string | null>(null);

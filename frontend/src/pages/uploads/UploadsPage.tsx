@@ -496,7 +496,20 @@ export default function UploadsPage() {
           setStatusData(data);
           if (['COMPLETED', 'PARTIAL', 'FAILED'].includes(data.status)) {
             clearInterval(interval); setPollInterval(null);
-            setStep('done'); qc.invalidateQueries({ queryKey: ['upload-history'] });
+            setStep('done');
+            // Invalidate all pages that may show bulk-imported data
+            [
+              ['upload-history'],
+              ['ledgers-tree'],
+              ['stock-items-tree'],
+              ['stock-groups-tree'],
+              ['stock-groups-all'],
+              ['stock-categories-tree'],
+              ['stock-categories'],
+              ['units-all'],
+              ['godowns-all'],
+              ['tally-activity'],
+            ].forEach(key => qc.invalidateQueries({ queryKey: key }));
           }
         } catch { /* continue */ }
       }, 1500);
@@ -1131,38 +1144,64 @@ export default function UploadsPage() {
                 </div>
               </div>
 
-              {/* Footer actions */}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1 border-t border-slate-100">
-                <label className="flex items-center gap-2.5 cursor-pointer group">
+              {/* Tally sync banner */}
+              <div className={cn(
+                "rounded-xl border p-4 flex items-center justify-between gap-4 transition-all",
+                syncToTally
+                  ? "bg-indigo-50 border-indigo-200"
+                  : "bg-slate-50 border-slate-200",
+              )}>
+                <div className="flex items-center gap-3">
                   <div className={cn(
-                    "w-9 h-5 rounded-full relative transition-colors",
-                    syncToTally ? "bg-indigo-600" : "bg-slate-200 group-hover:bg-slate-300",
+                    "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+                    syncToTally ? "bg-indigo-100" : "bg-slate-100",
+                  )}>
+                    <Zap className={cn("w-4 h-4", syncToTally ? "text-indigo-600" : "text-slate-400")} />
+                  </div>
+                  <div>
+                    <p className={cn("text-sm font-semibold", syncToTally ? "text-indigo-900" : "text-slate-700")}>
+                      {syncToTally ? "Will sync to TallyPrime after import" : "TallyPrime sync is off"}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {syncToTally
+                        ? "Imported rows will be pushed to TallyPrime automatically"
+                        : "Toggle on to push imported data to TallyPrime"}
+                    </p>
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                  <div className={cn(
+                    "w-11 h-6 rounded-full relative transition-colors",
+                    syncToTally ? "bg-indigo-600" : "bg-slate-300",
                   )}>
                     <input type="checkbox" className="sr-only" checked={syncToTally} onChange={e => setSyncToTally(e.target.checked)} />
                     <div className={cn(
-                      "absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
-                      syncToTally ? "translate-x-4" : "translate-x-0",
+                      "absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200",
+                      syncToTally ? "translate-x-5" : "translate-x-0",
                     )} />
                   </div>
-                  <div className="flex items-center gap-1.5 text-sm text-slate-700 font-medium">
-                    <Zap className="w-4 h-4 text-indigo-500" />
-                    Sync to TallyPrime after import
-                  </div>
                 </label>
+              </div>
 
-                <div className="flex gap-3 sm:ml-auto">
-                  <Button variant="outline" onClick={() => setStep('mapping')} className="gap-2 rounded-xl">
-                    <ArrowLeft className="w-4 h-4" /> Back
-                  </Button>
-                  <Button
-                    onClick={handleCommit}
-                    disabled={selectedIds.size === 0 || committing}
-                    className="gap-2 rounded-xl min-w-[160px]"
-                  >
-                    {committing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                    Import {selectedIds.size} Row{selectedIds.size !== 1 ? 's' : ''}
-                  </Button>
-                </div>
+              {/* Footer actions */}
+              <div className="flex gap-3 pt-1">
+                <Button variant="outline" onClick={() => setStep('mapping')} className="gap-2 rounded-xl">
+                  <ArrowLeft className="w-4 h-4" /> Back
+                </Button>
+                <Button
+                  onClick={handleCommit}
+                  disabled={selectedIds.size === 0 || committing}
+                  className={cn("gap-2 rounded-xl flex-1", syncToTally ? "bg-indigo-600 hover:bg-indigo-700" : "")}
+                >
+                  {committing
+                    ? <RefreshCw className="w-4 h-4 animate-spin" />
+                    : syncToTally ? <Zap className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                  {committing
+                    ? "Importing…"
+                    : syncToTally
+                    ? `Import ${selectedIds.size} Row${selectedIds.size !== 1 ? 's' : ''} + Sync to Tally`
+                    : `Import ${selectedIds.size} Row${selectedIds.size !== 1 ? 's' : ''}`}
+                </Button>
               </div>
             </div>
           )}

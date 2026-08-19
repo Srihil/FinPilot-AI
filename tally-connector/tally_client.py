@@ -177,7 +177,7 @@ class TallyClient:
         <TDLMESSAGE>
           <COLLECTION NAME="FP Ledgers" ISMODIFY="No">
             <TYPE>Ledger</TYPE>
-            <FETCH>NAME,PARENT,CLOSINGBALANCE</FETCH>
+            <FETCH>NAME,PARENT,CLOSINGBALANCE,MASTERID,EMAIL,LEDGERMOBILE,LEDGERPHONE,GSTREGISTRATIONTYPE,STATENAME,ADDRESS.LIST</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -191,14 +191,23 @@ class TallyClient:
         root = self._parse_response(raw)
         ledgers = []
         for item in root.findall(".//LEDGER"):
-            # Name is the NAME attribute on <LEDGER>, not a child <NAME> element
             name = (item.get("NAME") or "").strip()
-            group_el = item.find("PARENT")
-            balance_el = item.find("CLOSINGBALANCE")
-            group = group_el.text.strip() if group_el is not None and group_el.text else ""
-            balance = balance_el.text.strip() if balance_el is not None and balance_el.text else "0"
+            def _t(tag): e = item.find(tag); return (e.text or "").strip() if e is not None and e.text else ""
+            group   = _t("PARENT")
+            balance = _t("CLOSINGBALANCE") or "0"
+            master_id = (item.get("MASTERID") or _t("MASTERID") or "").strip()
+            email  = _t("EMAIL") or _t("LEDGEREMAIL")
+            phone  = _t("LEDGERMOBILE") or _t("LEDGERPHONE")
+            gstin  = _t("GSTREGISTRATIONTYPE")
+            state  = _t("STATENAME")
+            addr_parts = [e.text.strip() for e in item.findall(".//ADDRESS") if e.text and e.text.strip()]
+            address = ", ".join(addr_parts) if addr_parts else ""
             if name and group:
-                ledgers.append({"name": name, "group": group, "closing_balance": balance})
+                ledgers.append({
+                    "name": name, "group": group, "closing_balance": balance,
+                    "master_id": master_id, "email": email, "phone": phone,
+                    "gstin": gstin, "state": state, "address": address,
+                })
         return ledgers
 
     # ── Vouchers (all types) ──────────────────────────────────────────────────
@@ -545,7 +554,7 @@ class TallyClient:
         <TDLMESSAGE>
           <COLLECTION NAME="FP Godowns" ISMODIFY="No">
             <TYPE>Godown</TYPE>
-            <FETCH>NAME,PARENT</FETCH>
+            <FETCH>NAME,PARENT,MASTERID</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -563,8 +572,10 @@ class TallyClient:
                 name = (item.get("NAME") or "").strip()
                 parent_el = item.find("PARENT")
                 parent = parent_el.text.strip() if parent_el is not None and parent_el.text else ""
+                mid_el = item.find("MASTERID")
+                master_id = mid_el.text.strip() if mid_el is not None and mid_el.text else (item.get("MASTERID") or "")
                 if name:
-                    godowns.append({"name": name, "parent": parent or None})
+                    godowns.append({"name": name, "parent": parent or None, "master_id": master_id})
             return godowns
         except TallyError as e:
             logger.warning("get_godowns: %s", e)
@@ -660,7 +671,7 @@ class TallyClient:
         <TDLMESSAGE>
           <COLLECTION NAME="FP Groups" ISMODIFY="No">
             <TYPE>Group</TYPE>
-            <FETCH>NAME,PARENT</FETCH>
+            <FETCH>NAME,PARENT,MASTERID</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -678,10 +689,13 @@ class TallyClient:
                 name = (item.get("NAME") or "").strip()
                 parent_el = item.find("PARENT")
                 parent = parent_el.text.strip() if parent_el is not None and parent_el.text else ""
+                mid_el = item.find("MASTERID")
+                master_id = mid_el.text.strip() if mid_el is not None and mid_el.text else (item.get("MASTERID") or "")
                 if name and name.lower() != "primary":
                     groups.append({
                         "name": name,
                         "parent": parent if parent and parent.lower() != "primary" else None,
+                        "master_id": master_id,
                     })
             return groups
         except TallyError as e:
@@ -704,7 +718,7 @@ class TallyClient:
         <TDLMESSAGE>
           <COLLECTION NAME="FP StockGroups" ISMODIFY="No">
             <TYPE>Stockgroup</TYPE>
-            <FETCH>NAME,PARENT</FETCH>
+            <FETCH>NAME,PARENT,MASTERID</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -723,8 +737,10 @@ class TallyClient:
                 parent_el = item.find("PARENT")
                 parent = parent_el.text.strip() if parent_el is not None and parent_el.text else ""
                 # Skip the implicit root group "Primary"
+                mid_el2 = item.find("MASTERID")
+                master_id2 = mid_el2.text.strip() if mid_el2 is not None and mid_el2.text else (item.get("MASTERID") or "")
                 if name and name.lower() != "primary":
-                    groups.append({"name": name, "parent": parent if parent and parent.lower() != "primary" else None})
+                    groups.append({"name": name, "parent": parent if parent and parent.lower() != "primary" else None, "master_id": master_id2})
             return groups
         except TallyError as e:
             logger.warning("get_stock_groups: %s", e)
@@ -747,7 +763,7 @@ class TallyClient:
         <TDLMESSAGE>
           <COLLECTION NAME="FP StockCategories" ISMODIFY="No">
             <TYPE>StockCategory</TYPE>
-            <FETCH>NAME,PARENT</FETCH>
+            <FETCH>NAME,PARENT,MASTERID</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -765,8 +781,10 @@ class TallyClient:
                 name = (item.get("NAME") or "").strip()
                 parent_el = item.find("PARENT")
                 parent = parent_el.text.strip() if parent_el is not None and parent_el.text else ""
+                mid_el3 = item.find("MASTERID")
+                master_id3 = mid_el3.text.strip() if mid_el3 is not None and mid_el3.text else (item.get("MASTERID") or "")
                 if name and name.lower() not in ("primary", ""):
-                    cats.append({"name": name, "parent": parent if parent and parent.lower() != "primary" else None})
+                    cats.append({"name": name, "parent": parent if parent and parent.lower() != "primary" else None, "master_id": master_id3})
             return cats
         except TallyError as e:
             logger.warning("get_stock_categories: %s", e)

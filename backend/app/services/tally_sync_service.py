@@ -118,6 +118,13 @@ def sync_ledgers(db: Session, company_id: uuid.UUID, ledgers: list[dict]) -> dic
         except (ValueError, TypeError):
             closing_balance = 0.0
 
+        master_id = str(ledger.get("master_id") or "").strip() or None
+        email   = str(ledger.get("email") or "").strip() or None
+        phone   = str(ledger.get("phone") or "").strip() or None
+        gstin   = str(ledger.get("gstin") or "").strip() or None
+        state   = str(ledger.get("state") or "").strip() or None
+        address = str(ledger.get("address") or "").strip() or None
+
         if tl:
             tl.parent_group = group or tl.parent_group
             tl.closing_balance = closing_balance
@@ -125,6 +132,18 @@ def sync_ledgers(db: Session, company_id: uuid.UUID, ledgers: list[dict]) -> dic
             tl.synced_at = now
             tl.is_active = True
             tl.source = "tally_sync"
+            if master_id:
+                tl.tally_remote_id = master_id
+            if email:
+                tl.email = email
+            if phone:
+                tl.phone = phone
+            if gstin:
+                tl.gstin = gstin
+            if state:
+                tl.state = state
+            if address:
+                tl.address = address
         else:
             tl = TallyLedger(
                 company_id=company_id,
@@ -137,6 +156,12 @@ def sync_ledgers(db: Session, company_id: uuid.UUID, ledgers: list[dict]) -> dic
                 tally_sync_status="synced",
                 synced_at=now,
                 is_active=True,
+                tally_remote_id=master_id,
+                email=email,
+                phone=phone,
+                gstin=gstin,
+                state=state,
+                address=address,
             )
             db.add(tl)
             created_ledgers += 1
@@ -195,12 +220,15 @@ def sync_godowns(db: Session, company_id: uuid.UUID, godowns: list[dict]) -> dic
             TallyGodown.tally_key == key,
         ).first()
 
+        mid = str(item.get("master_id") or "").strip() or None
         if existing:
             existing.parent = parent
             existing.tally_sync_status = "synced"
             existing.synced_at = now
             existing.is_active = True
             existing.source = "tally_sync"
+            if mid:
+                existing.tally_remote_id = mid
             updated += 1
         else:
             db.add(TallyGodown(
@@ -212,6 +240,7 @@ def sync_godowns(db: Session, company_id: uuid.UUID, godowns: list[dict]) -> dic
                 tally_sync_status="synced",
                 synced_at=now,
                 is_active=True,
+                tally_remote_id=mid,
             ))
             created += 1
 
@@ -235,6 +264,7 @@ def sync_stock_groups(db: Session, company_id: uuid.UUID, stock_groups: list[dic
         parent = item.get("parent") or None
         if parent and parent.lower() == "primary":
             parent = None
+        mid = str(item.get("master_id") or "").strip() or None
 
         key = _tally_key(company_id, name)
         keys_seen.add(key)
@@ -249,6 +279,8 @@ def sync_stock_groups(db: Session, company_id: uuid.UUID, stock_groups: list[dic
             existing.synced_at = now
             existing.is_active = True
             existing.source = "tally_sync"
+            if mid:
+                existing.tally_remote_id = mid
             updated += 1
         else:
             db.add(TallyStockGroup(
@@ -260,6 +292,7 @@ def sync_stock_groups(db: Session, company_id: uuid.UUID, stock_groups: list[dic
                 tally_sync_status="synced",
                 synced_at=now,
                 is_active=True,
+                tally_remote_id=mid,
             ))
             created += 1
 
@@ -283,6 +316,7 @@ def sync_units(db: Session, company_id: uuid.UUID, units: list[dict]) -> dict:
         symbol = item.get("symbol") or name
         decimal_places = item.get("decimal_places", 0)
         unit_type = item.get("unit_type", "simple")
+        mid = str(item.get("master_id") or "").strip() or None
 
         key = _tally_key(company_id, name)
         keys_seen.add(key)
@@ -299,6 +333,8 @@ def sync_units(db: Session, company_id: uuid.UUID, units: list[dict]) -> dict:
             existing.synced_at = now
             existing.is_active = True
             existing.source = "tally_sync"
+            if mid:
+                existing.tally_remote_id = mid
             updated += 1
         else:
             db.add(TallyUnit(
@@ -312,6 +348,7 @@ def sync_units(db: Session, company_id: uuid.UUID, units: list[dict]) -> dict:
                 tally_sync_status="synced",
                 synced_at=now,
                 is_active=True,
+                tally_remote_id=mid,
             ))
             created += 1
 
@@ -335,6 +372,7 @@ def sync_groups(db: Session, company_id: uuid.UUID, groups: list[dict]) -> dict:
         parent = item.get("parent") or None
         if parent and parent.lower() == "primary":
             parent = None
+        mid = str(item.get("master_id") or "").strip() or None
 
         key = _tally_key(company_id, name)
         keys_seen.add(key)
@@ -349,6 +387,8 @@ def sync_groups(db: Session, company_id: uuid.UUID, groups: list[dict]) -> dict:
             existing.synced_at = now
             existing.is_active = True
             existing.source = "tally_sync"
+            if mid:
+                existing.tally_remote_id = mid
             updated += 1
         else:
             db.add(TallyGroup(
@@ -360,6 +400,7 @@ def sync_groups(db: Session, company_id: uuid.UUID, groups: list[dict]) -> dict:
                 tally_sync_status="synced",
                 synced_at=now,
                 is_active=True,
+                tally_remote_id=mid,
             ))
             created += 1
 
@@ -455,6 +496,7 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
             TallyStockItem.tally_key == tally_key,
         ).first()
 
+        mid = str(item.get("master_id") or "").strip() or None
         if existing:
             if rate > 0:
                 existing.rate = rate
@@ -466,6 +508,8 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
             existing.tally_sync_status = "synced"
             existing.is_active = True
             existing.synced_at = now
+            if mid:
+                existing.tally_remote_id = mid
             updated += 1
         else:
             db.add(TallyStockItem(
@@ -480,6 +524,7 @@ def sync_stock_items(db: Session, company_id: uuid.UUID, stock_items: list[dict]
                 tally_sync_status="synced",
                 synced_at=now,
                 is_active=True,
+                tally_remote_id=mid,
             ))
             created += 1
 

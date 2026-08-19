@@ -33,14 +33,29 @@ _tray_icon: Optional[pystray.Icon] = None
 _stop_event = threading.Event()
 
 ALLOWED_OPS = {
+    # ── Read ──────────────────────────────────────────────────────────────────
     "READ_COMPANIES", "READ_LEDGERS", "READ_VOUCHERS", "READ_SALES",
     "READ_PURCHASES", "READ_RECEIVABLES", "READ_PAYABLES", "READ_STOCK_ITEMS",
+    # ── Accounting master writes ───────────────────────────────────────────────
     "CREATE_LEDGER", "CREATE_GROUP",
+    # ── Inventory master writes ────────────────────────────────────────────────
     "CREATE_STOCK_ITEM", "CREATE_STOCK_GROUP", "CREATE_UNIT", "CREATE_GODOWN",
+    "CREATE_STOCK_CATEGORY", "CREATE_VOUCHER_TYPE",
+    # ── Delete masters ────────────────────────────────────────────────────────
+    "DELETE_LEDGER", "DELETE_STOCK_ITEM", "DELETE_STOCK_GROUP", "DELETE_UNIT",
+    "DELETE_GODOWN", "DELETE_STOCK_CATEGORY", "DELETE_VOUCHER_TYPE",
+    # ── Accounting voucher writes ──────────────────────────────────────────────
     "CREATE_SALES_VOUCHER", "CREATE_PURCHASE_VOUCHER",
     "CREATE_RECEIPT_VOUCHER", "CREATE_PAYMENT_VOUCHER",
     "CREATE_JOURNAL_VOUCHER", "CREATE_CREDIT_NOTE", "CREATE_DEBIT_NOTE",
     "CREATE_CONTRA_VOUCHER",
+    # ── Stock transaction voucher writes ──────────────────────────────────────
+    "CREATE_STOCK_JOURNAL", "CREATE_PHYSICAL_STOCK",
+    "CREATE_DELIVERY_NOTE", "CREATE_RECEIPT_NOTE",
+    "CREATE_REJECTION_IN", "CREATE_REJECTION_OUT",
+    # ── Delete vouchers ───────────────────────────────────────────────────────
+    "DELETE_VOUCHER", "CANCEL_VOUCHER",
+    # ── Sync ──────────────────────────────────────────────────────────────────
     "SYNC_FULL", "SYNC_PARTIAL",
 }
 
@@ -191,6 +206,7 @@ def _execute_job(tally: TallyClient, job: dict):
     if op not in ALLOWED_OPS:
         return None, f"Operation not allowed: {op}"
     try:
+        # ── Read operations ──────────────────────────────────────────────────
         if op == "READ_COMPANIES":
             return {"company": tally.get_active_company()}, None
         if op == "READ_LEDGERS":
@@ -210,10 +226,14 @@ def _execute_job(tally: TallyClient, job: dict):
             d = tally.get_payables(); return {"payables": d, "count": len(d)}, None
         if op == "READ_STOCK_ITEMS":
             d = tally.get_stock_items(); return {"stock_items": d, "count": len(d)}, None
+
+        # ── Accounting master writes ──────────────────────────────────────────
         if op == "CREATE_LEDGER":
             return tally.create_ledger(pl), None
         if op == "CREATE_GROUP":
             return tally.create_group(pl), None
+
+        # ── Inventory master writes ───────────────────────────────────────────
         if op == "CREATE_STOCK_ITEM":
             return tally.create_stock_item(pl), None
         if op == "CREATE_STOCK_GROUP":
@@ -222,6 +242,28 @@ def _execute_job(tally: TallyClient, job: dict):
             return tally.create_unit(pl), None
         if op == "CREATE_GODOWN":
             return tally.create_godown(pl), None
+        if op == "CREATE_STOCK_CATEGORY":
+            return tally.create_stock_category(pl), None
+        if op == "CREATE_VOUCHER_TYPE":
+            return tally.create_voucher_type(pl), None
+
+        # ── Delete masters ────────────────────────────────────────────────────
+        if op == "DELETE_LEDGER":
+            return tally.delete_ledger(pl), None
+        if op == "DELETE_STOCK_ITEM":
+            return tally.delete_stock_item(pl), None
+        if op == "DELETE_STOCK_GROUP":
+            return tally.delete_stock_group(pl), None
+        if op == "DELETE_UNIT":
+            return tally.delete_unit(pl), None
+        if op == "DELETE_GODOWN":
+            return tally.delete_godown(pl), None
+        if op == "DELETE_STOCK_CATEGORY":
+            return tally.delete_stock_category(pl), None
+        if op == "DELETE_VOUCHER_TYPE":
+            return tally.delete_voucher_type(pl), None
+
+        # ── Accounting voucher writes ─────────────────────────────────────────
         if op == "CREATE_SALES_VOUCHER":
             return tally.create_sales_voucher(pl), None
         if op == "CREATE_PURCHASE_VOUCHER":
@@ -238,19 +280,61 @@ def _execute_job(tally: TallyClient, job: dict):
             return tally.create_debit_note(pl), None
         if op == "CREATE_CONTRA_VOUCHER":
             return tally.create_contra_voucher(pl), None
+
+        # ── Stock transaction voucher writes ──────────────────────────────────
+        if op == "CREATE_STOCK_JOURNAL":
+            return tally.create_stock_journal(pl), None
+        if op == "CREATE_PHYSICAL_STOCK":
+            return tally.create_physical_stock(pl), None
+        if op == "CREATE_DELIVERY_NOTE":
+            return tally.create_delivery_note(pl), None
+        if op == "CREATE_RECEIPT_NOTE":
+            return tally.create_receipt_note(pl), None
+        if op == "CREATE_REJECTION_IN":
+            return tally.create_rejection_in(pl), None
+        if op == "CREATE_REJECTION_OUT":
+            return tally.create_rejection_out(pl), None
+
+        # ── Delete vouchers ───────────────────────────────────────────────────
+        if op in ("DELETE_VOUCHER", "CANCEL_VOUCHER"):
+            return tally.delete_voucher(pl), None
+
+        # ── Full / partial sync — fetches ALL entity types ────────────────────
         if op in ("SYNC_FULL", "SYNC_PARTIAL"):
-            ledgers = tally.get_ledgers()
-            vouchers = tally.get_vouchers()
-            stock = tally.get_stock_items()
+            ledgers          = tally.get_ledgers()
+            vouchers         = tally.get_vouchers()
+            stock            = tally.get_stock_items()
+            godowns          = tally.get_godowns()
+            stock_groups     = tally.get_stock_groups()
+            stock_categories = tally.get_stock_categories()
+            units            = tally.get_units()
+            groups           = tally.get_groups()
+            voucher_types    = tally.get_voucher_types()
+            stock_txns       = tally.get_stock_transactions()
             return {
-                "synced": True,
-                "ledgers": ledgers,
-                "vouchers": vouchers,
-                "stock_items": stock,
-                "ledger_count": len(ledgers),
-                "voucher_count": len(vouchers),
-                "stock_item_count": len(stock),
+                "synced":             True,
+                "ledgers":            ledgers,
+                "vouchers":           vouchers,
+                "stock_items":        stock,
+                "godowns":            godowns,
+                "stock_groups":       stock_groups,
+                "stock_categories":   stock_categories,
+                "units":              units,
+                "groups":             groups,
+                "voucher_types":      voucher_types,
+                "stock_transactions": stock_txns,
+                "ledger_count":             len(ledgers),
+                "voucher_count":            len(vouchers),
+                "stock_item_count":         len(stock),
+                "godown_count":             len(godowns),
+                "stock_group_count":        len(stock_groups),
+                "stock_category_count":     len(stock_categories),
+                "unit_count":               len(units),
+                "group_count":              len(groups),
+                "voucher_type_count":       len(voucher_types),
+                "stock_transaction_count":  len(stock_txns),
             }, None
+
         return None, f"Not implemented: {op}"
     except TallyError as e:
         return None, str(e)

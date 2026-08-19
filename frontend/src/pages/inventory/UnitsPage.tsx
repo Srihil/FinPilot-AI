@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Scale, Plus, Search, Loader2, AlertCircle, Pencil, Trash2, ChevronDown } from 'lucide-react';
+import { Scale, Plus, Search, Loader2, AlertCircle, Pencil, Trash2, ChevronDown, Square, CheckSquare } from 'lucide-react';
+import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
+import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -73,6 +75,14 @@ export default function UnitsPage() {
   const [createMode, setCreateMode] = useState<CreateMode>('standard');
   const [editItem, setEditItem] = useState<TallyUnit | null>(null);
   const [deleteItem, setDeleteItem] = useState<TallyUnit | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelection = () => setSelectedIds(new Set());
+  const pageIds = data?.items?.map(u => u.id) ?? [];
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allPageSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...pageIds]));
 
   // Standard UQC selection
   const [selectedUqc, setSelectedUqc] = useState<typeof STANDARD_UQCS[0] | null>(null);
@@ -173,12 +183,22 @@ export default function UnitsPage() {
         : isError ? <div className="flex items-center gap-2 p-6 text-red-600"><AlertCircle className="w-5 h-5" /> Failed to load.</div>
         : <table className="w-full text-sm">
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+              <th className="px-2 py-3 w-8">
+                <button onClick={toggleSelectAll} className="p-1 rounded text-slate-300 hover:text-indigo-600 transition-colors">
+                  {allPageSelected ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                </button>
+              </th>
               <th className="px-4 py-3 text-left">Name</th><th className="px-4 py-3 text-left">Symbol</th><th className="px-4 py-3 text-center">Decimals</th><th className="px-4 py-3 text-center">Sync</th><th className="px-4 py-3 text-right">Actions</th>
             </tr></thead>
             <tbody>
-              {data?.items.length === 0 ? <tr><td colSpan={5} className="text-center py-10 text-slate-400">No units found. Add a standard UQC or create a custom unit.</td></tr>
+              {data?.items.length === 0 ? <tr><td colSpan={6} className="text-center py-10 text-slate-400">No units found. Add a standard UQC or create a custom unit.</td></tr>
               : data?.items.map(u => (
                 <tr key={u.id} className="border-b hover:bg-slate-50">
+                  <td className="px-2 py-3">
+                    <button onClick={e => { e.stopPropagation(); toggleSelect(u.id); }} className="p-1 rounded text-slate-300 hover:text-indigo-600 transition-colors">
+                      {selectedIds.has(u.id) ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                    </button>
+                  </td>
                   <td className="px-4 py-3 font-medium">{u.name}</td>
                   <td className="px-4 py-3 text-slate-500 font-mono text-xs">{u.symbol || '—'}</td>
                   <td className="px-4 py-3 text-center text-slate-500">{u.decimal_places}</td>
@@ -284,6 +304,14 @@ export default function UnitsPage() {
         <p className="text-sm">Delete <strong>{deleteItem?.name}</strong>? This will also remove it from TallyPrime.</p>
         <DialogFooter><Button variant="outline" onClick={()=>setDeleteItem(null)}>Cancel</Button><Button variant="destructive" onClick={()=>deleteMut.mutate()} disabled={deleteMut.isPending}>{deleteMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Delete</Button></DialogFooter>
       </DialogContent></Dialog>
+
+      <BulkDeleteBar
+        selectedIds={selectedIds}
+        entityLabel="unit"
+        queryKeys={[['units']]}
+        onClear={clearSelection}
+        onDelete={ids => bulkDeleteApi.masters('unit', ids)}
+      />
     </div>
   );
 }

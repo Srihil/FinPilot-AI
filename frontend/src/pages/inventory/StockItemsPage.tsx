@@ -3,8 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Package, Plus, Search, Loader2, AlertCircle, Pencil, Trash2,
   FolderOpen, FolderClosed, Folder,
-  ChevronRight, ChevronDown, SlidersHorizontal,
+  ChevronRight, ChevronDown, SlidersHorizontal, Square, CheckSquare,
 } from 'lucide-react';
+import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
+import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -150,8 +152,12 @@ export default function StockItemsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editItem, setEditItem] = useState<TallyStockItem | null>(null);
   const [deleteItem, setDeleteItem] = useState<TallyStockItem | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelection = () => setSelectedIds(new Set());
 
   const [formName, setFormName] = useState('');
+
   const [formGroup, setFormGroup] = useState('');
   const [formUnit, setFormUnit] = useState('');
   const [formRate, setFormRate] = useState('');
@@ -191,6 +197,12 @@ export default function StockItemsPage() {
 
   const allItems: TallyStockItem[] = itemsData?.items ?? [];
   const allGroups: TallyStockGroup[] = groupsData?.items ?? [];
+
+  const leafIds = allItems.map(i => i.id);
+  const allLeafSelected = leafIds.length > 0 && leafIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allLeafSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); leafIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...leafIds]));
 
   const filteredItems = useMemo(() => {
     if (!search.trim()) return allItems;
@@ -332,12 +344,21 @@ export default function StockItemsPage() {
             className="pl-9"
           />
         </div>
-        {!search && (
-          <div className="flex gap-2">
-            <button onClick={() => setCollapsed(new Set())} className="text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded hover:bg-slate-100">Expand all</button>
-            <button onClick={collapseAll} className="text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded hover:bg-slate-100">Collapse all</button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          {!search && (
+            <>
+              <button onClick={() => setCollapsed(new Set())} className="text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded hover:bg-slate-100">Expand all</button>
+              <button onClick={collapseAll} className="text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded hover:bg-slate-100">Collapse all</button>
+            </>
+          )}
+          <button
+            onClick={toggleSelectAll}
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-700 px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
+          >
+            {allLeafSelected ? <CheckSquare className="w-3.5 h-3.5 text-indigo-600" /> : <Square className="w-3.5 h-3.5" />}
+            {allLeafSelected ? 'Deselect all' : `Select all (${leafIds.length})`}
+          </button>
+        </div>
       </div>
 
       {/* Tree */}
@@ -417,6 +438,9 @@ export default function StockItemsPage() {
                       <tr key={`item-${item.id}-${i}`} className="border-b hover:bg-slate-50/80 group">
                         <td className="px-3 py-2">
                           <div className="flex items-center">
+                            <button onClick={e => { e.stopPropagation(); toggleSelect(item.id); }} className="p-1 rounded shrink-0 text-slate-300 hover:text-indigo-600 transition-colors">
+                              {selectedIds.has(item.id) ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                            </button>
                             <TreePrefix continues={row.continues} />
                             <Package className={cn('w-3.5 h-3.5 shrink-0', isRoot ? 'text-slate-400' : 'text-indigo-400')} />
                             <span className="ml-1.5 font-medium text-slate-800 text-sm">{item.name}</span>
@@ -620,6 +644,14 @@ export default function StockItemsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkDeleteBar
+        selectedIds={selectedIds}
+        entityLabel="stock item"
+        queryKeys={[['stock-items-tree']]}
+        onClear={clearSelection}
+        onDelete={ids => bulkDeleteApi.masters('stock_item', ids)}
+      />
     </div>
   );
 }

@@ -2,8 +2,10 @@ import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FolderOpen, FolderClosed, Folder, Plus, Search, Loader2, AlertCircle,
-  Pencil, Trash2, ChevronRight, ChevronDown,
+  Pencil, Trash2, ChevronRight, ChevronDown, Square, CheckSquare,
 } from 'lucide-react';
+import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
+import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -115,6 +117,9 @@ export default function GroupsPage() {
   const [formName, setFormName] = useState('');
   const [formParent, setFormParent] = useState('');
   const [formNature, setFormNature] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelection = () => setSelectedIds(new Set());
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['groups-tree'],
@@ -123,6 +128,12 @@ export default function GroupsPage() {
   });
 
   const allGroups: TallyGroup[] = data?.items ?? [];
+
+  const nodeIds = allGroups.map(g => g.id);
+  const allNodesSelected = nodeIds.length > 0 && nodeIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allNodesSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); nodeIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...nodeIds]));
 
   const filteredGroups = useMemo(() => {
     if (!search.trim()) return allGroups;
@@ -249,6 +260,13 @@ export default function GroupsPage() {
             <button onClick={collapseAll} className="text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded hover:bg-slate-100">Collapse all</button>
           </div>
         )}
+        <button
+          onClick={toggleSelectAll}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-700 px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
+        >
+          {allNodesSelected ? <CheckSquare className="w-3.5 h-3.5 text-indigo-600" /> : <Square className="w-3.5 h-3.5" />}
+          {allNodesSelected ? 'Deselect all' : `Select all (${nodeIds.length})`}
+        </button>
       </div>
 
       {/* Tree */}
@@ -293,6 +311,9 @@ export default function GroupsPage() {
                     >
                       <td className="px-3 py-2">
                         <div className="flex items-center">
+                          <button onClick={e => { e.stopPropagation(); toggleSelect(cId); }} className="p-1 rounded shrink-0 text-slate-300 hover:text-indigo-600 transition-colors">
+                            {selectedIds.has(cId) ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                          </button>
                           <TreePrefix continues={row.continues} />
                           {hasChildren ? (
                             <button
@@ -426,6 +447,14 @@ export default function GroupsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkDeleteBar
+        selectedIds={selectedIds}
+        entityLabel="group"
+        queryKeys={[['groups-tree']]}
+        onClear={clearSelection}
+        onDelete={ids => bulkDeleteApi.masters('group', ids)}
+      />
     </div>
   );
 }

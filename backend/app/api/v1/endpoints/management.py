@@ -3004,6 +3004,243 @@ def delete_group(
     return {"status": "deleted", "message": "Deleted successfully."}
 
 
+# ─── Bulk Delete ─────────────────────────────────────────────────────────────
+
+from typing import List as _List
+
+
+class BulkDeleteBody(BaseModel):
+    entity_type: str   # ledger | stock_item | stock_group | unit | godown | stock_category | group
+    ids: _List[str]
+
+
+@router.post("/bulk-delete")
+def bulk_delete_masters(
+    body: BulkDeleteBody,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    """
+    Bulk-delete master records following the same Tally-first rules as individual deletes.
+    Returns batch_id (if any Tally jobs were queued) so the client can poll for results.
+    """
+    from app.models.tally_masters import TallyGroup
+    from app.models.stock_category import StockCategory
+    import secrets as _sec
+
+    ENTITY_MAP: dict = {
+        "ledger":         (TallyLedger,     TallyJobOperation.DELETE_LEDGER,         True),
+        "stock_item":     (TallyStockItem,  TallyJobOperation.DELETE_STOCK_ITEM,     True),
+        "stock_group":    (TallyStockGroup, TallyJobOperation.DELETE_STOCK_GROUP,    True),
+        "unit":           (TallyUnit,       TallyJobOperation.DELETE_UNIT,           True),
+        "godown":         (TallyGodown,     TallyJobOperation.DELETE_GODOWN,         True),
+        "stock_category": (StockCategory,   TallyJobOperation.DELETE_STOCK_CATEGORY, True),
+        "group":          (TallyGroup,      None,                                    False),
+    }
+
+    et = body.entity_type.lower()
+    if et not in ENTITY_MAP:
+        raise HTTPException(400, f"Unknown entity type: {et}")
+
+    model, operation, supports_tally = ENTITY_MAP[et]
+
+    connector = None
+    if supports_tally:
+        connector = db.query(TallyConnector).filter(
+            TallyConnector.company_id == current_user.company_id,
+            TallyConnector.status == ConnectorStatus.ACTIVE,
+        ).first()
+
+    batch_id = uuid.uuid4()
+    tally_queued = 0
+    deleted_immediately = 0
+    errors: list = []
+
+    for id_str in body.ids:
+        try:
+            uid = uuid.UUID(id_str)
+        except ValueError:
+            errors.append({"id": id_str, "reason": "Invalid ID"})
+            continue
+
+        record = db.query(model).filter(
+            model.id == uid,
+            model.company_id == current_user.company_id,
+            model.is_active == True,
+        ).first()
+
+        if not record:
+            errors.append({"id": id_str, "name": id_str, "reason": "Not found"})
+            continue
+
+        name = getattr(record, "name", id_str)
+
+        # Account groups: local-only delete (no Tally operation)
+        if not supports_tally:
+            if getattr(record, "source", "") == "tally_sync":
+                errors.append({"id": id_str, "name": name, "reason": "System groups imported from TallyPrime cannot be deleted from FinPilot"})
+                continue
+            _cancel_pending_job(db, getattr(record, "tally_job_id", None))
+            record.is_active = False
+            deleted_immediately += 1
+            continue
+
+        sync_status = getattr(record, "tally_sync_status", "pending") or "pending"
+
+        if connector and sync_status in ("synced", "finpilot", "delete_failed"):
+            # Tally-first: queue DELETE job
+            record.tally_sync_status = "delete_pending"
+            ikey = f"bulk_del::{operation.value}::{id_str}"
+            if not db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
+                db.add(TallyIntegrationJob(
+                    company_id=current_user.company_id,
+                    connector_id=connector.id,
+                    operation=operation,
+                    payload={"name": name, "entity_id": id_str},
+                    idempotency_key=ikey,
+                    batch_id=batch_id,
+                ))
+                tally_queued += 1
+        else:
+            # No connector or never synced — delete locally immediately
+            _cancel_pending_job(db, getattr(record, "tally_job_id", None))
+            record.is_active = False
+            deleted_immediately += 1
+
+    db.commit()
+    audit_service.log(
+        db, current_user.company_id, current_user.id, AuditAction.DELETE,
+        entity_type=et,
+        description=f"Bulk delete {et}: {tally_queued} queued for Tally, {deleted_immediately} deleted locally",
+    )
+
+    return {
+        "batch_id": str(batch_id) if tally_queued > 0 else None,
+        "tally_queued": tally_queued,
+        "deleted_immediately": deleted_immediately,
+        "errors": errors,
+        "has_connector": connector is not None,
+    }
+
+
+class _BulkVoucherItem(BaseModel):
+    id: str
+    entity_type: str   # invoice | expense
+
+
+class BulkVoucherDeleteBody(BaseModel):
+    items: _List[_BulkVoucherItem]
+
+
+@router.post("/vouchers/bulk-delete")
+def bulk_delete_vouchers(
+    body: BulkVoucherDeleteBody,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    """Bulk-delete vouchers (invoices / expenses / stock transactions)."""
+    from app.models.invoice import Invoice, InvoiceType
+    from app.models.expense import Expense
+
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+
+    batch_id = uuid.uuid4()
+    tally_queued = 0
+    deleted_immediately = 0
+    errors: list = []
+    cid = current_user.company_id
+
+    for item in body.items:
+        et = item.entity_type.lower()
+        id_str = item.id
+
+        try:
+            uid = uuid.UUID(id_str)
+        except ValueError:
+            errors.append({"id": id_str, "reason": "Invalid ID"})
+            continue
+
+        if et == "invoice":
+            record = db.query(Invoice).filter(Invoice.id == uid, Invoice.company_id == cid, Invoice.is_deleted.is_not(True)).first()
+            if not record:
+                errors.append({"id": id_str, "reason": "Not found"})
+                continue
+            if float(record.paid_amount or 0) > 0:
+                errors.append({"id": id_str, "name": record.invoice_number, "reason": f"Has payments (₹{float(record.paid_amount):,.0f}) — remove payments first"})
+                continue
+
+            vstatus = getattr(record, "tally_sync_status", "local_only") or "local_only"
+            raw_vref = getattr(record, "tally_voucher_ref", None) or ""
+            vtype = "Sales" if record.invoice_type and record.invoice_type.value == "SALES" else "Purchase"
+            notes = record.notes or ""
+            is_tally_native = "[tally-sync]" in notes and not raw_vref.startswith("FP-")
+
+            if vstatus in ("synced", "delete_failed", "delete_pending") and (raw_vref or is_tally_native):
+                if is_tally_native and not raw_vref:
+                    errors.append({"id": id_str, "name": record.invoice_number, "reason": "Tally-native voucher — delete directly in TallyPrime"})
+                    continue
+                record.tally_sync_status = "delete_pending"
+                ikey = f"bulk_del_vch::{id_str}"
+                if connector and not db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
+                    inv_date = record.invoice_date.strftime("%Y%m%d") if record.invoice_date else ""
+                    db.add(TallyIntegrationJob(
+                        company_id=cid, connector_id=connector.id,
+                        operation=TallyJobOperation.DELETE_VOUCHER,
+                        payload={"voucher_ref": raw_vref, "voucher_type": vtype, "entity_type": "invoice",
+                                 "date": inv_date, "entity_id": id_str, "name": record.invoice_number or ""},
+                        idempotency_key=ikey, batch_id=batch_id,
+                    ))
+                    tally_queued += 1
+                elif not connector:
+                    errors.append({"id": id_str, "name": record.invoice_number, "reason": "No active TallyPrime connector"})
+            else:
+                record.is_deleted = True
+                deleted_immediately += 1
+
+        elif et == "expense":
+            record = db.query(Expense).filter(Expense.id == uid, Expense.company_id == cid, Expense.is_deleted.is_not(True)).first()
+            if not record:
+                errors.append({"id": id_str, "reason": "Not found"})
+                continue
+
+            vstatus = getattr(record, "tally_sync_status", "local_only") or "local_only"
+            raw_vref = getattr(record, "tally_voucher_ref", None) or ""
+            vtype = record.category or "Payment"
+
+            if vstatus in ("synced", "delete_failed", "delete_pending") and raw_vref:
+                record.tally_sync_status = "delete_pending"
+                ikey = f"bulk_del_vch::{id_str}"
+                if connector and not db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
+                    exp_date = record.expense_date.strftime("%Y%m%d") if record.expense_date else ""
+                    db.add(TallyIntegrationJob(
+                        company_id=cid, connector_id=connector.id,
+                        operation=TallyJobOperation.DELETE_VOUCHER,
+                        payload={"voucher_ref": raw_vref, "voucher_type": vtype, "entity_type": "expense",
+                                 "date": exp_date, "entity_id": id_str, "name": record.reference_number or ""},
+                        idempotency_key=ikey, batch_id=batch_id,
+                    ))
+                    tally_queued += 1
+                elif not connector:
+                    errors.append({"id": id_str, "name": record.reference_number, "reason": "No active TallyPrime connector"})
+            else:
+                record.is_deleted = True
+                deleted_immediately += 1
+        else:
+            errors.append({"id": id_str, "reason": f"Unknown entity_type: {et}"})
+
+    db.commit()
+    return {
+        "batch_id": str(batch_id) if tally_queued > 0 else None,
+        "tally_queued": tally_queued,
+        "deleted_immediately": deleted_immediately,
+        "errors": errors,
+        "has_connector": connector is not None,
+    }
+
+
 # ─── Conflict detection ───────────────────────────────────────────────────────
 
 @router.get("/conflicts")

@@ -2,8 +2,10 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FolderOpen, FolderClosed, Plus, Search, Loader2, AlertCircle,
-  Pencil, Trash2, ChevronRight, ChevronDown, Folder,
+  Pencil, Trash2, ChevronRight, ChevronDown, Folder, Square, CheckSquare,
 } from 'lucide-react';
+import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
+import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -74,9 +76,11 @@ interface RowProps {
   onToggle: (id: string) => void;
   onEdit: (g: TallyStockGroup) => void;
   onDelete: (g: TallyStockGroup) => void;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
 }
 
-function GroupRow({ node, collapsed, onToggle, onEdit, onDelete }: RowProps) {
+function GroupRow({ node, collapsed, onToggle, onEdit, onDelete, selectedIds, onToggleSelect }: RowProps) {
   const hasChildren = node.children.length > 0;
   const isCollapsed = collapsed.has(node.id);
 
@@ -84,6 +88,9 @@ function GroupRow({ node, collapsed, onToggle, onEdit, onDelete }: RowProps) {
     <tr className={cn('border-b hover:bg-slate-50 group', hasChildren && 'cursor-pointer select-none')} onClick={() => hasChildren && onToggle(node.id)}>
       <td className="px-4 py-2.5">
         <div className="flex items-center gap-1" style={{ paddingLeft: node.depth * 20 }}>
+          <button onClick={e => { e.stopPropagation(); onToggleSelect(node.id); }} className="p-1 rounded shrink-0 text-slate-300 hover:text-indigo-600 transition-colors">
+            {selectedIds.has(node.id) ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+          </button>
           {/* Tree line indicator */}
           {node.depth > 0 && (
             <span className="text-slate-300 select-none mr-0.5">
@@ -151,6 +158,9 @@ export default function StockGroupsPage() {
   const [deleteItem, setDeleteItem] = useState<TallyStockGroup | null>(null);
   const [formName, setFormName] = useState('');
   const [formParent, setFormParent] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelection = () => setSelectedIds(new Set());
 
   // Load all groups — no pagination for tree view
   const { data, isLoading, isError } = useQuery({
@@ -160,6 +170,12 @@ export default function StockGroupsPage() {
   });
 
   const allGroups: TallyStockGroup[] = data?.items ?? [];
+
+  const nodeIds = allGroups.map(g => g.id);
+  const allNodesSelected = nodeIds.length > 0 && nodeIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allNodesSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); nodeIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...nodeIds]));
 
   // Build tree and filter
   const tree = useMemo(() => buildTree(allGroups), [allGroups]);
@@ -266,6 +282,13 @@ export default function StockGroupsPage() {
             </button>
           </div>
         )}
+        <button
+          onClick={toggleSelectAll}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-700 px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
+        >
+          {allNodesSelected ? <CheckSquare className="w-3.5 h-3.5 text-indigo-600" /> : <Square className="w-3.5 h-3.5" />}
+          {allNodesSelected ? 'Deselect all' : `Select all (${nodeIds.length})`}
+        </button>
       </div>
 
       {/* Tree table */}
@@ -304,6 +327,8 @@ export default function StockGroupsPage() {
                     onToggle={toggleCollapse}
                     onEdit={g => { setFormName(g.name); setFormParent(g.parent || ''); setEditItem(g); }}
                     onDelete={g => setDeleteItem(g)}
+                    selectedIds={selectedIds}
+                    onToggleSelect={toggleSelect}
                   />
                 ))}
               </tbody>
@@ -400,6 +425,14 @@ export default function StockGroupsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkDeleteBar
+        selectedIds={selectedIds}
+        entityLabel="stock group"
+        queryKeys={[['stock-groups-tree'], ['stock-groups-all']]}
+        onClear={clearSelection}
+        onDelete={ids => bulkDeleteApi.masters('stock_group', ids)}
+      />
     </div>
   );
 }

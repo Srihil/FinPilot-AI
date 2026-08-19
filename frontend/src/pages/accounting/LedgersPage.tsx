@@ -2,8 +2,10 @@ import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   BookOpen, Plus, Search, Loader2, AlertCircle, Pencil, Trash2,
-  ChevronRight, ChevronDown, Layers,
+  ChevronRight, ChevronDown, Layers, Square, CheckSquare,
 } from 'lucide-react';
+import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
+import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -161,6 +163,14 @@ export default function LedgersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editItem, setEditItem] = useState<TallyLedger | null>(null);
   const [deleteItem, setDeleteItem] = useState<TallyLedger | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelection = () => setSelectedIds(new Set());
+  const leafIds = useMemo(() => rows.filter(r => r.kind === 'ledger').map(r => (r as Extract<typeof r, {kind:'ledger'}>).ledger.id), [rows]);
+  const allLeafSelected = leafIds.length > 0 && leafIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allLeafSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); leafIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...leafIds]));
 
   const [formName, setFormName] = useState('');
   const [formGroup, setFormGroup] = useState('Sundry Debtors');
@@ -329,6 +339,13 @@ export default function LedgersPage() {
             <button onClick={collapseAll} className="text-xs text-slate-500 hover:text-indigo-600 px-2 py-1 rounded hover:bg-slate-100">Collapse all</button>
           </div>
         )}
+        <button
+          onClick={toggleSelectAll}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-700 px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
+        >
+          {allLeafSelected ? <CheckSquare className="w-3.5 h-3.5 text-indigo-600" /> : <Square className="w-3.5 h-3.5" />}
+          {allLeafSelected ? 'Deselect all' : `Select all (${leafIds.length})`}
+        </button>
       </div>
 
       {/* Tree table */}
@@ -391,6 +408,9 @@ export default function LedgersPage() {
                       <tr key={`l-${l.id}`} className="border-b hover:bg-slate-50/80 group">
                         <td className="px-3 py-2">
                           <div className="flex items-center">
+                            <button onClick={e => { e.stopPropagation(); toggleSelect(l.id); }} className="p-1 rounded shrink-0 text-slate-300 hover:text-indigo-600 transition-colors">
+                              {selectedIds.has(l.id) ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                            </button>
                             <TreePrefix isLast={row.isLast} />
                             <BookOpen className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                             <span className="ml-1.5 font-medium text-slate-800 text-sm">{l.name}</span>
@@ -641,6 +661,14 @@ export default function LedgersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkDeleteBar
+        selectedIds={selectedIds}
+        entityLabel="ledger"
+        queryKeys={[['ledgers-tree']]}
+        onClear={clearSelection}
+        onDelete={ids => bulkDeleteApi.masters('ledger', ids)}
+      />
     </div>
   );
 }

@@ -9,6 +9,8 @@ import {
   Trash2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import apiClient from '../../api/client';
+import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
+import { bulkDeleteApi } from '../../api/endpoints';
 import { Button } from '../../components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -222,7 +224,12 @@ function StepIndicator({ current }: { current: WizardStep }) {
 
 // ─── History Row ──────────────────────────────────────────────────────────────
 
-function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) => void }) {
+function HistoryRow({ u, onDelete, isSelected, onToggleSelect }: {
+  u: UploadHistory;
+  onDelete: (id: string) => void;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -281,6 +288,14 @@ function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) 
         className="flex items-center gap-4 py-3.5 px-5 hover:bg-slate-50/70 cursor-pointer transition-colors group"
         onClick={() => setExpanded(e => !e)}
       >
+        {onToggleSelect && (
+          <button
+            onClick={e => { e.stopPropagation(); onToggleSelect(u.id); }}
+            className="p-0.5 rounded shrink-0 text-slate-300 hover:text-indigo-600 transition-colors"
+          >
+            {isSelected ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+          </button>
+        )}
         <FileSpreadsheet className="w-4 h-4 text-slate-400 shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-slate-900 truncate">{u.original_filename}</p>
@@ -420,6 +435,9 @@ function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) 
 export default function UploadsPage() {
   const [tab, setTab] = useState<'import' | 'history'>('import');
   const [historyPage, setHistoryPage] = useState(1);
+  const [historySelectedIds, setHistorySelectedIds] = useState<Set<string>>(new Set());
+  const toggleHistorySelect = (id: string) => setHistorySelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearHistorySelection = () => setHistorySelectedIds(new Set());
   const [step, setStep] = useState<WizardStep>('drop');
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -1470,6 +1488,8 @@ export default function UploadsPage() {
                     key={u.id}
                     u={u}
                     onDelete={() => qc.invalidateQueries({ queryKey: ['upload-history'] })}
+                    isSelected={historySelectedIds.has(u.id)}
+                    onToggleSelect={toggleHistorySelect}
                   />
                 ))}
               </div>
@@ -1513,6 +1533,14 @@ export default function UploadsPage() {
           </div>
         </div>
       )}
+
+      <BulkDeleteBar
+        selectedIds={historySelectedIds}
+        entityLabel="import history entry"
+        queryKeys={[['upload-history']]}
+        onClear={clearHistorySelection}
+        onDelete={ids => bulkDeleteApi.uploads(ids)}
+      />
     </div>
   );
 }

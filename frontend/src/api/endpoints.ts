@@ -471,6 +471,17 @@ export type TallyJobItem = {
   payload?: Record<string, unknown>;
 };
 
+export type BulkDeleteEntityType =
+  | 'ledger' | 'stock_item' | 'stock_group' | 'unit' | 'godown' | 'stock_category' | 'group';
+
+export interface BulkDeleteApiResult {
+  batch_id: string | null;
+  tally_queued: number;
+  deleted_immediately: number;
+  errors: Array<{ id: string; name?: string; reason: string }>;
+  has_connector: boolean;
+}
+
 export const tallyApi = {
   activity: async (limit = 30): Promise<{ items: TallyJobItem[] }> => {
     const response = await apiClient.get('/api/tally/activity', { params: { limit } });
@@ -479,6 +490,30 @@ export const tallyApi = {
   retryJob: async (jobId: string): Promise<{ id: string; status: string; message: string }> => {
     const response = await apiClient.post(`/api/tally/jobs/${jobId}/retry`);
     return response.data;
+  },
+};
+
+export const bulkDeleteApi = {
+  masters: async (entity_type: BulkDeleteEntityType, ids: string[]): Promise<BulkDeleteApiResult> => {
+    const res = await apiClient.post('/api/management/bulk-delete', { entity_type, ids });
+    return res.data;
+  },
+  vouchers: async (items: Array<{ id: string; entity_type: string }>): Promise<BulkDeleteApiResult> => {
+    const res = await apiClient.post('/api/management/vouchers/bulk-delete', { items });
+    return res.data;
+  },
+  uploads: async (ids: string[]): Promise<BulkDeleteApiResult> => {
+    let deleted = 0;
+    const errors: Array<{ id: string; reason: string }> = [];
+    await Promise.all(ids.map(async (id) => {
+      try {
+        await apiClient.delete(`/api/uploads/${id}`);
+        deleted++;
+      } catch {
+        errors.push({ id, reason: 'Delete failed' });
+      }
+    }));
+    return { batch_id: null, tally_queued: 0, deleted_immediately: deleted, errors, has_connector: false };
   },
 };
 

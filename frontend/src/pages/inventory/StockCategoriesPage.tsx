@@ -2,8 +2,10 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Tag, Plus, Search, Loader2, AlertCircle,
-  Pencil, Trash2, ChevronRight, ChevronDown,
+  Pencil, Trash2, ChevronRight, ChevronDown, Square, CheckSquare,
 } from 'lucide-react';
+import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
+import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -69,9 +71,11 @@ interface RowProps {
   onToggle: (id: string) => void;
   onEdit: (c: StockCategory) => void;
   onDelete: (c: StockCategory) => void;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
 }
 
-function CategoryRow({ node, collapsed, onToggle, onEdit, onDelete }: RowProps) {
+function CategoryRow({ node, collapsed, onToggle, onEdit, onDelete, selectedIds, onToggleSelect }: RowProps) {
   const hasChildren = node.children.length > 0;
   const isCollapsed = collapsed.has(node.id);
 
@@ -79,6 +83,9 @@ function CategoryRow({ node, collapsed, onToggle, onEdit, onDelete }: RowProps) 
     <tr className={cn('border-b hover:bg-slate-50 group', hasChildren && 'cursor-pointer select-none')} onClick={() => hasChildren && onToggle(node.id)}>
       <td className="px-4 py-2.5">
         <div className="flex items-center gap-1" style={{ paddingLeft: node.depth * 20 }}>
+          <button onClick={e => { e.stopPropagation(); onToggleSelect(node.id); }} className="p-1 rounded shrink-0 text-slate-300 hover:text-indigo-600 transition-colors">
+            {selectedIds.has(node.id) ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+          </button>
           {node.depth > 0 && (
             <span className="text-slate-300 select-none mr-0.5">└</span>
           )}
@@ -146,6 +153,9 @@ export default function StockCategoriesPage() {
   const [formName, setFormName] = useState('');
   const [formParent, setFormParent] = useState('');
   const [formDesc, setFormDesc] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelection = () => setSelectedIds(new Set());
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stock-categories-tree'],
@@ -154,6 +164,12 @@ export default function StockCategoriesPage() {
   });
 
   const allCats: StockCategory[] = data?.items ?? [];
+
+  const nodeIds = allCats.map(c => c.id);
+  const allNodesSelected = nodeIds.length > 0 && nodeIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allNodesSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); nodeIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...nodeIds]));
 
   const tree = useMemo(() => buildTree(allCats), [allCats]);
 
@@ -275,6 +291,13 @@ export default function StockCategoriesPage() {
             </button>
           </div>
         )}
+        <button
+          onClick={toggleSelectAll}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-violet-700 px-2 py-1 rounded hover:bg-violet-50 transition-colors"
+        >
+          {allNodesSelected ? <CheckSquare className="w-3.5 h-3.5 text-violet-600" /> : <Square className="w-3.5 h-3.5" />}
+          {allNodesSelected ? 'Deselect all' : `Select all (${nodeIds.length})`}
+        </button>
       </div>
 
       {/* Tree table */}
@@ -316,6 +339,8 @@ export default function StockCategoriesPage() {
                     onToggle={toggleCollapse}
                     onEdit={openEdit}
                     onDelete={c => setDeleteItem(c)}
+                    selectedIds={selectedIds}
+                    onToggleSelect={toggleSelect}
                   />
                 ))}
               </tbody>
@@ -424,6 +449,14 @@ export default function StockCategoriesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkDeleteBar
+        selectedIds={selectedIds}
+        entityLabel="stock category"
+        queryKeys={[['stock-categories-tree'], ['stock-categories']]}
+        onClear={clearSelection}
+        onDelete={ids => bulkDeleteApi.masters('stock_category', ids)}
+      />
     </div>
   );
 }

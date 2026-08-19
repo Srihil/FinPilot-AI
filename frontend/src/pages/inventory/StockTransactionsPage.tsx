@@ -3,7 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftRight, Plus, Search, Loader2, AlertCircle, Trash2, X,
   ChevronDown, ChevronRight, MoveRight, Package, MapPin, User2, Pencil,
+  Square, CheckSquare,
 } from 'lucide-react';
+import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
+import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -217,6 +220,9 @@ export default function StockTransactionsPage() {
   const [deleteItem, setDeleteItem] = useState<StockTxn | null>(null);
   const [editItem, setEditItem]   = useState<StockTxn | null>(null);
   const [expanded, setExpanded]   = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelection = () => setSelectedIds(new Set());
 
   // Edit form state
   const [editDate, setEditDate]           = useState('');
@@ -389,6 +395,7 @@ export default function StockTransactionsPage() {
               <thead>
                 <tr className="border-b bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
                   <th className="w-8" />
+                  <th className="w-8" />
                   <th className="px-4 py-3 text-left">Number</th>
                   <th className="px-4 py-3 text-left w-36">Type</th>
                   <th className="px-4 py-3 text-left w-28">Date</th>
@@ -400,7 +407,7 @@ export default function StockTransactionsPage() {
               </thead>
               <tbody>
                 {!data?.items?.length ? (
-                  <tr><td colSpan={8} className="text-center py-14 text-slate-400">No stock transactions yet.</td></tr>
+                  <tr><td colSpan={9} className="text-center py-14 text-slate-400">No stock transactions yet.</td></tr>
                 ) : data.items.map((t: StockTxn) => {
                   const meta    = TYPE_META[t.transaction_type] ?? { color: 'bg-slate-100 text-slate-600', label: t.transaction_type_label };
                   const isOpen  = expanded.has(t.id);
@@ -435,6 +442,12 @@ export default function StockTransactionsPage() {
                           isOpen ? 'bg-indigo-50/60' : 'hover:bg-slate-50'
                         )}
                       >
+                        {/* Checkbox */}
+                        <td className="pl-2 pr-1 py-3" onClick={e => e.stopPropagation()}>
+                          <button onClick={e => { e.stopPropagation(); toggleSelect(t.id); }} className="p-1 rounded shrink-0 text-slate-300 hover:text-indigo-600 transition-colors">
+                            {selectedIds.has(t.id) ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                          </button>
+                        </td>
                         {/* Expand chevron */}
                         <td className="pl-3 pr-1 py-3 text-slate-400">
                           {isOpen
@@ -510,7 +523,7 @@ export default function StockTransactionsPage() {
                       {/* Expanded detail */}
                       {isOpen && (
                         <tr key={`${t.id}-detail`} className="border-b">
-                          <td colSpan={8} className="p-0">
+                          <td colSpan={9} className="p-0">
                             <TxnDetail txn={t} />
                           </td>
                         </tr>
@@ -726,6 +739,14 @@ export default function StockTransactionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkDeleteBar
+        selectedIds={selectedIds}
+        entityLabel="stock transaction"
+        queryKeys={[['stock-transactions']]}
+        onClear={clearSelection}
+        onDelete={ids => bulkDeleteApi.vouchers(ids.map(id => ({ id, entity_type: 'expense' })))}
+      />
     </div>
   );
 }

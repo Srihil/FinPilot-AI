@@ -503,6 +503,58 @@ def get_activity(
     return {"items": items}
 
 
+# ─── User-facing: batch delete results ─────────────────────────────────────
+
+@router.get("/batch/{batch_id}/results")
+def get_batch_results(
+    batch_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Poll status of all jobs in a bulk-delete batch."""
+    try:
+        bid = uuid.UUID(batch_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid batch_id")
+
+    jobs = db.query(TallyIntegrationJob).filter(
+        TallyIntegrationJob.batch_id == bid,
+        TallyIntegrationJob.company_id == current_user.company_id,
+    ).all()
+
+    if not jobs:
+        raise HTTPException(404, "Batch not found")
+
+    pending = success = failed = 0
+    job_list = []
+    for j in jobs:
+        pl = j.payload or {}
+        s = j.status.value
+        if s in ("PENDING", "CLAIMED", "RUNNING", "RETRYING"):
+            pending += 1
+        elif s == "SUCCESS":
+            success += 1
+        else:
+            failed += 1
+        job_list.append({
+            "job_id": str(j.id),
+            "entity_id": pl.get("entity_id", ""),
+            "name": pl.get("name", ""),
+            "status": s,
+            "error": j.error_message or "",
+        })
+
+    return {
+        "batch_id": batch_id,
+        "total": len(jobs),
+        "pending": pending,
+        "success": success,
+        "failed": failed,
+        "is_complete": pending == 0,
+        "jobs": job_list,
+    }
+
+
 # ─── User-facing: create a Tally write job (requires approved approval) ─────
 
 @router.post("/jobs")

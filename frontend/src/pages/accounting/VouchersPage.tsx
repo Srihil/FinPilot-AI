@@ -3,8 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FileText, Search, Loader2, AlertCircle, Trash2, Filter, Eraser,
-  Sparkles, ChevronRight, ChevronDown, Info, Plus, Pencil,
+  Sparkles, ChevronRight, ChevronDown, Info, Plus, Pencil, Square, CheckSquare,
 } from 'lucide-react';
+import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
+import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -211,6 +213,14 @@ export default function VouchersPage() {
   const [deleteItem, setDeleteItem] = useState<VoucherItem | null>(null);
   const [editItem, setEditItem] = useState<VoucherItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelection = () => setSelectedIds(new Set());
+  const pageIds = data?.items?.map(v => v.id) ?? [];
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allPageSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...pageIds]));
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -519,7 +529,11 @@ export default function VouchersPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
-                    <th className="w-8" />
+                    <th className="w-8 px-1 py-3">
+                      <button onClick={toggleSelectAll} className="p-1 rounded text-slate-300 hover:text-indigo-600 transition-colors">
+                        {allPageSelected ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                      </button>
+                    </th>
                     <th className="px-4 py-3 text-left">Number</th>
                     <th className="px-4 py-3 text-left">Date</th>
                     <th className="px-4 py-3 text-left">Type</th>
@@ -532,13 +546,18 @@ export default function VouchersPage() {
                 </thead>
                 <tbody>
                   {data?.items.length === 0 ? (
-                    <tr><td colSpan={9} className="text-center py-10 text-slate-400">No vouchers found.</td></tr>
+                    <tr><td colSpan={10} className="text-center py-10 text-slate-400">No vouchers found.</td></tr>
                   ) : data?.items.map(v => {
                     const isOpen = expanded.has(v.id);
                     return (
                       <>
                         <tr key={v.id} onClick={() => toggleExpand(v.id)}
                           className={cn('border-b cursor-pointer transition-colors', isOpen ? 'bg-indigo-50/60' : 'hover:bg-slate-50')}>
+                          <td className="pl-2 pr-1 py-3" onClick={e => e.stopPropagation()}>
+                            <button onClick={e => { e.stopPropagation(); toggleSelect(v.id); }} className="p-1 rounded shrink-0 text-slate-300 hover:text-indigo-600 transition-colors">
+                              {selectedIds.has(v.id) ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                            </button>
+                          </td>
                           <td className="pl-3 pr-1 py-3 text-slate-400">
                             {isOpen ? <ChevronDown className="w-4 h-4 text-indigo-500" /> : <ChevronRight className="w-4 h-4" />}
                           </td>
@@ -574,7 +593,7 @@ export default function VouchersPage() {
                         </tr>
                         {isOpen && (
                           <tr key={`${v.id}-detail`} className="border-b">
-                            <td colSpan={9} className="p-0"><VoucherDetail v={v} /></td>
+                            <td colSpan={10} className="p-0"><VoucherDetail v={v} /></td>
                           </tr>
                         )}
                       </>
@@ -920,6 +939,14 @@ export default function VouchersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkDeleteBar
+        selectedIds={selectedIds}
+        entityLabel="voucher"
+        queryKeys={[['vouchers']]}
+        onClear={clearSelection}
+        onDelete={ids => bulkDeleteApi.vouchers([...ids].map(id => { const v = data?.items?.find(v => v.id === id); return { id, entity_type: v?.entity_type || 'invoice' }; }))}
+      />
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Warehouse, Plus, Search, Loader2, AlertCircle, Pencil, Trash2 } from 'lucide-react';
+import { Warehouse, Plus, Search, Loader2, AlertCircle, Pencil, Trash2, Square, CheckSquare } from 'lucide-react';
+import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
+import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -19,6 +21,14 @@ export default function GodownsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editItem, setEditItem] = useState<TallyGodown | null>(null);
   const [deleteItem, setDeleteItem] = useState<TallyGodown | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSelection = () => setSelectedIds(new Set());
+  const pageIds = data?.items?.map(g => g.id) ?? [];
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+  const toggleSelectAll = () => allPageSelected
+    ? setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.delete(id)); return n; })
+    : setSelectedIds(prev => new Set([...prev, ...pageIds]));
   const [formName, setFormName] = useState('');
   const [formParent, setFormParent] = useState('');
 
@@ -60,12 +70,22 @@ export default function GodownsPage() {
         : isError ? <div className="flex items-center gap-2 p-6 text-red-600"><AlertCircle className="w-5 h-5" /> Failed to load.</div>
         : <table className="w-full text-sm">
             <thead><tr className="border-b bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+              <th className="px-2 py-3 w-8">
+                <button onClick={toggleSelectAll} className="p-1 rounded text-slate-300 hover:text-indigo-600 transition-colors">
+                  {allPageSelected ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                </button>
+              </th>
               <th className="px-4 py-3 text-left">Name</th><th className="px-4 py-3 text-left">Parent</th><th className="px-4 py-3 text-center">Sync</th><th className="px-4 py-3 text-right">Actions</th>
             </tr></thead>
             <tbody>
-              {data?.items.length === 0 ? <tr><td colSpan={4} className="text-center py-10 text-slate-400">No godowns found.</td></tr>
+              {data?.items.length === 0 ? <tr><td colSpan={5} className="text-center py-10 text-slate-400">No godowns found.</td></tr>
               : data?.items.map(g => (
                 <tr key={g.id} className="border-b hover:bg-slate-50">
+                  <td className="px-2 py-3">
+                    <button onClick={e => { e.stopPropagation(); toggleSelect(g.id); }} className="p-1 rounded text-slate-300 hover:text-indigo-600 transition-colors">
+                      {selectedIds.has(g.id) ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                    </button>
+                  </td>
                   <td className="px-4 py-3 font-medium">{g.name}</td><td className="px-4 py-3 text-slate-500">{g.parent || '—'}</td>
                   <td className="px-4 py-3 text-center"><SyncBadge status={g.tally_sync_status} source={g.source} /></td>
                   <td className="px-4 py-3 text-right"><div className="flex items-center justify-end gap-2">
@@ -90,6 +110,14 @@ export default function GodownsPage() {
         <p className="text-sm">Delete <strong>{deleteItem?.name}</strong>?</p>
         <DialogFooter><Button variant="outline" onClick={()=>setDeleteItem(null)}>Cancel</Button><Button variant="destructive" onClick={()=>deleteMut.mutate()} disabled={deleteMut.isPending}>{deleteMut.isPending&&<Loader2 className="w-4 h-4 animate-spin mr-2"/>}Delete</Button></DialogFooter>
       </DialogContent></Dialog>
+
+      <BulkDeleteBar
+        selectedIds={selectedIds}
+        entityLabel="godown"
+        queryKeys={[['godowns'], ['godowns-all']]}
+        onClear={clearSelection}
+        onDelete={ids => bulkDeleteApi.masters('godown', ids)}
+      />
     </div>
   );
 }

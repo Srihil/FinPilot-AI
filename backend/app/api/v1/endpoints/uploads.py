@@ -796,8 +796,100 @@ def ingest_row_action(
         row["status"] = status
         row["check_default"] = check_default
 
+    elif action == "update_mapped":
+        # Bulk-update mapped field values and re-run full single-row validation
+        updates: dict = body.get("updates", {})
+        if not updates:
+            raise HTTPException(400, "updates dict is required for update_mapped")
+        mapped = dict(row.get("mapped", {}))
+        mapped.update(updates)
+        row["mapped"] = mapped
+
+        # Full re-validation of this single row against DB
+        entity_type = record.detected_entity_type or ""
+        col_mapping = record.column_mapping or {}
+        from app.services.ingestion_service import (
+            validate_rows, _determine_final_status,
+            _load_entity_records, _load_ref_records, ENTITY_REFERENCES, ENTITY_DB_TABLE,
+            check_duplicate, resolve_entity_references, SCHEMA_FIELDS,
+            _coerce_float, _coerce_date, _validate_ledger_fields,
+            _validate_stock_item_fields, _validate_voucher, build_intra_file_index,
+            TALLY_STANDARD_GROUPS,
+        )
+
+        # Re-validate this row's fields from scratch
+        schema = SCHEMA_FIELDS.get(entity_type, {})
+        errors: list = []
+        warnings: list = []
+        new_mapped: dict = {}
+
+        for sf, meta in schema.items():
+            val = mapped.get(sf)
+            ft = meta["type"]
+            if ft == "float":
+                from app.services.ingestion_service import _coerce_float
+                coerced = _coerce_float(val)
+                if val is not None and val != "" and coerced is None:
+                    errors.append({"field": sf, "message": f"'{val}' is not a valid number"})
+                new_mapped[sf] = coerced
+            elif ft == "date":
+                from app.services.ingestion_service import _coerce_date
+                coerced = _coerce_date(val)
+                if val is not None and val != "" and coerced is None:
+                    errors.append({"field": sf, "message": f"'{val}' is not a valid date"})
+                new_mapped[sf] = coerced
+            else:
+                new_mapped[sf] = str(val) if val is not None else None
+            if meta["required"] and (new_mapped.get(sf) is None or new_mapped.get(sf) == ""):
+                errors.append({"field": sf, "message": f"'{sf}' is required"})
+
+        if entity_type == "Ledger":
+            company_groups: set = set()
+            try:
+                from sqlalchemy import text
+                rows_g = db.execute(
+                    text("SELECT name FROM tally_groups WHERE company_id = :cid AND is_active = true"),
+                    {"cid": str(current_user.company_id)},
+                ).fetchall()
+                company_groups = {r[0].lower().strip() for r in rows_g} | TALLY_STANDARD_GROUPS
+            except Exception:
+                pass
+            _validate_ledger_fields(new_mapped, errors, warnings, company_groups)
+        elif entity_type == "Stock Item":
+            _validate_stock_item_fields(new_mapped, warnings)
+        elif entity_type == "Voucher":
+            _validate_voucher(new_mapped, errors, warnings)
+
+        # Duplicate check
+        dup_info = None
+        name_val = str(new_mapped.get("name", "")).lower().strip()
+        if name_val and entity_type in ENTITY_DB_TABLE:
+            entity_records = _load_entity_records(entity_type, current_user.company_id, db)
+            dup_info = check_duplicate(name_val, entity_records)
+
+        # Reference resolution
+        ref_cache: dict = {}
+        for ref_def in ENTITY_REFERENCES.get(entity_type, []):
+            rt = ref_def["ref_type"]
+            if rt not in ref_cache:
+                ref_cache[rt] = _load_ref_records(rt, current_user.company_id, db)
+        ref_issues = resolve_entity_references(entity_type, new_mapped, ref_cache, set())
+
+        status, check_default = _determine_final_status(errors, warnings, dup_info, ref_issues)
+
+        def _safe(v):
+            return v if v is None or isinstance(v, (int, float, bool, str)) else str(v)
+
+        row["mapped"] = {k: _safe(v) for k, v in new_mapped.items()}
+        row["errors"] = errors
+        row["warnings"] = warnings
+        row["duplicate_info"] = dup_info
+        row["ref_issues"] = ref_issues
+        row["status"] = status
+        row["check_default"] = check_default
+
     else:
-        raise HTTPException(400, f"Unknown action '{action}'. Valid: force_import, use_existing, dismiss_dup")
+        raise HTTPException(400, f"Unknown action '{action}'. Valid: force_import, use_existing, dismiss_dup, update_mapped")
 
     row_report[row_idx] = row
     record.row_report = row_report

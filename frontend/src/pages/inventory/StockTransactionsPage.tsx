@@ -745,7 +745,7 @@ export default function StockTransactionsPage() {
         entityLabel="stock transaction"
         queryKeys={[['stock-transactions']]}
         onClear={clearSelection}
-        onDelete={ids => bulkDeleteApi.vouchers(ids.map(id => ({ id, entity_type: 'expense' })))}
+        onDelete={ids => bulkDeleteApi.vouchers(ids.map(id => ({ id, entity_type: 'stock_transaction' })))}
       />
     </div>
   );

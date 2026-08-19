@@ -466,24 +466,36 @@ def get_activity(
     for j in jobs:
         if j.batch_id:
             bid = str(j.batch_id)
+            is_delete = j.operation.value.startswith('DELETE_')
+            is_active = j.status.value in ('PENDING', 'CLAIMED', 'RUNNING', 'RETRYING')
+            pl = j.payload or {}
             if bid in seen_batches:
                 b = seen_batches[bid]
                 b['total'] += 1
                 b[j.status.value.lower()] = b.get(j.status.value.lower(), 0) + 1
-                if j.status.value in ('PENDING', 'CLAIMED', 'RUNNING', 'RETRYING'):
+                if is_active:
                     b['active'] = b.get('active', 0) + 1
                 if j.status.value == 'FAILED':
                     b['failed'] = b.get('failed', 0) + 1
+                    b['failed_jobs'].append({
+                        'name': pl.get('name') or pl.get('voucher_number') or pl.get('voucher_ref') or '',
+                        'error': j.error_message or '',
+                    })
             else:
                 b = {
                     'id': f'batch_{bid}',
                     'is_batch': True,
                     'batch_id': bid,
                     'operation': j.operation.value,
+                    'batch_type': 'bulk_delete' if is_delete else 'bulk_import',
                     'total': 1,
                     'success': 1 if j.status.value == 'SUCCESS' else 0,
                     'failed': 1 if j.status.value == 'FAILED' else 0,
-                    'active': 1 if j.status.value in ('PENDING', 'CLAIMED', 'RUNNING', 'RETRYING') else 0,
+                    'active': 1 if is_active else 0,
+                    'failed_jobs': [{
+                        'name': pl.get('name') or pl.get('voucher_number') or pl.get('voucher_ref') or '',
+                        'error': j.error_message or '',
+                    }] if j.status.value == 'FAILED' else [],
                     'created_at': j.created_at.isoformat(),
                 }
                 seen_batches[bid] = b

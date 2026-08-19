@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, X, Clock, CheckCircle2, XCircle, RotateCcw,
-  Loader2, AlertCircle, Package,
+  Loader2, AlertCircle, Package, Trash2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { tallyApi, type TallyJobItem } from '../../api/endpoints';
 import { Skeleton } from './skeleton';
@@ -139,28 +140,39 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Batch summary card ───────────────────────────────────────────────────────
 
 function BatchJobCard({ item }: { item: TallyJobItem }) {
-  const entity = OP_ENTITY[item.operation] ?? 'Record';
-  const total   = (item as any).total   ?? 0;
-  const success = (item as any).success ?? 0;
-  const failed  = (item as any).failed  ?? 0;
-  const active  = (item as any).active  ?? 0;
-  const pending = total - success - failed;
+  const [showFailed, setShowFailed] = useState(false);
+
+  const b         = item as any;
+  const entity    = OP_ENTITY[item.operation] ?? 'Record';
+  const total     = b.total   ?? 0;
+  const success   = b.success ?? 0;
+  const failed    = b.failed  ?? 0;
+  const active    = b.active  ?? 0;
+  const pending   = total - success - failed;
+  const isDelete  = b.batch_type === 'bulk_delete';
+  const failedJobs: Array<{ name: string; error: string }> = b.failed_jobs ?? [];
 
   const overallStatus = failed > 0 && active === 0 ? 'PARTIAL'
     : active > 0 ? 'RUNNING'
     : 'SUCCESS';
 
+  const borderCls = overallStatus === 'PARTIAL' ? 'border-amber-200 bg-amber-50/40'
+    : overallStatus === 'RUNNING' ? 'border-indigo-200 bg-indigo-50/40'
+    : 'border-emerald-200 bg-emerald-50/40';
+
+  const Icon = isDelete ? Trash2 : Package;
+  const iconCls = isDelete ? 'text-red-500' : 'text-indigo-500';
+  const label = isDelete ? 'Bulk Delete' : 'Bulk Import';
+  const actionWord = isDelete ? 'deleted' : 'synced';
+
   return (
-    <div className={`rounded-xl border p-3.5 space-y-2.5 transition-all ${
-      overallStatus === 'PARTIAL' ? 'border-amber-200 bg-amber-50/40' :
-      overallStatus === 'RUNNING' ? 'border-indigo-200 bg-indigo-50/40' :
-      'border-emerald-200 bg-emerald-50/40'
-    }`}>
+    <div className={`rounded-xl border p-3.5 space-y-2.5 transition-all ${borderCls}`}>
+      {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <Package className="w-4 h-4 text-indigo-500 shrink-0" />
+          <Icon className={`w-4 h-4 shrink-0 ${iconCls}`} />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-800">Bulk Import</p>
+            <p className="text-sm font-semibold text-slate-800">{label}</p>
             <p className="text-xs text-slate-500 mt-0.5">{total} {entity}{total !== 1 ? 's' : ''}</p>
           </div>
         </div>
@@ -173,15 +185,50 @@ function BatchJobCard({ item }: { item: TallyJobItem }) {
             ? <><Loader2 className="w-3 h-3 animate-spin" /> In progress</>
             : overallStatus === 'PARTIAL'
             ? <><AlertCircle className="w-3 h-3" /> Partial</>
-            : <><CheckCircle2 className="w-3 h-3" /> Done</>
-          }
+            : <><CheckCircle2 className="w-3 h-3" /> Done</>}
         </span>
       </div>
+
+      {/* Counts */}
       <div className="flex items-center gap-3 text-xs">
-        {success > 0 && <span className="text-emerald-700 font-medium">{success} synced</span>}
+        {success > 0 && <span className="text-emerald-700 font-medium">{success} {actionWord}</span>}
         {pending > 0 && <span className="text-blue-600 font-medium">{pending} pending</span>}
         {failed  > 0 && <span className="text-red-600 font-medium">{failed} failed</span>}
       </div>
+
+      {/* Expandable failures */}
+      {failed > 0 && failedJobs.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowFailed(v => !v)}
+            className="flex items-center gap-1.5 text-xs font-medium text-red-600 hover:text-red-800 transition-colors"
+          >
+            {showFailed ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            {showFailed ? 'Hide failed entries' : `Show ${failed} failed entr${failed === 1 ? 'y' : 'ies'}`}
+          </button>
+          {showFailed && (
+            <div className="mt-2 rounded-lg border border-red-100 overflow-hidden">
+              <div className="bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700">
+                TallyPrime rejected these — not deleted
+              </div>
+              <div className="divide-y divide-red-50 max-h-44 overflow-y-auto">
+                {failedJobs.map((fj, i) => (
+                  <div key={i} className="px-3 py-2 text-xs">
+                    {fj.name && (
+                      <p className="font-medium text-slate-700 truncate" title={fj.name}>{fj.name}</p>
+                    )}
+                    {fj.error && (
+                      <p className="text-red-600 mt-0.5 leading-relaxed">{interpretError(fj.error)}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Timestamp */}
       <div className="flex items-center gap-1.5 text-xs text-slate-400">
         <Clock className="w-3 h-3 shrink-0" />
         <span>{timeAgo(item.created_at)}</span>

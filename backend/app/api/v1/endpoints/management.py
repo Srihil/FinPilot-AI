@@ -3228,6 +3228,40 @@ def bulk_delete_vouchers(
             else:
                 record.is_deleted = True
                 deleted_immediately += 1
+        elif et == "stock_transaction":
+            from app.models.stock_transaction import StockTransaction
+            record = db.query(StockTransaction).filter(
+                StockTransaction.id == uid,
+                StockTransaction.company_id == cid,
+                StockTransaction.is_active.is_not(False),
+            ).first()
+            if not record:
+                errors.append({"id": id_str, "reason": "Not found"})
+                continue
+
+            vstatus = getattr(record, "tally_sync_status", "local_only") or "local_only"
+            raw_vref = getattr(record, "tally_voucher_ref", None) or ""
+
+            if vstatus in ("synced", "delete_failed", "delete_pending") and raw_vref:
+                record.tally_sync_status = "delete_pending"
+                ikey = f"bulk_del_vch::{id_str}"
+                if connector and not db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
+                    txn_date = record.transaction_date.strftime("%Y%m%d") if record.transaction_date else ""
+                    db.add(TallyIntegrationJob(
+                        company_id=cid, connector_id=connector.id,
+                        operation=TallyJobOperation.DELETE_VOUCHER,
+                        payload={"voucher_ref": raw_vref, "entity_type": "stock_transaction",
+                                 "date": txn_date, "txn_id": id_str,
+                                 "name": record.transaction_number or ""},
+                        idempotency_key=ikey, batch_id=batch_id,
+                    ))
+                    tally_queued += 1
+                elif not connector:
+                    errors.append({"id": id_str, "name": record.transaction_number, "reason": "No active TallyPrime connector"})
+            else:
+                record.is_active = False
+                deleted_immediately += 1
+
         else:
             errors.append({"id": id_str, "reason": f"Unknown entity_type: {et}"})
 

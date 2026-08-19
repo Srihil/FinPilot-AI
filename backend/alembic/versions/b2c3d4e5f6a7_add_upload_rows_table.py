@@ -15,7 +15,33 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE uploadrowstatus AS ENUM ('pending', 'imported', 'failed')")
+    # Use DO block so re-running doesn't fail if type already exists
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE uploadrowstatus AS ENUM ('pending', 'imported', 'failed');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+    """)
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS upload_rows (
+            id           UUID PRIMARY KEY,
+            upload_id    UUID NOT NULL REFERENCES uploads(id) ON DELETE CASCADE,
+            row_number   INTEGER NOT NULL,
+            entity_type  VARCHAR(100),
+            status       uploadrowstatus DEFAULT 'pending',
+            error_reason TEXT,
+            raw_data     JSONB,
+            tally_job_id UUID REFERENCES tally_integration_jobs(id) ON DELETE SET NULL,
+            created_at   TIMESTAMPTZ,
+            updated_at   TIMESTAMPTZ
+        )
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_upload_rows_upload_id    ON upload_rows (upload_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_upload_rows_status       ON upload_rows (status)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_upload_rows_tally_job_id ON upload_rows (tally_job_id)")
+    # Remove the old create_table call below — table is created above
+    return
+
     op.create_table(
         'upload_rows',
         sa.Column('id',           sa.UUID(as_uuid=True), primary_key=True),

@@ -1,11 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Upload, FileText, CheckCircle, AlertTriangle, Download,
+  Upload, CheckCircle, AlertTriangle, Download,
   Clock, RefreshCw, ChevronDown, ChevronUp, History, Zap,
   ArrowRight, ArrowLeft, Table2, Info, XCircle,
   CheckSquare, Square, AlertCircle, Sparkles, Database,
-  ShieldCheck, TrendingUp, FileSpreadsheet, Pencil, Save, X, Send,
+  ShieldCheck, TrendingUp, FileSpreadsheet, Pencil, Save, X,
   Trash2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import apiClient from '../../api/client';
@@ -223,15 +223,13 @@ function StepIndicator({ current }: { current: WizardStep }) {
 
 function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const st = HISTORY_STATUS[u.status] ?? HISTORY_STATUS.PENDING;
   const pct = u.total_rows > 0 ? Math.round((u.imported_rows / u.total_rows) * 100) : 0;
-  const canSync = u.status === 'COMPLETED' || u.status === 'PARTIAL';
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm(`Delete import "${u.original_filename}"? This only removes the history entry — imported data remains.`)) return;
+    if (!window.confirm(`Delete import "${u.original_filename}"? This only removes the history entry — imported data stays.`)) return;
     setDeleting(true);
     try {
       await apiClient.delete(`/api/uploads/${u.id}`);
@@ -242,24 +240,10 @@ function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) 
     } finally { setDeleting(false); }
   };
 
-  const handleSyncToTally = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSyncing(true);
-    try {
-      const { data } = await apiClient.post(`/api/uploads/ingest/${u.id}/sync-to-tally`);
-      toast({ title: `${data.queued} job${data.queued !== 1 ? 's' : ''} queued for TallyPrime`, variant: 'success' });
-    } catch (err) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      toast({ title: 'Sync failed', description: e?.response?.data?.detail || 'Could not queue Tally jobs', variant: 'destructive' });
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   return (
     <div className="border-b border-slate-100 last:border-0">
       <div
-        className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-4 py-3.5 px-5 hover:bg-slate-50/70 cursor-pointer transition-colors"
+        className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] items-center gap-4 py-3.5 px-5 hover:bg-slate-50/70 cursor-pointer transition-colors group"
         onClick={() => setExpanded(e => !e)}
       >
         <FileSpreadsheet className="w-4 h-4 text-slate-400 shrink-0" />
@@ -275,26 +259,15 @@ function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) 
         </div>
         <span className="text-xs text-slate-500 hidden md:block">{u.imported_rows} / {u.total_rows} rows</span>
         <span className={cn("px-2.5 py-0.5 rounded-full text-xs font-medium ring-1", st.cls)}>{st.label}</span>
-        {canSync && (
-          <button
-            onClick={handleSyncToTally}
-            disabled={syncing}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors whitespace-nowrap"
-            title="Sync this import to TallyPrime"
-          >
-            {syncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-            Sync to Tally
-          </button>
-        )}
+        {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
         <button
           onClick={handleDelete}
           disabled={deleting}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-          title="Delete this history entry"
+          className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+          title="Delete history entry"
         >
           {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
         </button>
-        {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
       </div>
 
       {expanded && (
@@ -347,7 +320,6 @@ export default function UploadsPage() {
   const [validateResult, setValidateResult] = useState<ValidateResponse | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [rowFilter, setRowFilter] = useState<RowFilter>('all');
-  const [syncToTally, setSyncToTally] = useState(true);
   const [committing, setCommitting] = useState(false);
   const [statusData, setStatusData] = useState<StatusResponse | null>(null);
   const [uploadId, setUploadId] = useState<string | null>(null);
@@ -522,7 +494,7 @@ export default function UploadsPage() {
     setCommitting(true);
     try {
       await apiClient.post(`/api/uploads/ingest/${uploadId}/commit`, {
-        selected_row_ids: [...selectedIds], sync_to_tally: syncToTally,
+        selected_row_ids: [...selectedIds], sync_to_tally: true,
       });
       setStep('progress');
       const interval = setInterval(async () => {
@@ -1179,63 +1151,18 @@ export default function UploadsPage() {
                 </div>
               </div>
 
-              {/* Tally sync banner */}
-              <div className={cn(
-                "rounded-xl border p-4 flex items-center justify-between gap-4 transition-all",
-                syncToTally
-                  ? "bg-indigo-50 border-indigo-200"
-                  : "bg-slate-50 border-slate-200",
-              )}>
-                <div className="flex items-center gap-3">
-                  <div className={cn(
-                    "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
-                    syncToTally ? "bg-indigo-100" : "bg-slate-100",
-                  )}>
-                    <Zap className={cn("w-4 h-4", syncToTally ? "text-indigo-600" : "text-slate-400")} />
-                  </div>
-                  <div>
-                    <p className={cn("text-sm font-semibold", syncToTally ? "text-indigo-900" : "text-slate-700")}>
-                      {syncToTally ? "Will sync to TallyPrime after import" : "TallyPrime sync is off"}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {syncToTally
-                        ? "Imported rows will be pushed to TallyPrime automatically"
-                        : "Toggle on to push imported data to TallyPrime"}
-                    </p>
-                  </div>
-                </div>
-                <label className="flex items-center gap-2 cursor-pointer shrink-0">
-                  <div className={cn(
-                    "w-11 h-6 rounded-full relative transition-colors",
-                    syncToTally ? "bg-indigo-600" : "bg-slate-300",
-                  )}>
-                    <input type="checkbox" className="sr-only" checked={syncToTally} onChange={e => setSyncToTally(e.target.checked)} />
-                    <div className={cn(
-                      "absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200",
-                      syncToTally ? "translate-x-5" : "translate-x-0",
-                    )} />
-                  </div>
-                </label>
-              </div>
-
               {/* Footer actions */}
-              <div className="flex gap-3 pt-1">
+              <div className="flex gap-3 pt-1 border-t border-slate-100">
                 <Button variant="outline" onClick={() => setStep('mapping')} className="gap-2 rounded-xl">
                   <ArrowLeft className="w-4 h-4" /> Back
                 </Button>
                 <Button
                   onClick={handleCommit}
                   disabled={selectedIds.size === 0 || committing}
-                  className={cn("gap-2 rounded-xl flex-1", syncToTally ? "bg-indigo-600 hover:bg-indigo-700" : "")}
+                  className="gap-2 rounded-xl flex-1"
                 >
-                  {committing
-                    ? <RefreshCw className="w-4 h-4 animate-spin" />
-                    : syncToTally ? <Zap className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-                  {committing
-                    ? "Importing…"
-                    : syncToTally
-                    ? `Import ${selectedIds.size} Row${selectedIds.size !== 1 ? 's' : ''} + Sync to Tally`
-                    : `Import ${selectedIds.size} Row${selectedIds.size !== 1 ? 's' : ''}`}
+                  {committing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                  {committing ? 'Importing…' : `Import ${selectedIds.size} Row${selectedIds.size !== 1 ? 's' : ''}`}
                 </Button>
               </div>
             </div>

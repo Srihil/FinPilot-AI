@@ -31,6 +31,15 @@ const navStructure: NavItem[] = [
   },
   {
     type: 'section',
+    label: 'AI',
+    icon: Wand2,
+    children: [
+      { label: 'Assistant', path: '/assistant', icon: MessageSquare },
+      { label: 'Create with AI', path: '/ai-create', icon: Wand2 },
+    ],
+  },
+  {
+    type: 'section',
     label: 'Accounting',
     icon: BookOpen,
     children: [
@@ -59,15 +68,6 @@ const navStructure: NavItem[] = [
       { label: 'Units', path: '/inventory/units', icon: Scale },
       { label: 'Godowns', path: '/inventory/godowns', icon: Warehouse },
       { label: 'Stock Journal', path: '/inventory/stock-transactions', icon: ArrowLeftRight },
-    ],
-  },
-  {
-    type: 'section',
-    label: 'AI',
-    icon: Wand2,
-    children: [
-      { label: 'Assistant', path: '/assistant', icon: MessageSquare },
-      { label: 'Create with AI', path: '/ai-create', icon: Wand2 },
     ],
   },
   { type: 'link', label: 'Reports', icon: FileBarChart, path: '/reports' },

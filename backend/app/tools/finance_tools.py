@@ -554,14 +554,21 @@ class FinanceTools:
             return {"rows": rows, "count": len(rows), "columns": columns}
 
         except Exception as exc:
+            # Rollback the aborted transaction so the session stays usable
+            # for subsequent tool calls in the same request.
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+
             err = str(exc)
             if "statement timeout" in err.lower():
                 return {"error": "Query timed out (8 s max). Simplify or add a tighter filter.", "rows": [], "count": 0}
-            # Strip internal file paths before returning
             err = _re.sub(r'File ".*?", line \d+,? ?', "", err)
             return {"error": f"Query failed: {err[:400]}", "rows": [], "count": 0}
 
         finally:
+            # Reset timeout — runs in a fresh transaction after rollback if needed
             try:
                 self.db.execute(text("SET LOCAL statement_timeout = DEFAULT"))
             except Exception:

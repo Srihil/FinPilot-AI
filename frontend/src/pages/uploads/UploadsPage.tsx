@@ -307,7 +307,9 @@ export default function UploadsPage() {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const { data } = await apiClient.post<ParseResponse>('/api/uploads/ingest/parse', fd);
+      const { data } = await apiClient.post<ParseResponse>('/api/uploads/ingest/parse', fd, {
+        headers: { 'Content-Type': undefined },
+      });
       setParseResult(data);
       setEntityType(data.detected_entity_type);
       setColMapping(data.mapping_suggestions);

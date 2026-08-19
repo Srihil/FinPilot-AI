@@ -216,7 +216,12 @@ class OpenRouterAgent:
         with httpx.Client(timeout=60) as client:
             resp = client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            if "choices" not in data:
+                api_err = data.get("error", {})
+                msg = api_err.get("message") or str(data)[:300]
+                raise ValueError(f"OpenRouter API returned no choices: {msg}")
+            return data
 
 
 class GroqAgent:
@@ -262,6 +267,14 @@ class GroqAgent:
 
             resp.raise_for_status()
             data = resp.json()
+
+            # Groq occasionally returns a 200 with an error body instead of choices
+            # (e.g. context-length exceeded, model overloaded). Raise explicitly so
+            # the caller's except block catches it with a readable message.
+            if "choices" not in data:
+                api_err = data.get("error", {})
+                msg = api_err.get("message") or str(data)[:300]
+                raise ValueError(f"Groq API returned no choices: {msg}")
 
             # Also handle text-based <function=...> in content (model didn't use structured calls)
             choice_msg = data["choices"][0]["message"]

@@ -22,35 +22,38 @@ import re as _re
 # ── Database schema exposed to the AI (safe subset only) ─────────────────────
 DB_SCHEMA = """
 === FinPilot Database — available tables ===
-All tables are pre-filtered to this company. Do NOT add company_id to your queries.
+All tables are pre-filtered to this company. Do NOT add company_id to queries.
 
-customers     : id, name, email, phone, gstin, address, city, state, country, notes, created_at
-vendors       : id, name, email, phone, gstin, address, city, state, notes, created_at
-products      : id, name, sku, unit, selling_price, cost_price, stock_quantity,
-                reorder_threshold, is_active, created_at
-invoices      : id, invoice_number, invoice_type (SALES|PURCHASE), invoice_date, due_date,
-                total_amount, paid_amount, status (DRAFT|APPROVED|SENT|PARTIALLY_PAID|PAID|OVERDUE),
-                customer_id→customers.id, vendor_id→vendors.id, notes, created_at
-invoice_items : id, invoice_id→invoices.id, description, quantity, unit_price, total_price,
-                product_id→products.id
-expenses      : id, title, category, expense_date, amount, tax_amount, total_amount,
-                status (DRAFT|APPROVED|PAID), vendor_id→vendors.id, notes, reference_number, created_at
-              (category values: Office Supplies, Utilities, Rent, Salaries, Travel, Marketing,
-               Software, Equipment, Maintenance, Professional Services, Raw Materials,
-               Shipping, Insurance, Taxes, Miscellaneous, Receipt, Payment, Journal,
-               Contra, Credit Note, Debit Note)
-audit_logs    : id, action, entity_type, entity_id, description, created_at
-tally_integration_jobs : id, operation, status (PENDING|CLAIMED|SUCCESS|FAILED|RETRYING),
-                         error_message, retry_count, created_at, updated_at
+customers         : id, name, email, phone, gstin, address, city, state, country, notes, created_at
+vendors           : id, name, email, phone, gstin, address, city, state, notes, created_at
+products          : id, name, sku, unit, selling_price, cost_price, stock_quantity, reorder_threshold, is_active, created_at
+invoices          : id, invoice_number, invoice_type (SALES|PURCHASE), invoice_date, due_date,
+                    total_amount, paid_amount, status (DRAFT|APPROVED|SENT|PARTIALLY_PAID|PAID|OVERDUE),
+                    customer_id→customers.id, vendor_id→vendors.id, notes, created_at
+invoice_items     : id, invoice_id→invoices.id, description, quantity, unit_price, total_price, product_id→products.id
+expenses          : id, title, category, expense_date, amount, tax_amount, total_amount,
+                    status (DRAFT|APPROVED|PAID), vendor_id→vendors.id, notes, reference_number, created_at
+                    category: Office Supplies|Utilities|Rent|Salaries|Travel|Marketing|Software|
+                    Equipment|Maintenance|Professional Services|Raw Materials|Shipping|Insurance|
+                    Taxes|Miscellaneous|Receipt|Payment|Journal|Contra|Credit Note|Debit Note
+stock_transactions: id, transaction_number, transaction_type (STOCK_JOURNAL|PHYSICAL_STOCK|
+                    DELIVERY_NOTE|RECEIPT_NOTE|REJECTION_IN|REJECTION_OUT),
+                    transaction_date, narration, party_name, from_godown, to_godown,
+                    entries (JSON array of {stock_item_name,quantity,unit,rate,godown}),
+                    tally_sync_status, created_at
+audit_logs        : id, action, entity_type, entity_id, description, created_at
+tally_integration_jobs: id, operation, status (PENDING|CLAIMED|SUCCESS|FAILED|RETRYING),
+                        error_message, retry_count, created_at, updated_at
 
-All monetary amounts are INR. invoice_type SALES = revenue, PURCHASE = cost.
-Only APPROVED/SENT/PARTIALLY_PAID/PAID invoices count as confirmed revenue.
+Monetary amounts are INR. SALES invoices = revenue. REJECTION_IN = goods returned from customer.
+REJECTION_OUT = goods sent back to vendor. Only APPROVED/SENT/PARTIALLY_PAID/PAID invoices = confirmed revenue.
 """
 
 # Tables that have a company_id column (auto-filtered via CTE)
 _COMPANY_TABLES = frozenset({
     "customers", "vendors", "products", "invoices", "expenses",
     "approvals", "audit_logs", "tally_integration_jobs", "uploads", "reports",
+    "stock_transactions",
 })
 
 _FORBIDDEN_SQL = _re.compile(
@@ -700,22 +703,16 @@ class FinanceTools:
                 "function": {
                     "name": "query_database",
                     "description": (
-                        "Execute a custom PostgreSQL SELECT query against the company's financial database. "
-                        "Use this for complex, ad-hoc, or specific questions not covered by other tools. "
-                        "company_id is auto-injected — do NOT include it in your query. "
-                        "Always include a LIMIT (max 200). "
-                        "Reference tables by name only (e.g. invoices, customers) — no schema prefix."
+                        "Run a PostgreSQL SELECT query against the company's financial database. "
+                        "Use for any question not covered by other tools. "
+                        "company_id is auto-injected — never include it. Max 200 rows. No schema prefix on table names."
                     ),
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "sql": {
                                 "type": "string",
-                                "description": (
-                                    "Valid PostgreSQL SELECT. Examples:\n"
-                                    "  SELECT name, total_amount FROM invoices WHERE status='PAID' ORDER BY total_amount DESC LIMIT 10\n"
-                                    "  SELECT c.name, SUM(i.total_amount) revenue FROM invoices i JOIN customers c ON c.id=i.customer_id WHERE i.invoice_type='SALES' GROUP BY c.name ORDER BY revenue DESC LIMIT 10"
-                                ),
+                                "description": "A valid PostgreSQL SELECT statement.",
                             },
                         },
                         "required": ["sql"],

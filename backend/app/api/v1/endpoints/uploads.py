@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.db.base import get_db
@@ -10,6 +10,7 @@ from app.models.tally_connector import TallyConnector, ConnectorStatus
 from app.models.tally_job import TallyIntegrationJob, TallyJobOperation
 from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, TallyGodown
 from app.services.audit_service import audit_service
+from app.services import ingestion_service as ingest
 from app.core.config import settings
 import pandas as pd
 import io, os, uuid
@@ -442,6 +443,415 @@ def download_template(upload_type: str):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={upload_type}_template.csv"}
     )
+
+
+# ─── Smart Ingestion pipeline ─────────────────────────────────────────────────
+
+INGEST_ALLOWED_EXT = {".csv", ".xlsx", ".xls", ".json"}
+INGEST_MAX_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+
+@router.post("/ingest/parse")
+async def ingest_parse(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    """
+    Step 1 — Parse uploaded file and auto-detect entity type + column mapping.
+    Returns metadata including detected type, confidence, column mapping suggestions,
+    and the first 5 sample rows for the UI to display.
+    """
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in INGEST_ALLOWED_EXT:
+        raise HTTPException(400, f"Unsupported file. Allowed: {', '.join(INGEST_ALLOWED_EXT)}")
+
+    content = await file.read()
+    if len(content) > INGEST_MAX_BYTES:
+        raise HTTPException(400, f"File too large. Max {settings.MAX_UPLOAD_SIZE_MB}MB")
+
+    try:
+        parsed = ingest.parse_file(content, file.filename)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"Failed to parse file: {exc}")
+
+    fingerprint = ingest.header_fingerprint(parsed.columns)
+
+    # Check cache first — may skip detection entirely
+    cached = ingest._get_cached_mapping(current_user.company_id, fingerprint, db)
+    if cached:
+        detection = ingest.DetectionResult(
+            entity_type=cached['entity_type'],
+            subtype='',
+            confidence='high',
+            score=999,
+            from_cache=True,
+        )
+        mapping = cached['column_mapping']
+    else:
+        detection = ingest.detect_entity_type(parsed.columns, parsed.rows[:3], current_user.company_id, db)
+        mapping = ingest.suggest_column_mapping(parsed.columns, detection.entity_type)
+
+    # Determine upload_type for the record
+    ut_str = ingest.ENTITY_TO_UPLOAD_TYPE.get(detection.entity_type)
+    try:
+        ut = UploadType(ut_str) if ut_str else None
+    except ValueError:
+        ut = None
+
+    # Create upload record and store pending rows
+    record = Upload(
+        company_id=current_user.company_id,
+        uploaded_by=current_user.id,
+        filename=f"{uuid.uuid4()}_{file.filename}",
+        original_filename=file.filename,
+        file_size=len(content),
+        file_type=ext.lstrip('.'),
+        upload_type=ut,
+        status=UploadStatus.PENDING,
+        detected_entity_type=detection.entity_type,
+        entity_confidence=detection.confidence,
+        entity_subtype=detection.subtype,
+        column_mapping=mapping,
+        header_pattern_key=fingerprint,
+        total_rows=parsed.total,
+        pending_rows=[
+            {k: (v if not hasattr(v, 'isoformat') else v.isoformat()) for k, v in row.items()}
+            for row in parsed.rows
+        ],
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "upload_id": str(record.id),
+        "detected_entity_type": detection.entity_type,
+        "entity_subtype": detection.subtype,
+        "entity_confidence": detection.confidence,
+        "from_cache": detection.from_cache,
+        "file_columns": parsed.columns,
+        "mapping_suggestions": mapping,
+        "schema_fields": list((ingest.SCHEMA_FIELDS.get(detection.entity_type) or {}).keys()),
+        "sample_rows": parsed.rows[:5],
+        "total_rows": parsed.total,
+        "file_format": parsed.file_format,
+    }
+
+
+@router.post("/ingest/{upload_id}/validate")
+def ingest_validate(
+    upload_id: str,
+    body: dict,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    """
+    Step 2 — Validate all parsed rows with user-confirmed entity type + column mapping.
+    Returns per-row status (valid / warning / error) and a summary count.
+    Stores row_report on the upload record for the commit step.
+    """
+    record = db.query(Upload).filter(
+        Upload.id == upload_id,
+        Upload.company_id == current_user.company_id,
+    ).first()
+    if not record:
+        raise HTTPException(404, "Upload not found")
+
+    entity_type: str = body.get("entity_type") or record.detected_entity_type or ""
+    column_mapping: dict = body.get("column_mapping") or record.column_mapping or {}
+
+    if not entity_type or entity_type not in ingest.SCHEMA_FIELDS:
+        raise HTTPException(400, f"Unknown entity type '{entity_type}'")
+
+    rows = record.pending_rows or []
+    if not rows:
+        raise HTTPException(400, "No parsed rows found — re-parse the file")
+
+    row_results = ingest.validate_rows(rows, entity_type, column_mapping, current_user.company_id, db)
+
+    summary = {"valid": 0, "warnings": 0, "errors": 0, "total": len(row_results)}
+
+    def _safe_mapped(m: dict) -> dict:
+        return {k: (v if v is None or isinstance(v, (int, float, bool, str)) else str(v))
+                for k, v in m.items()}
+
+    # Count all non-error rows (including new status variants) for summary
+    for r in row_results:
+        s = r.status
+        if s == 'error':
+            summary['errors'] += 1
+        elif s in ('warning', 'duplicate_fuzzy', 'ref_similar'):
+            summary['warnings'] += 1
+        elif s in ('duplicate_exact',):
+            summary['errors'] += 1  # blocked by default
+        else:
+            summary['valid'] += 1  # new, ref_missing (resolvable)
+
+    # Persist confirmed mapping + full row report (includes new fields)
+    record.detected_entity_type = entity_type
+    record.column_mapping = column_mapping
+    record.row_report = [
+        {
+            "row_id": r.row_id,
+            "status": r.status,
+            "errors": r.errors,
+            "warnings": r.warnings,
+            "mapped": _safe_mapped(r.mapped),
+            "duplicate_info": r.duplicate_info,
+            "ref_issues": r.ref_issues,
+            "check_default": r.check_default,
+            "force_import": r.force_import,
+        }
+        for r in row_results
+    ]
+    record.valid_rows = summary['valid'] + summary['warnings']
+    record.invalid_rows = summary['errors']
+    record.status = UploadStatus.PROCESSING
+    db.commit()
+
+    return {
+        "upload_id": str(record.id),
+        "summary": summary,
+        "rows": [
+            {
+                "row_id": r.row_id,
+                "status": r.status,
+                "errors": r.errors,
+                "warnings": r.warnings,
+                "mapped": r.mapped,
+                "duplicate_info": r.duplicate_info,
+                "ref_issues": r.ref_issues,
+                "check_default": r.check_default,
+                "force_import": r.force_import,
+            }
+            for r in row_results
+        ],
+    }
+
+
+@router.post("/ingest/{upload_id}/commit")
+def ingest_commit(
+    upload_id: str,
+    body: dict,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    """
+    Step 3 — Commit selected rows.
+    Processes only the rows whose row_id appears in selected_row_ids and
+    whose status is not 'error'. Runs as a FastAPI background task so the
+    response is immediate; poll /ingest/{id}/status for progress.
+    On completion, confirmed column mapping is saved to cache for future uploads.
+    """
+    record = db.query(Upload).filter(
+        Upload.id == upload_id,
+        Upload.company_id == current_user.company_id,
+    ).first()
+    if not record:
+        raise HTTPException(404, "Upload not found")
+
+    selected_ids: list[int] = body.get("selected_row_ids", [])
+    sync_to_tally: bool = bool(body.get("sync_to_tally", False))
+
+    if not selected_ids:
+        raise HTTPException(400, "No rows selected for import")
+    if not record.row_report:
+        raise HTTPException(400, "Rows not validated — call /validate first")
+
+    # Snapshot IDs for background task before resetting progress
+    record.status = UploadStatus.PROCESSING
+    record.imported_rows = 0
+    db.commit()
+
+    company_id = current_user.company_id
+    user_id = current_user.id
+    entity_type = record.detected_entity_type
+    col_map = record.column_mapping or {}
+    fingerprint = record.header_pattern_key
+
+    def _run_commit():
+        from app.db.base import SessionLocal
+        bg_db = SessionLocal()
+        try:
+            result = ingest.commit_rows(
+                upload_record_id=upload_id,
+                selected_row_ids=selected_ids,
+                sync_to_tally=sync_to_tally,
+                company_id=company_id,
+                user_id=user_id,
+                db=bg_db,
+            )
+            # Save mapping cache on successful commit (any rows imported)
+            if result.imported > 0 and entity_type and fingerprint:
+                ingest.save_mapping_cache(company_id, fingerprint, entity_type, col_map, bg_db)
+
+            audit_service.log(
+                bg_db, company_id, user_id, AuditAction.UPLOAD,
+                entity_type="upload", entity_id=upload_id,
+                description=f"Smart import {entity_type}: {result.imported} rows committed, {result.tally_queued} Tally jobs queued",
+            )
+        finally:
+            bg_db.close()
+
+    background_tasks.add_task(_run_commit)
+
+    return {
+        "upload_id": str(record.id),
+        "started": True,
+        "total_selected": len(selected_ids),
+        "message": "Import started — poll /status for progress",
+    }
+
+
+@router.post("/ingest/{upload_id}/row-action")
+def ingest_row_action(
+    upload_id: str,
+    body: dict,
+    current_user: User = Depends(require_admin_or_accountant),
+    db: Session = Depends(get_db),
+):
+    """
+    Apply a user-driven action to a single row in the row_report.
+
+    Supported actions
+    -----------------
+    force_import   – mark a duplicate_exact row as force_import=True so it
+                     gets committed even though an exact match exists in DB.
+    use_existing   – overwrite a reference field with the user-chosen existing
+                     value and re-resolve references for that row.
+    dismiss_dup    – dismiss a duplicate_fuzzy warning without changing data
+                     (row status becomes 'new' if no other issues remain).
+
+    Returns the updated row dict.
+    """
+    record = db.query(Upload).filter(
+        Upload.id == upload_id,
+        Upload.company_id == current_user.company_id,
+    ).first()
+    if not record:
+        raise HTTPException(404, "Upload not found")
+
+    row_report: list[dict] = list(record.row_report or [])
+    action: str = body.get("action", "")
+    row_id: int = int(body.get("row_id", -1))
+    field: str = body.get("field", "")
+    resolved_value: str = body.get("resolved_value", "")
+
+    # Find the target row
+    row_idx = next((i for i, r in enumerate(row_report) if r["row_id"] == row_id), None)
+    if row_idx is None:
+        raise HTTPException(404, f"Row {row_id} not found in row_report")
+
+    row = dict(row_report[row_idx])
+
+    if action == "force_import":
+        if row.get("status") != "duplicate_exact":
+            raise HTTPException(400, "force_import is only valid for duplicate_exact rows")
+        row["force_import"] = True
+        row["check_default"] = True
+        # Status becomes duplicate_exact_forced — UI can display differently
+        row["status"] = "duplicate_exact_forced"
+
+    elif action == "use_existing":
+        if not field or not resolved_value:
+            raise HTTPException(400, "field and resolved_value are required for use_existing")
+        mapped = dict(row.get("mapped", {}))
+        mapped[field] = resolved_value
+        row["mapped"] = mapped
+        # Re-resolve all references with the updated value
+        entity_type = record.detected_entity_type or ""
+        col_mapping = record.column_mapping or {}
+        # Build updated ref_issues (quick re-check without full DB re-query)
+        # The ref_issues for this specific field should now clear to 'ok'
+        ref_issues = [
+            ri for ri in row.get("ref_issues", [])
+            if ri.get("field") != field
+        ]
+        row["ref_issues"] = ref_issues
+        # Re-determine status
+        from app.services.ingestion_service import _determine_final_status
+        dup_info = row.get("duplicate_info")
+        status, check_default = _determine_final_status(
+            row.get("errors", []), row.get("warnings", []), dup_info, ref_issues
+        )
+        row["status"] = status
+        row["check_default"] = check_default
+
+    elif action == "dismiss_dup":
+        row["duplicate_info"] = None
+        from app.services.ingestion_service import _determine_final_status
+        status, check_default = _determine_final_status(
+            row.get("errors", []), row.get("warnings", []), None, row.get("ref_issues", [])
+        )
+        row["status"] = status
+        row["check_default"] = check_default
+
+    else:
+        raise HTTPException(400, f"Unknown action '{action}'. Valid: force_import, use_existing, dismiss_dup")
+
+    row_report[row_idx] = row
+    record.row_report = row_report
+    db.commit()
+
+    return {"row": row}
+
+
+@router.get("/sync-freshness")
+def sync_freshness(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return last Tally sync timestamp for this company, and connector online status."""
+    connector = db.query(TallyConnector).filter(
+        TallyConnector.company_id == current_user.company_id,
+        TallyConnector.status == ConnectorStatus.ACTIVE,
+    ).first()
+
+    return {
+        "last_sync_at": connector.last_sync_at.isoformat() if (connector and connector.last_sync_at) else None,
+        "connector_online": connector is not None,
+        "connector_id": str(connector.id) if connector else None,
+    }
+
+
+@router.get("/ingest/{upload_id}/status")
+def ingest_status(
+    upload_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Poll endpoint for commit progress. Returns current import counts and final summary."""
+    record = db.query(Upload).filter(
+        Upload.id == upload_id,
+        Upload.company_id == current_user.company_id,
+    ).first()
+    if not record:
+        raise HTTPException(404, "Upload not found")
+
+    # Recover stale PROCESSING state (background task died > 10 min ago)
+    if (record.status == UploadStatus.PROCESSING and record.created_at and
+            (datetime.now(timezone.utc) - record.created_at).total_seconds() > 600 and
+            not record.commit_summary):
+        record.status = UploadStatus.FAILED
+        db.commit()
+
+    return {
+        "upload_id": str(record.id),
+        "status": record.status.value,
+        "entity_type": record.detected_entity_type,
+        "entity_confidence": record.entity_confidence,
+        "total_rows": record.total_rows or 0,
+        "valid_rows": record.valid_rows or 0,
+        "invalid_rows": record.invalid_rows or 0,
+        "imported_rows": record.imported_rows or 0,
+        "tally_queued": (record.commit_summary or {}).get("tally_queued", 0),
+        "commit_summary": record.commit_summary,
+        "completed_at": record.completed_at.isoformat() if record.completed_at else None,
+    }
 
 
 # ─── Upload history ───────────────────────────────────────────────────────────

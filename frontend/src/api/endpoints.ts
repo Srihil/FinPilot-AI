@@ -331,6 +331,74 @@ export const uploadsApi = {
     });
     return response.data;
   },
+
+  // ── Smart ingestion pipeline ──────────────────────────────────────────────
+
+  ingestParse: async (file: File): Promise<{
+    upload_id: string;
+    detected_entity_type: string;
+    entity_subtype: string;
+    entity_confidence: 'high' | 'medium' | 'low';
+    from_cache: boolean;
+    file_columns: string[];
+    mapping_suggestions: Record<string, string>;
+    schema_fields: string[];
+    sample_rows: Record<string, unknown>[];
+    total_rows: number;
+    file_format: string;
+  }> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const response = await apiClient.post('/api/uploads/ingest/parse', fd);
+    return response.data;
+  },
+
+  ingestValidate: async (uploadId: string, entityType: string, columnMapping: Record<string, string>): Promise<{
+    upload_id: string;
+    summary: { valid: number; warnings: number; errors: number; total: number };
+    rows: Array<{
+      row_id: number;
+      status: 'valid' | 'warning' | 'error';
+      errors: Array<{ field: string; message: string }>;
+      warnings: Array<{ field: string; message: string }>;
+      mapped: Record<string, unknown>;
+    }>;
+  }> => {
+    const response = await apiClient.post(`/api/uploads/ingest/${uploadId}/validate`, {
+      entity_type: entityType,
+      column_mapping: columnMapping,
+    });
+    return response.data;
+  },
+
+  ingestCommit: async (uploadId: string, selectedRowIds: number[], syncToTally: boolean): Promise<{
+    upload_id: string;
+    started: boolean;
+    total_selected: number;
+    message: string;
+  }> => {
+    const response = await apiClient.post(`/api/uploads/ingest/${uploadId}/commit`, {
+      selected_row_ids: selectedRowIds,
+      sync_to_tally: syncToTally,
+    });
+    return response.data;
+  },
+
+  ingestStatus: async (uploadId: string): Promise<{
+    upload_id: string;
+    status: string;
+    entity_type: string;
+    total_rows: number;
+    valid_rows: number;
+    invalid_rows: number;
+    imported_rows: number;
+    tally_queued: number;
+    commit_summary: Record<string, unknown> | null;
+    completed_at: string | null;
+  }> => {
+    const response = await apiClient.get(`/api/uploads/ingest/${uploadId}/status`);
+    return response.data;
+  },
 };
 
 // ─── Reports ──────────────────────────────────────────────────────────────────

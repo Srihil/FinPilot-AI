@@ -2,11 +2,11 @@
 
 
 a = Analysis(
-    ['connector.py'],
+    ['app.py'],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['httpx', 'dotenv'],
+    hiddenimports=['httpx', 'dotenv', 'pystray', 'PIL', 'PIL.Image', 'PIL.ImageDraw'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -29,7 +29,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

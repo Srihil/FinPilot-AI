@@ -873,6 +873,7 @@ def update_unit(
 @router.delete("/units/{unit_id}")
 def delete_unit(
     unit_id: str,
+    force_local: bool = False,
     current_user: User = Depends(require_admin_or_accountant),
     db: Session = Depends(get_db),
 ):
@@ -888,7 +889,9 @@ def delete_unit(
         TallyConnector.company_id == current_user.company_id,
         TallyConnector.status == ConnectorStatus.ACTIVE,
     ).first()
-    if connector and unit.tally_sync_status in ("synced", "finpilot", "delete_failed"):
+    # force_local=True skips the Tally queue — useful when the connector rejects
+    # the delete (older binary, unit in use, etc.)
+    if not force_local and connector and unit.tally_sync_status in ("synced", "finpilot", "delete_failed"):
         unit.tally_sync_status = "delete_pending"
         db.flush()
         _queue_tally_delete(db, current_user.company_id, TallyJobOperation.DELETE_UNIT, unit.name)
@@ -902,8 +905,8 @@ def delete_unit(
         db.commit()
         audit_service.log(db, current_user.company_id, current_user.id, AuditAction.DELETE,
                           entity_type="tally_unit", entity_id=unit.id,
-                          description=f"Deleted unit: {unit.name}")
-        return {"status": "deleted", "message": "Deleted successfully."}
+                          description=f"Deleted unit locally: {unit.name}")
+        return {"status": "deleted", "message": "Removed from FinPilot. Delete it manually in TallyPrime if it exists there."}
 
 
 # ─── Godown management ──────────────────────────────────────────────────────────

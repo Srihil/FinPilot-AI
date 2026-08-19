@@ -93,10 +93,11 @@ export default function UnitsPage() {
   const createMut = useMutation({
     mutationFn: () => {
       if (createMode === 'standard' && selectedUqc) {
-        // name   = formal/display name (e.g. "Numbers")   → TallyPrime NAME field
-        // symbol = short abbreviation (e.g. "Nos")        → TallyPrime ORIGINALNAME field
+        // TallyPrime identifies units by their <NAME> tag, which must be the
+        // abbreviation (e.g. "Nos"), NOT the formal description ("Numbers").
+        // selectedUqc.formal is display-only in our UI.
         return managementApi.createUnit({
-          name: selectedUqc.formal,
+          name: selectedUqc.tallySymbol,
           symbol: selectedUqc.tallySymbol,
           decimal_places: parseInt(uqcDecimals) || 0,
         });

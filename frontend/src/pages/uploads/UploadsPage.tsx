@@ -314,8 +314,10 @@ export default function UploadsPage() {
       setUploadId(data.upload_id);
       setStep('mapping');
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      toast({ title: 'Parse failed', description: e?.response?.data?.detail || 'Could not read file', variant: 'destructive' });
+      const e = err as { response?: { data?: { detail?: unknown } } };
+      const d = e?.response?.data?.detail;
+      const desc = Array.isArray(d) ? d.map((x: { msg?: string }) => x?.msg || String(x)).join('; ') : (typeof d === 'string' ? d : 'Could not read file');
+      toast({ title: 'Parse failed', description: desc, variant: 'destructive' });
     } finally {
       setParsing(false);
     }
@@ -343,8 +345,10 @@ export default function UploadsPage() {
       setSelectedIds(autoSel);
       setStep('preview');
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      toast({ title: 'Validation failed', description: e?.response?.data?.detail || 'Server error', variant: 'destructive' });
+      const e = err as { response?: { data?: { detail?: unknown } } };
+      const d = e?.response?.data?.detail;
+      const desc = Array.isArray(d) ? d.map((x: { msg?: string }) => x?.msg || String(x)).join('; ') : (typeof d === 'string' ? d : 'Server error');
+      toast({ title: 'Validation failed', description: desc, variant: 'destructive' });
     } finally {
       setValidating(false);
     }
@@ -474,8 +478,10 @@ export default function UploadsPage() {
       }, 1500);
       setPollInterval(interval);
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      toast({ title: 'Commit failed', description: e?.response?.data?.detail || 'Server error', variant: 'destructive' });
+      const e = err as { response?: { data?: { detail?: unknown } } };
+      const d = e?.response?.data?.detail;
+      const desc = Array.isArray(d) ? d.map((x: { msg?: string }) => x?.msg || String(x)).join('; ') : (typeof d === 'string' ? d : 'Server error');
+      toast({ title: 'Commit failed', description: desc, variant: 'destructive' });
       setCommitting(false);
     }
   };

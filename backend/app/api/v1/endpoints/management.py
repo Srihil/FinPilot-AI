@@ -3237,9 +3237,21 @@ def bulk_delete_vouchers(
                 continue
 
             vstatus = getattr(record, "tally_sync_status", "local_only") or "local_only"
-            raw_vref = getattr(record, "tally_voucher_ref", None) or ""
 
-            if vstatus in ("synced", "delete_failed", "delete_pending") and raw_vref:
+            # transaction_number (SJ-xxxx / PS-xxxx / DN-xxxx …) IS the REMOTEID
+            # that TallyPrime stores when FinPilot creates the voucher.
+            txn_ref = record.transaction_number or ""
+            _STK_VTYPE = {
+                "STOCK_JOURNAL":  "Stock Journal",
+                "PHYSICAL_STOCK": "Physical Stock",
+                "DELIVERY_NOTE":  "Delivery Note",
+                "RECEIPT_NOTE":   "Receipt Note",
+                "REJECTION_IN":   "Rejections In",
+                "REJECTION_OUT":  "Rejections Out",
+            }
+            txn_vtype = _STK_VTYPE.get(record.transaction_type, "Stock Journal")
+
+            if vstatus in ("synced", "delete_failed", "delete_pending"):
                 record.tally_sync_status = "delete_pending"
                 ikey = f"bulk_del_vch::{id_str}"
                 if connector and not db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
@@ -3247,15 +3259,17 @@ def bulk_delete_vouchers(
                     db.add(TallyIntegrationJob(
                         company_id=cid, connector_id=connector.id,
                         operation=TallyJobOperation.DELETE_VOUCHER,
-                        payload={"voucher_ref": raw_vref, "entity_type": "stock_transaction",
+                        payload={"voucher_ref": txn_ref, "voucher_type": txn_vtype,
+                                 "entity_type": "stock_transaction",
                                  "date": txn_date, "txn_id": id_str,
-                                 "name": record.transaction_number or ""},
+                                 "name": txn_ref or ""},
                         idempotency_key=ikey, batch_id=batch_id,
                     ))
                     tally_queued += 1
                 elif not connector:
-                    errors.append({"id": id_str, "name": record.transaction_number, "reason": "No active TallyPrime connector"})
+                    errors.append({"id": id_str, "name": txn_ref, "reason": "No active TallyPrime connector"})
             else:
+                # Never sent to TallyPrime (local_only / pending) — safe to delete locally
                 record.is_active = False
                 deleted_immediately += 1
 

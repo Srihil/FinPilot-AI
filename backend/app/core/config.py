@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://localhost:4173"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://localhost:4173,https://finpilot-frontend-vbdf.onrender.com,https://finpilot-backend-w1im.onrender.com"
 
     AI_PROVIDER: str = "groq"  # groq | openrouter
     AI_MODEL: str = "google/gemma-4-26b-a4b-it:free"

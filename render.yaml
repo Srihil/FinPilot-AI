@@ -40,7 +40,7 @@ services:
         sync: false
       # Update this after you know the frontend URL
       - key: CORS_ORIGINS
-        value: https://finpilot-frontend-vbdf.onrender.com,https://finpilot-frontend.onrender.com
+        value: https://finpilot-frontend-vbdf.onrender.com,https://finpilot-backend-w1im.onrender.com
       - key: APP_ENV
         value: production
       - key: UPLOAD_DIR
@@ -62,7 +62,7 @@ services:
     envVars:
       # Must match the backend service name above
       - key: VITE_API_URL
-        value: https://finpilot-backend.onrender.com
+        value: https://finpilot-backend-w1im.onrender.com
     routes:
       - type: rewrite
         source: /*

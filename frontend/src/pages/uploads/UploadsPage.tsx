@@ -242,8 +242,17 @@ function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) 
   };
 
   const rc = u.row_counts ?? {};
-  const hasRemaining = (rc.failed ?? 0) + (rc.pending ?? 0) > 0;
+  // pending rows in upload_rows = imported to DB, awaiting Tally sync (NOT "remaining to import")
+  // failed rows in upload_rows = failed during DB commit (need re-import)
   const hasRows = (rc.imported ?? 0) + (rc.failed ?? 0) + (rc.pending ?? 0) > 0;
+  const isDone = ['COMPLETED', 'PARTIAL', 'FAILED'].includes(u.status);
+  // Show "Download Remaining" when there are failed rows OR when the upload is partial/failed
+  // (which means some rows weren't selected or errored — row_report has the full picture)
+  const hasRemaining = (rc.failed ?? 0) > 0
+    || (isDone && u.status !== 'COMPLETED')
+    || (isDone && u.imported_rows > 0 && u.imported_rows < u.total_rows);
+  // Show download buttons for any completed upload that processed rows
+  const canDownload = hasRows || (isDone && u.total_rows > 0);
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -345,13 +354,13 @@ function HistoryRow({ u, onDelete }: { u: UploadHistory; onDelete: (id: string) 
           )}
 
           {/* Download buttons */}
-          {hasRows && (
+          {canDownload && (
             <div className="flex gap-2 flex-wrap">
               {hasRemaining && (
                 <button
                   onClick={() => downloadFile('remaining')}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
-                  title="Download failed & pending rows for re-upload"
+                  title="Download unimported rows (unselected + failed) for re-upload"
                 >
                   <Download className="w-3.5 h-3.5" /> Download Remaining Rows
                 </button>

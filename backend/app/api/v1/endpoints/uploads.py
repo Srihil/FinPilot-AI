@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from app.db.base import get_db
 from app.auth.dependencies import get_current_user, require_admin_or_accountant
 from app.models.user import User
@@ -12,6 +13,7 @@ from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyUnit, Ta
 from app.services.audit_service import audit_service
 from app.services import ingestion_service as ingest
 from app.core.config import settings
+import json
 import pandas as pd
 import io, os, uuid
 from datetime import datetime, timezone
@@ -743,7 +745,11 @@ def ingest_commit(
                 bg_db.add(ur)
                 row_id_to_upload_row[rid] = ur
 
-            bg_db.flush()  # get IDs for upload_rows before linking tally jobs
+            # ── COMMIT UPLOAD_ROWS NOW (separate transaction) ─────────────
+            # Persisting UploadRows before queuing Tally jobs ensures they survive
+            # even if the Tally sync block later throws and rolls back.
+            bg_db.flush()   # assign PKs
+            bg_db.commit()  # durable — Tally rollback below cannot undo this
 
             # ── Queue Tally jobs & link to upload_rows ───────────────────────
             tally_queued = 0
@@ -816,18 +822,22 @@ def ingest_commit(
                             summary = dict(upload_rec.commit_summary)
                             summary["tally_queued"] = tally_queued
                             upload_rec.commit_summary = summary
+                            flag_modified(upload_rec, "commit_summary")
+
+                    bg_db.commit()  # commit Tally jobs + upload_row status updates
 
                 except Exception as tally_exc:
                     log.error(f"Tally sync error after commit: {tally_exc}", exc_info=True)
+                    # Only rolls back Tally jobs; UploadRows were already committed above
                     bg_db.rollback()
                     tally_queued = 0
 
-            bg_db.commit()
             audit_service.log(
                 bg_db, company_id, user_id, AuditAction.UPLOAD,
                 entity_type="upload", entity_id=upload_id,
                 description=f"Smart import {entity_type}: {result.imported} rows committed, {tally_queued} Tally jobs queued",
             )
+            bg_db.commit()  # commit audit log
         except Exception as exc:
             log.error(f"_run_commit error: {exc}", exc_info=True)
         finally:
@@ -1153,27 +1163,61 @@ def download_remaining(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Download failed + pending rows in original file format, re-upload-ready."""
-    from app.models.upload_row import UploadRowStatus
+    """Download all non-imported rows (unselected + failed) in original file format, re-upload-ready."""
+    from app.models.upload_row import UploadRow, UploadRowStatus
     record = db.query(Upload).filter(Upload.id == upload_id, Upload.company_id == current_user.company_id).first()
     if not record:
         raise HTTPException(404, "Upload not found")
 
-    rows, columns, file_format = _get_upload_rows_data(
-        upload_id, current_user.company_id, db,
-        statuses=[UploadRowStatus.FAILED, UploadRowStatus.PENDING],
-    )
-    if not rows:
-        raise HTTPException(404, "No failed or pending rows")
+    committed_ids: set = set((record.commit_summary or {}).get("committed_row_ids", []))
+    row_report: list = record.row_report or []
 
+    rows_out: list = []
+    columns: list = []
+
+    if row_report:
+        # Primary path: derive remaining rows from row_report.
+        # "Remaining" = every row NOT in committed_ids (unselected + rows that errored
+        # at DB level). This produces a clean re-upload-ready file.
+        for row in row_report:
+            if row.get("row_id") in committed_ids:
+                continue
+            mapped = row.get("mapped") or {}
+            if not columns and mapped:
+                columns = list(mapped.keys())
+            errors = row.get("errors") or []
+            rows_out.append({
+                "data": mapped,
+                "status": row.get("status", ""),
+                "error_reason": "; ".join(e.get("message", "") for e in errors) if errors else None,
+            })
+    else:
+        # Fallback for old imports that pre-date the row_report column:
+        # only FAILED upload_rows remain to be re-imported (IMPORTED/PENDING are done).
+        failed = db.query(UploadRow).filter(
+            UploadRow.upload_id == upload_id,
+            UploadRow.status == UploadRowStatus.FAILED,
+        ).order_by(UploadRow.row_number).all()
+        for ur in failed:
+            raw = ur.raw_data or {}
+            if not columns and raw:
+                columns = list(raw.keys())
+            rows_out.append({"data": raw, "status": "failed", "error_reason": ur.error_reason})
+
+    if not rows_out:
+        raise HTTPException(404, "No remaining rows — all rows were successfully imported")
+
+    if not columns:
+        columns = sorted({k for r in rows_out for k in r["data"].keys()})
+
+    file_format = (record.file_type or "csv").lower()
     import datetime as _dt
     ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     orig = (record.original_filename or "upload").rsplit(".", 1)[0]
-    ext = file_format if file_format != "xlsx" else "xlsx"
-    filename = f"{orig}_remaining_{ts}.{ext}"
+    filename = f"{orig}_remaining_{ts}.{file_format}"
 
     buf = io.BytesIO()
-    media_type = _build_file(rows, columns, file_format, include_status=False, buffer=buf)
+    media_type = _build_file(rows_out, columns, file_format, include_status=False, buffer=buf)
     buf.seek(0)
     return StreamingResponse(buf, media_type=media_type,
                              headers={"Content-Disposition": f"attachment; filename={filename}"})
@@ -1191,6 +1235,29 @@ def download_report(
         raise HTTPException(404, "Upload not found")
 
     rows, columns, file_format = _get_upload_rows_data(upload_id, current_user.company_id, db)
+
+    if not rows:
+        # Fallback for old imports without upload_rows records: build from row_report.
+        committed_ids: set = set((record.commit_summary or {}).get("committed_row_ids", []))
+        row_report: list = record.row_report or []
+        columns = []
+        rows = []
+        for row in row_report:
+            mapped = row.get("mapped") or {}
+            if not columns and mapped:
+                columns = list(mapped.keys())
+            errors = row.get("errors") or []
+            rid = row.get("row_id")
+            status = "imported" if rid in committed_ids else row.get("status", "")
+            rows.append({
+                "data": mapped,
+                "status": status,
+                "error_reason": "; ".join(e.get("message", "") for e in errors) if errors else None,
+            })
+        if not columns:
+            columns = sorted({k for r in rows for k in r["data"].keys()})
+        file_format = (record.file_type or "csv").lower()
+
     if not rows:
         raise HTTPException(404, "No row data available")
 

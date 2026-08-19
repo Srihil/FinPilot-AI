@@ -697,10 +697,12 @@ def ingest_commit(
         import logging
         from app.db.base import SessionLocal
         from app.models.upload_row import UploadRow, UploadRowStatus
+        from app.services.ingestion_service import VOUCHER_SUBTYPE_OP
         from datetime import datetime, timezone as tz
         log = logging.getLogger(__name__)
         bg_db = SessionLocal()
         try:
+            # ── Step 1: Commit entity rows to FinPilot DB ─────────────────────
             result = ingest.commit_rows(
                 upload_record_id=upload_id,
                 selected_row_ids=selected_ids,
@@ -712,53 +714,27 @@ def ingest_commit(
             if result.imported > 0 and entity_type and fingerprint:
                 ingest.save_mapping_cache(company_id, fingerprint, entity_type, col_map, bg_db)
 
-            # ── Create upload_rows for every committed row ───────────────────
+            # Reload upload record (commit_rows did multiple commits)
             upload_rec = bg_db.query(Upload).filter(Upload.id == upload_id).first()
-            committed_ids = set((upload_rec.commit_summary or {}).get("committed_row_ids", []))
-            error_by_row  = {e["row_id"]: e["message"] for e in (upload_rec.commit_summary or {}).get("errors", [])}
-            row_report    = upload_rec.row_report or []
-            now_dt        = datetime.now(tz.utc)
+            committed_ids: set = set((upload_rec.commit_summary or {}).get("committed_row_ids", []))
+            error_by_row: dict = {e["row_id"]: e["message"] for e in (upload_rec.commit_summary or {}).get("errors", [])}
+            row_report: list = upload_rec.row_report or []
+            now_dt = datetime.now(tz.utc)
 
-            # Rows that failed at DB commit level
-            failed_ids = set(error_by_row.keys())
-            for rid in failed_ids:
-                row = next((r for r in row_report if r.get("row_id") == rid), {})
-                bg_db.add(UploadRow(
-                    upload_id=upload_id, row_number=rid + 2,
-                    entity_type=entity_type, status=UploadRowStatus.FAILED,
-                    error_reason=error_by_row[rid],
-                    raw_data=row.get("mapped"), created_at=now_dt, updated_at=now_dt,
-                ))
+            log.info(f"[import] entity={entity_type} imported={result.imported} committed_ids={len(committed_ids)} sync={sync_to_tally}")
 
-            # Rows that were successfully committed to local DB
-            # Status starts as IMPORTED; if Tally job is queued it becomes PENDING
-            row_id_to_upload_row: dict = {}
-            for row in row_report:
-                rid = row.get("row_id")
-                if rid not in committed_ids:
-                    continue
-                ur = UploadRow(
-                    upload_id=upload_id, row_number=rid + 2,
-                    entity_type=entity_type, status=UploadRowStatus.IMPORTED,
-                    raw_data=row.get("mapped"), created_at=now_dt, updated_at=now_dt,
-                )
-                bg_db.add(ur)
-                row_id_to_upload_row[rid] = ur
-
-            # ── COMMIT UPLOAD_ROWS NOW (separate transaction) ─────────────
-            # Persisting UploadRows before queuing Tally jobs ensures they survive
-            # even if the Tally sync block later throws and rolls back.
-            bg_db.flush()   # assign PKs
-            bg_db.commit()  # durable — Tally rollback below cannot undo this
-
-            # ── Queue Tally jobs & link to upload_rows ───────────────────────
+            # ── Step 2: Queue Tally jobs (CRITICAL — own try/except) ──────────
             tally_queued = 0
+            tally_job_ids: dict = {}  # rid → job UUID (for linking UploadRows later)
+
             if sync_to_tally and result.imported > 0:
                 try:
                     connector = bg_db.query(TallyConnector).filter(
                         TallyConnector.company_id == company_id,
                         TallyConnector.status == ConnectorStatus.ACTIVE,
                     ).first()
+                    log.info(f"[import] connector={'found' if connector else 'NONE'}")
+
                     if connector:
                         batch_id = uuid.uuid4()
                         for row in row_report:
@@ -766,80 +742,114 @@ def ingest_commit(
                             if rid not in committed_ids:
                                 continue
                             mapped = row.get("mapped", {})
-                            name = str(mapped.get("name", "")).strip()
+                            name = str(mapped.get("name") or "").strip()
                             job_obj = None
 
                             if entity_type == "Ledger" and name:
                                 group = str(mapped.get("parent_group") or "Sundry Debtors").strip()
                                 ob = str(int(float(mapped.get("opening_balance") or 0)))
-                                ikey = f"commit_ledger::{upload_id}::{rid}"
+                                ikey = f"bulk_ledger::{upload_id}::{rid}"
                                 if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-                                    job_obj = TallyIntegrationJob(company_id=company_id, connector_id=connector.id,
+                                    job_obj = TallyIntegrationJob(
+                                        company_id=company_id, connector_id=connector.id,
                                         operation=TallyJobOperation.CREATE_LEDGER,
                                         payload={"name": name, "group": group, "opening_balance": ob},
                                         idempotency_key=ikey, batch_id=batch_id)
+
                             elif entity_type == "Stock Item" and name:
-                                pl = {"name": name}
+                                pl: dict = {"name": name}
                                 if mapped.get("stock_group"): pl["stock_group"] = str(mapped["stock_group"])
-                                if mapped.get("unit"): pl["unit"] = str(mapped["unit"])
-                                if mapped.get("rate") is not None: pl["rate"] = str(mapped["rate"])
-                                ikey = f"commit_si::{upload_id}::{rid}"
+                                if mapped.get("unit"):         pl["unit"]        = str(mapped["unit"])
+                                if mapped.get("rate") is not None: pl["rate"]   = str(mapped["rate"])
+                                ikey = f"bulk_si::{upload_id}::{rid}"
                                 if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-                                    job_obj = TallyIntegrationJob(company_id=company_id, connector_id=connector.id,
+                                    job_obj = TallyIntegrationJob(
+                                        company_id=company_id, connector_id=connector.id,
                                         operation=TallyJobOperation.CREATE_STOCK_ITEM,
                                         payload=pl, idempotency_key=ikey, batch_id=batch_id)
+
                             elif entity_type == "Stock Group" and name:
                                 pl = {"name": name}
                                 if mapped.get("parent"): pl["parent"] = str(mapped["parent"])
-                                ikey = f"commit_sg::{upload_id}::{rid}"
+                                ikey = f"bulk_sg::{upload_id}::{rid}"
                                 if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-                                    job_obj = TallyIntegrationJob(company_id=company_id, connector_id=connector.id,
+                                    job_obj = TallyIntegrationJob(
+                                        company_id=company_id, connector_id=connector.id,
                                         operation=TallyJobOperation.CREATE_STOCK_GROUP,
                                         payload=pl, idempotency_key=ikey, batch_id=batch_id)
+
                             elif entity_type == "Voucher":
-                                from app.services.ingestion_service import VOUCHER_SUBTYPE_OP
-                                vtype = str(mapped.get("voucher_type", "")).strip().title()
+                                vtype_raw = str(mapped.get("voucher_type") or "").strip()
+                                vtype = vtype_raw.title().removesuffix(" Voucher").strip()
                                 op_v = VOUCHER_SUBTYPE_OP.get(vtype)
                                 if op_v:
-                                    pl = {k: (str(v) if v is not None else None) for k, v in mapped.items() if v is not None}
-                                    ikey = f"commit_vch::{upload_id}::{rid}"
+                                    pl = {k: str(v) for k, v in mapped.items() if v is not None}
+                                    pl["voucher_type_name"] = vtype
+                                    ikey = f"bulk_vch::{upload_id}::{rid}"
                                     if not bg_db.query(TallyIntegrationJob).filter(TallyIntegrationJob.idempotency_key == ikey).first():
-                                        job_obj = TallyIntegrationJob(company_id=company_id, connector_id=connector.id,
-                                            operation=op_v, payload=pl, idempotency_key=ikey, batch_id=batch_id)
+                                        job_obj = TallyIntegrationJob(
+                                            company_id=company_id, connector_id=connector.id,
+                                            operation=op_v, payload=pl,
+                                            idempotency_key=ikey, batch_id=batch_id)
 
                             if job_obj:
                                 bg_db.add(job_obj)
-                                bg_db.flush()  # get job id
+                                bg_db.flush()
                                 tally_queued += 1
-                                # Link and mark upload_row as pending Tally confirmation
-                                ur = row_id_to_upload_row.get(rid)
-                                if ur:
-                                    ur.tally_job_id = job_obj.id
-                                    ur.status = UploadRowStatus.PENDING
-                                    ur.updated_at = now_dt
+                                tally_job_ids[rid] = job_obj.id
 
-                        if tally_queued > 0 and upload_rec and upload_rec.commit_summary:
-                            summary = dict(upload_rec.commit_summary)
-                            summary["tally_queued"] = tally_queued
-                            upload_rec.commit_summary = summary
+                        if tally_queued > 0 and upload_rec.commit_summary:
+                            cs = dict(upload_rec.commit_summary)
+                            cs["tally_queued"] = tally_queued
+                            upload_rec.commit_summary = cs
                             flag_modified(upload_rec, "commit_summary")
 
-                    bg_db.commit()  # commit Tally jobs + upload_row status updates
+                    bg_db.commit()  # commit Tally jobs
+                    log.info(f"[import] tally_queued={tally_queued}")
 
                 except Exception as tally_exc:
-                    log.error(f"Tally sync error after commit: {tally_exc}", exc_info=True)
-                    # Only rolls back Tally jobs; UploadRows were already committed above
+                    log.error(f"[import] Tally sync error: {tally_exc}", exc_info=True)
                     bg_db.rollback()
                     tally_queued = 0
+                    tally_job_ids = {}
 
+            # ── Step 3: Create UploadRows (non-critical — own try/except) ────
+            try:
+                for rid, msg in error_by_row.items():
+                    row = next((r for r in row_report if r.get("row_id") == rid), {})
+                    bg_db.add(UploadRow(
+                        upload_id=upload_id, row_number=rid + 2,
+                        entity_type=entity_type, status=UploadRowStatus.FAILED,
+                        error_reason=msg, raw_data=row.get("mapped"),
+                        created_at=now_dt, updated_at=now_dt,
+                    ))
+                for row in row_report:
+                    rid = row.get("row_id")
+                    if rid not in committed_ids:
+                        continue
+                    job_id = tally_job_ids.get(rid)
+                    bg_db.add(UploadRow(
+                        upload_id=upload_id, row_number=rid + 2,
+                        entity_type=entity_type,
+                        status=UploadRowStatus.PENDING if job_id else UploadRowStatus.IMPORTED,
+                        tally_job_id=job_id,
+                        raw_data=row.get("mapped"), created_at=now_dt, updated_at=now_dt,
+                    ))
+                bg_db.commit()
+            except Exception as row_exc:
+                log.warning(f"[import] UploadRow write failed (non-critical): {row_exc}")
+                bg_db.rollback()
+
+            # ── Step 4: Audit log ─────────────────────────────────────────────
             audit_service.log(
                 bg_db, company_id, user_id, AuditAction.UPLOAD,
                 entity_type="upload", entity_id=upload_id,
-                description=f"Smart import {entity_type}: {result.imported} rows committed, {tally_queued} Tally jobs queued",
+                description=f"Bulk import {entity_type}: {result.imported} rows, {tally_queued} Tally jobs",
             )
-            bg_db.commit()  # commit audit log
+            bg_db.commit()
+
         except Exception as exc:
-            log.error(f"_run_commit error: {exc}", exc_info=True)
+            log.error(f"[import] _run_commit fatal error: {exc}", exc_info=True)
         finally:
             bg_db.close()
 

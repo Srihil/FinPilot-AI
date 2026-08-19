@@ -4,7 +4,7 @@ cd /d "%~dp0tally-connector"
 
 echo.
 echo =====================================================
-echo    FinPilot TallyPrime Connector  v1.7.0
+echo    FinPilot TallyPrime Connector  v1.8.0
 echo    Connected to: finpilot-backend-w1im.onrender.com
 echo =====================================================
 echo.

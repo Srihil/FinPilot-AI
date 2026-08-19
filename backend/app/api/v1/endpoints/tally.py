@@ -47,6 +47,7 @@ _MASTER_MODELS = {
 # Map DELETE operations to their master table model
 _DELETE_MODELS = {
     TallyJobOperation.DELETE_LEDGER:          TallyLedger,
+    TallyJobOperation.DELETE_GROUP:           TallyGroup,
     TallyJobOperation.DELETE_STOCK_GROUP:     TallyStockGroup,
     TallyJobOperation.DELETE_STOCK_ITEM:      TallyStockItem,
     TallyJobOperation.DELETE_STOCK_CATEGORY:  StockCategory,

@@ -57,6 +57,7 @@ class TallyJobOperation(str, enum.Enum):
     CREATE_REJECTION_OUT  = "CREATE_REJECTION_OUT"
     # Delete operations
     DELETE_LEDGER = "DELETE_LEDGER"
+    DELETE_GROUP = "DELETE_GROUP"
     DELETE_STOCK_ITEM = "DELETE_STOCK_ITEM"
     DELETE_STOCK_GROUP = "DELETE_STOCK_GROUP"
     DELETE_UNIT = "DELETE_UNIT"
@@ -73,6 +74,7 @@ class TallyJobOperation(str, enum.Enum):
 
 DELETE_OPERATIONS = {
     TallyJobOperation.DELETE_LEDGER,
+    TallyJobOperation.DELETE_GROUP,
     TallyJobOperation.DELETE_STOCK_ITEM,
     TallyJobOperation.DELETE_STOCK_GROUP,
     TallyJobOperation.DELETE_UNIT,

@@ -65,6 +65,12 @@ function flattenVisible(nodes: TreeNode[], collapsed: Set<string>): TreeNode[] {
 
 // ─── Row ─────────────────────────────────────────────────────────────────────
 
+function collectCatIds(node: TreeNode): string[] {
+  const ids: string[] = [node.id];
+  for (const c of node.children) ids.push(...collectCatIds(c));
+  return ids;
+}
+
 interface RowProps {
   node: TreeNode;
   collapsed: Set<string>;
@@ -73,11 +79,14 @@ interface RowProps {
   onDelete: (c: StockCategory) => void;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  onSelectAllChildren: (ids: string[]) => void;
 }
 
-function CategoryRow({ node, collapsed, onToggle, onEdit, onDelete, selectedIds, onToggleSelect }: RowProps) {
+function CategoryRow({ node, collapsed, onToggle, onEdit, onDelete, selectedIds, onToggleSelect, onSelectAllChildren }: RowProps) {
   const hasChildren = node.children.length > 0;
   const isCollapsed = collapsed.has(node.id);
+  const childIds = hasChildren ? collectCatIds(node).slice(1) : []; // exclude self
+  const allChildSelected = childIds.length > 0 && childIds.every(id => selectedIds.has(id));
 
   return (
     <tr className={cn('border-b hover:bg-slate-50 group', hasChildren && 'cursor-pointer select-none')} onClick={() => hasChildren && onToggle(node.id)}>
@@ -86,6 +95,15 @@ function CategoryRow({ node, collapsed, onToggle, onEdit, onDelete, selectedIds,
           <button onClick={e => { e.stopPropagation(); onToggleSelect(node.id); }} className="p-1 rounded shrink-0 text-slate-300 hover:text-indigo-600 transition-colors">
             {selectedIds.has(node.id) ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
           </button>
+          {hasChildren && (
+            <button
+              onClick={e => { e.stopPropagation(); onSelectAllChildren(allChildSelected ? [] : childIds); }}
+              className="p-1 rounded shrink-0 text-slate-300 hover:text-violet-600 transition-colors"
+              title={allChildSelected ? 'Deselect all children' : 'Select all children'}
+            >
+              {allChildSelected ? <CheckSquare className="w-3.5 h-3.5 text-violet-600" /> : <Square className="w-3.5 h-3.5" />}
+            </button>
+          )}
           {node.depth > 0 && (
             <span className="text-slate-300 select-none mr-0.5">└</span>
           )}
@@ -341,6 +359,11 @@ export default function StockCategoriesPage() {
                     onDelete={c => setDeleteItem(c)}
                     selectedIds={selectedIds}
                     onToggleSelect={toggleSelect}
+                    onSelectAllChildren={ids =>
+                      ids.length === 0
+                        ? setSelectedIds(prev => { const s = new Set(prev); collectCatIds(node).slice(1).forEach(id => s.delete(id)); return s; })
+                        : setSelectedIds(prev => new Set([...prev, ...ids]))
+                    }
                   />
                 ))}
               </tbody>

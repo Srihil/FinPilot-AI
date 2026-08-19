@@ -63,6 +63,12 @@ function countItems(node: GroupNode): number {
   return n;
 }
 
+function collectItemIds(node: GroupNode): string[] {
+  const ids: string[] = node.items.map(i => i.id);
+  for (const c of node.children) ids.push(...collectItemIds(c));
+  return ids;
+}
+
 function buildHierarchy(groups: TallyStockGroup[], items: TallyStockItem[]) {
   // Build map: normalised name → node
   const byName = new Map<string, GroupNode>();
@@ -396,10 +402,25 @@ export default function StockItemsPage() {
                     const hasChildren = n.children.length + n.items.length > 0;
                     const ic = countItems(n);
                     const isRoot = row.continues.length === 0;
+                    const gItemIds = ic > 0 ? collectItemIds(n) : [];
+                    const allGroupSelected = gItemIds.length > 0 && gItemIds.every(id => selectedIds.has(id));
+                    const toggleGroupSelect = (e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      if (allGroupSelected) {
+                        setSelectedIds(prev => { const s = new Set(prev); gItemIds.forEach(id => s.delete(id)); return s; });
+                      } else {
+                        setSelectedIds(prev => new Set([...prev, ...gItemIds]));
+                      }
+                    };
                     return (
                       <tr key={`${cId}-${i}`} className={cn('border-b', isRoot ? 'bg-amber-50/60' : 'hover:bg-amber-50/40', hasChildren && 'cursor-pointer select-none')} onClick={() => hasChildren && toggle(cId)}>
                         <td className="px-3 py-2">
                           <div className="flex items-center">
+                            {gItemIds.length > 0 ? (
+                              <button onClick={toggleGroupSelect} className="p-1 rounded shrink-0 text-slate-300 hover:text-indigo-600 transition-colors">
+                                {allGroupSelected ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                              </button>
+                            ) : <span className="w-6 shrink-0" />}
                             <TreePrefix continues={row.continues} />
                             {hasChildren ? (
                               <button

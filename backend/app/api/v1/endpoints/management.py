@@ -3035,7 +3035,7 @@ def bulk_delete_masters(
         "unit":           (TallyUnit,       TallyJobOperation.DELETE_UNIT,           True),
         "godown":         (TallyGodown,     TallyJobOperation.DELETE_GODOWN,         True),
         "stock_category": (StockCategory,   TallyJobOperation.DELETE_STOCK_CATEGORY, True),
-        "group":          (TallyGroup,      None,                                    False),
+        "group":          (TallyGroup,      TallyJobOperation.DELETE_GROUP,          True),
     }
 
     et = body.entity_type.lower()
@@ -3075,11 +3075,8 @@ def bulk_delete_masters(
 
         name = getattr(record, "name", id_str)
 
-        # Account groups: local-only delete (no Tally operation)
+        # Local-only entities (supports_tally = False) — delete immediately
         if not supports_tally:
-            if getattr(record, "source", "") == "tally_sync":
-                errors.append({"id": id_str, "name": name, "reason": "System groups imported from TallyPrime cannot be deleted from FinPilot"})
-                continue
             _cancel_pending_job(db, getattr(record, "tally_job_id", None))
             record.is_active = False
             deleted_immediately += 1

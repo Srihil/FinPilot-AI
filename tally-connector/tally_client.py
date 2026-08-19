@@ -1027,6 +1027,9 @@ class TallyClient:
     def delete_ledger(self, payload: dict) -> dict:
         return self._delete_master("LEDGER", payload.get("name", ""))
 
+    def delete_group(self, payload: dict) -> dict:
+        return self._delete_master("GROUP", payload.get("name", ""))
+
     def delete_stock_group(self, payload: dict) -> dict:
         return self._delete_master("STOCKGROUP", payload.get("name", ""))
 

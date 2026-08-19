@@ -272,6 +272,9 @@ export interface Message {
   error?: string;
   tool_calls?: unknown[];
   tool_results?: unknown[];
+  // Streaming-only fields (never persisted, used while message is in-flight)
+  isStreaming?: boolean;
+  statusText?: string;
 }
 
 // Upload Types

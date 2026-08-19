@@ -315,6 +315,155 @@ def send_message(
     }
 
 
+@router.post("/conversations/{conv_id}/stream")
+async def stream_message(
+    conv_id: str,
+    data: MessageCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    SSE streaming endpoint for the AI assistant.
+
+    Event types emitted:
+      event: status  — tool is executing  (data: {content: "Querying database…"})
+      event: token   — response word      (data: {content: "word "})
+      event: done    — final saved message (data: {id, role, content, …})
+      event: error   — fatal error        (data: {content: "message"})
+    """
+    import asyncio
+    import json as _json
+    from fastapi.responses import StreamingResponse as _SR
+    from app.ai.graph.react_graph import run_tool_loop
+
+    conv = db.query(AIConversation).filter(
+        AIConversation.id == uuid.UUID(conv_id),
+        AIConversation.user_id == current_user.id,
+        AIConversation.company_id == current_user.company_id,
+    ).first()
+    if not conv:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": "Conversation not found"}, status_code=404)
+
+    # Save user message immediately
+    user_msg = AIMessage(
+        conversation_id=conv.id,
+        role=MessageRole.USER,
+        content=data.content,
+    )
+    db.add(user_msg)
+    db.commit()
+
+    # Build history for context (exclude the message we just saved)
+    history = db.query(AIMessage).filter(
+        AIMessage.conversation_id == conv.id,
+    ).order_by(AIMessage.created_at).all()
+    history_for_agent = [
+        {"role": m.role.value, "content": m.content}
+        for m in history[:-1]
+    ]
+
+    company = db.query(Company).filter(Company.id == current_user.company_id).first()
+    provider_override = company.ai_provider if company and company.ai_provider else None
+    from app.core.config import settings as _settings
+    effective_provider = provider_override or _settings.AI_PROVIDER
+
+    query_text = data.content
+    company_id_str = str(current_user.company_id)
+    conv_id_obj = conv.id
+    conv_title = conv.title
+
+    async def event_stream():
+        nonlocal conv_title
+        try:
+            # ── Phase 1: run tool loop in thread pool ─────────────────────────
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                run_tool_loop,
+                query_text,
+                company_id_str,
+                effective_provider,
+                history_for_agent,
+            )
+
+            # ── Phase 2: emit status events (one per tool called) ─────────────
+            for tc in result.get("tool_calls", []):
+                label = tc.get("label") or tc.get("name", "Thinking…")
+                yield f"event: status\ndata: {_json.dumps({'content': label})}\n\n"
+                await asyncio.sleep(0)  # let other coroutines run
+
+            # ── Phase 3: stream response word-by-word ─────────────────────────
+            response_text = result.get("direct_response") or ""
+            if result.get("error") and not response_text:
+                response_text = f"Sorry, something went wrong: {result['error']}"
+
+            words = response_text.split(" ")
+            accumulated = ""
+            for i, word in enumerate(words):
+                chunk = word + (" " if i < len(words) - 1 else "")
+                accumulated += chunk
+                yield f"event: token\ndata: {_json.dumps({'content': chunk})}\n\n"
+                # 8 ms per word ≈ natural reading pace
+                await asyncio.sleep(0.008)
+
+            # ── Phase 4: persist AI message & emit done ───────────────────────
+            ai_msg = AIMessage(
+                conversation_id=conv_id_obj,
+                role=MessageRole.ASSISTANT,
+                content=accumulated,
+                is_demo=result.get("is_demo", False),
+                tool_calls=result.get("tool_calls") or None,
+                tool_results=result.get("tool_results") or None,
+            )
+            db.add(ai_msg)
+
+            msg_count = db.query(AIMessage).filter(
+                AIMessage.conversation_id == conv_id_obj
+            ).count()
+            if msg_count <= 2 and conv_title in ("New Conversation", ""):
+                new_title = query_text[:50] + ("…" if len(query_text) > 50 else "")
+                db.query(AIConversation).filter(
+                    AIConversation.id == conv_id_obj
+                ).update({"title": new_title})
+
+            db.commit()
+            db.refresh(ai_msg)
+
+            audit_service.log(
+                db, uuid.UUID(company_id_str), current_user.id,
+                AuditAction.AI_QUERY,
+                description=f"AI query (stream): {query_text[:100]}",
+            )
+
+            msg_data = {
+                "id": str(ai_msg.id),
+                "conversation_id": conv_id,
+                "role": "assistant",
+                "content": accumulated,
+                "is_demo": result.get("is_demo", False),
+                "created_at": ai_msg.created_at.isoformat(),
+                "tool_calls": result.get("tool_calls") or None,
+                "tool_results": result.get("tool_results") or None,
+                "error": result.get("error"),
+            }
+            yield f"event: done\ndata: {_json.dumps(msg_data)}\n\n"
+
+        except Exception as exc:
+            logger.error("stream_message error: %s", exc, exc_info=True)
+            yield f"event: error\ndata: {_json.dumps({'content': str(exc)})}\n\n"
+
+    return _SR(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 @router.post("/propose-transaction")
 def propose_transaction(
     data: TransactionProposal,

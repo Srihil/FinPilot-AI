@@ -213,6 +213,83 @@ export const assistantApi = {
     return response.data;
   },
 
+  /**
+   * SSE streaming version of sendMessage.
+   * Uses fetch (not axios) — axios does not expose ReadableStream.
+   *
+   *   onStatus(text)  — a tool is executing; show as status label
+   *   onToken(text)   — append this chunk to the growing response
+   *   onDone(message) — final persisted Message (replace the placeholder)
+   *   onError(text)   — fatal error string
+   */
+  streamMessage: async (
+    conversationId: string,
+    content: string,
+    onStatus: (text: string) => void,
+    onToken: (text: string) => void,
+    onDone: (message: Message) => void,
+    onError: (text: string) => void,
+  ): Promise<void> => {
+    const authToken = localStorage.getItem('finpilot_token');
+    const base = (import.meta.env.VITE_API_URL as string) || '';
+
+    const response = await fetch(
+      `${base}/api/assistant/conversations/${conversationId}/stream`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ content }),
+      },
+    );
+
+    if (!response.ok) {
+      onError(`HTTP ${response.status}`);
+      return;
+    }
+
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const processEvents = (raw: string): string => {
+      const blocks = raw.split('\n\n');
+      const incomplete = blocks.pop() ?? '';
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        let eventType = 'message';
+        let eventData = '';
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+          else if (line.startsWith('data: ')) eventData = line.slice(6).trim();
+        }
+        if (!eventData) continue;
+        try {
+          const parsed = JSON.parse(eventData);
+          if (eventType === 'status') onStatus(parsed.content ?? '');
+          else if (eventType === 'token') onToken(parsed.content ?? '');
+          else if (eventType === 'done') onDone(parsed as Message);
+          else if (eventType === 'error') onError(parsed.content ?? 'Unknown error');
+        } catch { /* malformed JSON — skip */ }
+      }
+      return incomplete;
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        buffer = processEvents(buffer);
+      }
+      if (buffer.trim()) processEvents(buffer + '\n\n');
+    } finally {
+      reader.releaseLock();
+    }
+  },
+
   getMessages: async (conversationId: string): Promise<Message[]> => {
     const response = await apiClient.get(`/api/assistant/conversations/${conversationId}/messages`);
     return response.data;

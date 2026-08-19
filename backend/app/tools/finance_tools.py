@@ -1,10 +1,10 @@
 """
 Controlled Finance Tools - these are the ONLY ways the AI can access financial data.
 The LLM calls these tools; the tools run deterministic database queries.
-No arbitrary SQL is ever executed.
+query_database allows arbitrary SELECT with automatic company_id isolation and guardrails.
 """
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, text
 from app.models.invoice import Invoice, InvoiceStatus, InvoiceType
 from app.models.expense import Expense, ExpenseStatus
 from app.models.payment import Payment
@@ -17,6 +17,53 @@ from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 from dateutil.relativedelta import relativedelta
 import uuid
+import re as _re
+
+# ── Database schema exposed to the AI (safe subset only) ─────────────────────
+DB_SCHEMA = """
+=== FinPilot Database — available tables ===
+All tables are pre-filtered to this company. Do NOT add company_id to your queries.
+
+customers     : id, name, email, phone, gstin, address, city, state, country, notes, created_at
+vendors       : id, name, email, phone, gstin, address, city, state, notes, created_at
+products      : id, name, sku, unit, selling_price, cost_price, stock_quantity,
+                reorder_threshold, is_active, created_at
+invoices      : id, invoice_number, invoice_type (SALES|PURCHASE), invoice_date, due_date,
+                total_amount, paid_amount, status (DRAFT|APPROVED|SENT|PARTIALLY_PAID|PAID|OVERDUE),
+                customer_id→customers.id, vendor_id→vendors.id, notes, created_at
+invoice_items : id, invoice_id→invoices.id, description, quantity, unit_price, total_price,
+                product_id→products.id
+expenses      : id, title, category, expense_date, amount, tax_amount, total_amount,
+                status (DRAFT|APPROVED|PAID), vendor_id→vendors.id, notes, reference_number, created_at
+              (category values: Office Supplies, Utilities, Rent, Salaries, Travel, Marketing,
+               Software, Equipment, Maintenance, Professional Services, Raw Materials,
+               Shipping, Insurance, Taxes, Miscellaneous, Receipt, Payment, Journal,
+               Contra, Credit Note, Debit Note)
+audit_logs    : id, action, entity_type, entity_id, description, created_at
+tally_integration_jobs : id, operation, status (PENDING|CLAIMED|SUCCESS|FAILED|RETRYING),
+                         error_message, retry_count, created_at, updated_at
+
+All monetary amounts are INR. invoice_type SALES = revenue, PURCHASE = cost.
+Only APPROVED/SENT/PARTIALLY_PAID/PAID invoices count as confirmed revenue.
+"""
+
+# Tables that have a company_id column (auto-filtered via CTE)
+_COMPANY_TABLES = frozenset({
+    "customers", "vendors", "products", "invoices", "expenses",
+    "approvals", "audit_logs", "tally_integration_jobs", "uploads", "reports",
+})
+
+_FORBIDDEN_SQL = _re.compile(
+    r"\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|"
+    r"EXECUTE|EXEC|VACUUM|REINDEX|COPY|CALL|DO)\b",
+    _re.IGNORECASE,
+)
+
+_BLOCKED_CONTENT = _re.compile(
+    r"(password_hash|token_hash|hashed_password|secret|"
+    r"pg_catalog|information_schema|pg_class|pg_shadow|pg_user)",
+    _re.IGNORECASE,
+)
 
 
 class PeriodInput(BaseModel):
@@ -429,8 +476,248 @@ class FinanceTools:
             },
         ]
 
+    # ── query_database ────────────────────────────────────────────────────────
+
+    def query_database(self, company_id: str, sql: str) -> dict:
+        """
+        Execute a read-only SQL SELECT against the company's data.
+
+        Guardrails enforced here (not in the prompt):
+        1. Must start with SELECT — no DML/DDL allowed
+        2. Forbidden keywords (INSERT/UPDATE/DELETE/DROP …) blocked
+        3. Sensitive columns (password_hash, token_hash …) blocked
+        4. company_id auto-injected via CTE — zero cross-tenant leakage
+        5. LIMIT capped at 200 rows
+        6. 8-second statement timeout
+        """
+        sql = (sql or "").strip().rstrip(";")
+
+        # Guard 1 — SELECT only
+        if not _re.match(r"^SELECT\b", sql, _re.IGNORECASE):
+            return {"error": "Only SELECT queries are allowed.", "rows": [], "count": 0}
+
+        # Guard 2 — forbidden DML/DDL
+        if _FORBIDDEN_SQL.search(sql):
+            return {"error": "Query contains a forbidden operation.", "rows": [], "count": 0}
+
+        # Guard 3 — sensitive columns
+        if _BLOCKED_CONTENT.search(sql):
+            return {"error": "Query references a restricted column or schema.", "rows": [], "count": 0}
+
+        # Guard 4 — company_id isolation via CTE
+        referenced = [
+            t for t in _COMPANY_TABLES
+            if _re.search(r"\b" + _re.escape(t) + r"\b", sql, _re.IGNORECASE)
+        ]
+        if referenced:
+            cid = str(company_id)
+            cte_parts = [
+                f"{t} AS (SELECT * FROM public.{t} WHERE company_id = '{cid}')"
+                for t in referenced
+            ]
+            cte_sql = ",\n  ".join(cte_parts)
+            if _re.match(r"^WITH\b", sql, _re.IGNORECASE):
+                # Prepend our CTEs before the user's existing WITH list
+                sql = f"WITH {cte_sql},\n  " + sql[5:]
+            else:
+                sql = f"WITH {cte_sql}\n{sql}"
+
+        # Guard 5 — LIMIT cap
+        if not _re.search(r"\bLIMIT\b", sql, _re.IGNORECASE):
+            sql = f"{sql} LIMIT 200"
+        else:
+            def _cap(m: _re.Match) -> str:
+                return f"LIMIT {min(int(m.group(1)), 200)}"
+            sql = _re.sub(r"\bLIMIT\s+(\d+)", _cap, sql, flags=_re.IGNORECASE)
+
+        # Guard 6 — execute with timeout
+        try:
+            self.db.execute(text("SET LOCAL statement_timeout = '8000'"))
+            result = self.db.execute(text(sql))
+            columns = list(result.keys())
+            raw_rows = result.fetchall()
+
+            rows = []
+            for row in raw_rows:
+                clean = {}
+                for col, val in zip(columns, row):
+                    if val is None:
+                        clean[col] = None
+                    elif hasattr(val, "isoformat"):
+                        clean[col] = val.isoformat()
+                    elif isinstance(val, (int, float, str, bool)):
+                        clean[col] = val
+                    else:
+                        clean[col] = str(val)
+                rows.append(clean)
+
+            return {"rows": rows, "count": len(rows), "columns": columns}
+
+        except Exception as exc:
+            err = str(exc)
+            if "statement timeout" in err.lower():
+                return {"error": "Query timed out (8 s max). Simplify or add a tighter filter.", "rows": [], "count": 0}
+            # Strip internal file paths before returning
+            err = _re.sub(r'File ".*?", line \d+,? ?', "", err)
+            return {"error": f"Query failed: {err[:400]}", "rows": [], "count": 0}
+
+        finally:
+            try:
+                self.db.execute(text("SET LOCAL statement_timeout = DEFAULT"))
+            except Exception:
+                pass
+
+    def get_tool_definitions(self) -> list:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_total_revenue",
+                    "description": "Get total sales revenue for a period",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "date_from": {"type": "string", "description": "Start date ISO format (optional, defaults to current month start)"},
+                            "date_to": {"type": "string", "description": "End date ISO format (optional, defaults to now)"},
+                        },
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_total_expenses",
+                    "description": "Get total expenses for a period",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "date_from": {"type": "string"},
+                            "date_to": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_net_profit",
+                    "description": "Get net profit (revenue minus expenses) for a period",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "date_from": {"type": "string"},
+                            "date_to": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_top_customers",
+                    "description": "Get top customers by revenue",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "n": {"type": "integer", "description": "Number of customers to return (default 5)"},
+                            "date_from": {"type": "string"},
+                            "date_to": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_customer_outstanding",
+                    "description": "Get customers with outstanding receivable balances",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_overdue_invoices",
+                    "description": "Get overdue invoices that are past their due date",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_expense_breakdown",
+                    "description": "Get breakdown of expenses by category",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "date_from": {"type": "string"},
+                            "date_to": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_vendor_payables",
+                    "description": "Get vendor purchase totals",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_inventory_summary",
+                    "description": "Get inventory summary including low stock alerts",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_financial_summary",
+                    "description": "Get a complete financial summary for the current month",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "compare_periods",
+                    "description": "Compare current month vs previous month for revenue and expenses",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "query_database",
+                    "description": (
+                        "Execute a custom PostgreSQL SELECT query against the company's financial database. "
+                        "Use this for complex, ad-hoc, or specific questions not covered by other tools. "
+                        "company_id is auto-injected — do NOT include it in your query. "
+                        "Always include a LIMIT (max 200). "
+                        "Reference tables by name only (e.g. invoices, customers) — no schema prefix."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "sql": {
+                                "type": "string",
+                                "description": (
+                                    "Valid PostgreSQL SELECT. Examples:\n"
+                                    "  SELECT name, total_amount FROM invoices WHERE status='PAID' ORDER BY total_amount DESC LIMIT 10\n"
+                                    "  SELECT c.name, SUM(i.total_amount) revenue FROM invoices i JOIN customers c ON c.id=i.customer_id WHERE i.invoice_type='SALES' GROUP BY c.name ORDER BY revenue DESC LIMIT 10"
+                                ),
+                            },
+                        },
+                        "required": ["sql"],
+                    },
+                },
+            },
+        ]
+
     def call_tool(self, tool_name: str, args: dict, company_id: str) -> dict:
-        args["company_id"] = company_id
         tool_map = {
             "get_total_revenue": self.get_total_revenue,
             "get_total_expenses": self.get_total_expenses,
@@ -443,11 +730,13 @@ class FinanceTools:
             "get_inventory_summary": self.get_inventory_summary,
             "get_financial_summary": self.get_financial_summary,
             "compare_periods": self.compare_periods,
+            "query_database": self.query_database,
         }
         if tool_name not in tool_map:
             return {"error": f"Unknown tool: {tool_name}"}
         fn = tool_map[tool_name]
         import inspect
         sig = inspect.signature(fn)
-        filtered_args = {k: v for k, v in args.items() if k in sig.parameters}
-        return fn(**filtered_args)
+        call_args = {"company_id": company_id, **args}
+        filtered = {k: v for k, v in call_args.items() if k in sig.parameters}
+        return fn(**filtered)

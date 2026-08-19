@@ -1070,30 +1070,10 @@ def sync_freshness(
 
 def _build_file(rows: list[dict], columns: list[str], file_format: str,
                 include_status: bool, buffer: io.BytesIO) -> str:
-    """Generate CSV, XLSX, or JSON file; returns media_type string."""
-    if file_format in ("xlsx", "xls"):
-        import openpyxl
-        from openpyxl.comments import Comment
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        # header
-        hdr = columns + (["status", "error_reason"] if include_status else [])
-        ws.append(hdr)
-        for row in rows:
-            vals = [row.get("data", {}).get(c) for c in columns]
-            if include_status:
-                vals += [row.get("status", ""), row.get("error_reason", "") or ""]
-            ws.append(vals)
-            # For remaining-rows XLSX, add comment to first cell of failed rows
-            if not include_status and row.get("error_reason"):
-                cell = ws.cell(row=ws.max_row, column=1)
-                c = Comment(row["error_reason"], "FinPilot")
-                c.width, c.height = 250, 60
-                cell.comment = c
-        wb.save(buffer)
-        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    """Generate a formatted XLSX (for csv/xlsx) or JSON file; returns media_type."""
 
-    elif file_format == "json":
+    # ── JSON stays as JSON ────────────────────────────────────────────────────
+    if file_format == "json":
         data = []
         for row in rows:
             entry = {k: v for k, v in row.get("data", {}).items()}
@@ -1104,21 +1084,105 @@ def _build_file(rows: list[dict], columns: list[str], file_format: str,
         buffer.write(json.dumps(data, indent=2, default=str).encode())
         return "application/json"
 
-    else:  # csv
-        hdr = columns + (["status", "error_reason"] if include_status else [])
-        import csv as csv_mod
-        import io as io2
-        text_buf = io2.StringIO()
-        writer = csv_mod.DictWriter(text_buf, fieldnames=hdr, extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            entry = {c: row.get("data", {}).get(c, "") for c in columns}
-            if include_status:
-                entry["status"] = row.get("status", "")
-                entry["error_reason"] = row.get("error_reason", "") or ""
-            writer.writerow(entry)
-        buffer.write(text_buf.getvalue().encode("utf-8"))
-        return "text/csv"
+    # ── CSV and XLSX both produce a formatted XLSX ────────────────────────────
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Data"
+
+    hdr = columns + (["status", "error_reason"] if include_status else [])
+
+    # ── Header row ────────────────────────────────────────────────────────────
+    ws.append(hdr)
+    header_fill   = PatternFill("solid", fgColor="4F46E5")   # indigo
+    header_font   = Font(bold=True, color="FFFFFF", size=10)
+    header_align  = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    thin_border   = Border(
+        bottom=Side(style="thin", color="3730A3"),
+    )
+    for cell in ws[1]:
+        cell.font      = header_font
+        cell.fill      = header_fill
+        cell.alignment = header_align
+        cell.border    = thin_border
+    ws.row_dimensions[1].height = 22
+
+    # Status colour map
+    STATUS_FILLS = {
+        "imported":        PatternFill("solid", fgColor="D1FAE5"),  # green-100
+        "pending":         PatternFill("solid", fgColor="DBEAFE"),  # blue-100
+        "failed":          PatternFill("solid", fgColor="FEE2E2"),  # red-100
+        "error":           PatternFill("solid", fgColor="FEE2E2"),
+        "duplicate_exact": PatternFill("solid", fgColor="FEF3C7"),  # amber-100
+        "duplicate_fuzzy": PatternFill("solid", fgColor="FEF3C7"),
+        "ref_missing":     PatternFill("solid", fgColor="FFEDD5"),  # orange-100
+    }
+
+    # ── Data rows ─────────────────────────────────────────────────────────────
+    for row in rows:
+        vals = []
+        for c in columns:
+            v = row.get("data", {}).get(c)
+            # Prevent scientific notation for large integers (phone, pin, GSTIN digits)
+            if isinstance(v, float) and v == int(v):
+                v = str(int(v))
+            elif isinstance(v, int) and abs(v) > 9999:
+                v = str(v)
+            elif v is None:
+                v = ""
+            vals.append(v)
+
+        if include_status:
+            vals.append(row.get("status", "") or "")
+            vals.append(row.get("error_reason", "") or "")
+
+        ws.append(vals)
+        row_idx = ws.max_row
+
+        # Colour-code the status cell
+        if include_status:
+            status_val = (row.get("status", "") or "").lower()
+            fill = STATUS_FILLS.get(status_val)
+            if fill:
+                ws.cell(row=row_idx, column=len(columns) + 1).fill = fill
+
+        # Alternate row shading for readability
+        if row_idx % 2 == 0:
+            row_fill = PatternFill("solid", fgColor="F8FAFC")
+            for col_idx in range(1, len(hdr) + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                if cell.fill.fgColor.rgb in ("00000000", "FFFFFFFF", ""):
+                    cell.fill = row_fill
+
+        ws.row_dimensions[row_idx].height = 16
+
+    # ── Auto-adjust column widths ─────────────────────────────────────────────
+    for col_idx, col_name in enumerate(hdr, 1):
+        max_len = len(str(col_name))
+        for data_row in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+            for cell in data_row:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+        col_letter = get_column_letter(col_idx)
+        # error_reason column gets extra width and wraps
+        if col_name == "error_reason":
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 60)
+            for data_row in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+                for cell in data_row:
+                    cell.alignment = Alignment(wrap_text=True, vertical="top")
+        else:
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 45)
+
+    # ── Freeze header, auto-filter ────────────────────────────────────────────
+    ws.freeze_panes = "A2"
+    if ws.max_row > 1:
+        ws.auto_filter.ref = ws.dimensions
+
+    wb.save(buffer)
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _get_upload_rows_data(upload_id: str, company_id, db, statuses: list | None = None):
@@ -1224,7 +1288,9 @@ def download_remaining(
     import datetime as _dt
     ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     orig = (record.original_filename or "upload").rsplit(".", 1)[0]
-    filename = f"{orig}_remaining_{ts}.{file_format}"
+    # CSV and XLSX both produce formatted XLSX; JSON stays JSON
+    out_ext = "json" if file_format == "json" else "xlsx"
+    filename = f"{orig}_remaining_{ts}.{out_ext}"
 
     buf = io.BytesIO()
     media_type = _build_file(rows_out, columns, file_format, include_status=False, buffer=buf)
@@ -1274,8 +1340,9 @@ def download_report(
     import datetime as _dt
     ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     orig = (record.original_filename or "upload").rsplit(".", 1)[0]
-    ext = file_format if file_format != "xlsx" else "xlsx"
-    filename = f"{orig}_report_{ts}.{ext}"
+    # CSV and XLSX both produce formatted XLSX; JSON stays JSON
+    out_ext = "json" if file_format == "json" else "xlsx"
+    filename = f"{orig}_report_{ts}.{out_ext}"
 
     buf = io.BytesIO()
     media_type = _build_file(rows, columns, file_format, include_status=True, buffer=buf)

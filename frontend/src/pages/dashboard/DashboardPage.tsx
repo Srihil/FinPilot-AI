@@ -338,7 +338,7 @@ export default function DashboardPage() {
                   <XAxis
                     type="number"
                     tick={{ fontSize: 10, fill: '#94a3b8' }}
-                    tickFormatter={v => `₹${(v / 100000).toFixed(0)}L`}
+                    tickFormatter={v => formatCompactCurrency(Number(v))}
                     axisLine={false} tickLine={false}
                   />
                   <YAxis
@@ -392,7 +392,7 @@ export default function DashboardPage() {
                   <XAxis
                     type="number"
                     tick={{ fontSize: 10, fill: '#94a3b8' }}
-                    tickFormatter={v => `₹${(v / 100000).toFixed(0)}L`}
+                    tickFormatter={v => formatCompactCurrency(Number(v))}
                     axisLine={false} tickLine={false}
                   />
                   <YAxis

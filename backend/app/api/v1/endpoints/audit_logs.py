@@ -1,46 +1,14 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 from app.db.base import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
-from app.models.audit_log import AuditLog, AuditAction
 from app.services.audit_service import audit_service
 from typing import Optional
 from datetime import datetime
 import math
 
 router = APIRouter(prefix="/audit-logs", tags=["audit-logs"])
-
-
-@router.get("/recent-exports")
-def recent_exports(
-    limit: int = Query(15, ge=1, le=50),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Returns the most recent DOWNLOAD and GENERATE_REPORT audit events for the activity drawer."""
-    logs = (
-        db.query(AuditLog)
-        .filter(
-            AuditLog.company_id == current_user.company_id,
-            AuditLog.action.in_([AuditAction.DOWNLOAD, AuditAction.GENERATE_REPORT]),
-        )
-        .options(joinedload(AuditLog.user))
-        .order_by(AuditLog.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-    return [
-        {
-            "id": str(log.id),
-            "action": log.action.value,
-            "entity_type": log.entity_type or "",
-            "description": log.description or "",
-            "user_name": log.user.full_name if log.user else "System",
-            "created_at": log.created_at.isoformat(),
-        }
-        for log in logs
-    ]
 
 
 @router.get("")

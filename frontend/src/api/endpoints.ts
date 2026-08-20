@@ -882,23 +882,6 @@ export const reportsExtApi = {
   },
 };
 
-// ─── Audit / Activity ─────────────────────────────────────────────────────────
-
-export interface ExportActivity {
-  id: string;
-  action: string;
-  entity_type: string;
-  description: string;
-  user_name: string;
-  created_at: string;
-}
-
-export const activityApi = {
-  recentExports: async (limit = 15): Promise<ExportActivity[]> => {
-    const res = await apiClient.get('/api/audit-logs/recent-exports', { params: { limit } });
-    return res.data;
-  },
-};
 
 // ─── AI Create ───────────────────────────────────────────────────────────────
 

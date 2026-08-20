@@ -889,7 +889,7 @@ def generate_report(
     report_record = Report(
         company_id=cid,
         generated_by=current_user.id,
-        report_type=report_type_enum,
+        report_type=report_type_enum.value,
         title=title,
         period_start=period_start,
         period_end=period_end,
@@ -1012,7 +1012,7 @@ def list_reports(
     return {
         "items": [
             {
-                "id": str(r.id), "title": r.title, "report_type": r.report_type.value,
+                "id": str(r.id), "title": r.title, "report_type": r.report_type,
                 "period_start": r.period_start.isoformat() if r.period_start else None,
                 "period_end": r.period_end.isoformat() if r.period_end else None,
                 "created_at": r.created_at.isoformat(),

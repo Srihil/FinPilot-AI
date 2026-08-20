@@ -347,6 +347,7 @@ export default function ReportsPage() {
               <div className="space-y-1.5 lg:col-span-2">
                 <Label className="capitalize">{selectedMeta.needsParty}</Label>
                 <PartySelect
+                  key={selectedMeta.needsParty}
                   partyType={selectedMeta.needsParty}
                   value={partyId}
                   onChange={(id) => setPartyId(id)}

@@ -31,5 +31,4 @@ class User(Base):
 
     company = relationship("Company", back_populates="users")
     audit_logs = relationship("AuditLog", back_populates="user")
-    approvals = relationship("Approval", back_populates="reviewed_by_user", foreign_keys="Approval.reviewed_by")
     ai_conversations = relationship("AIConversation", back_populates="user")

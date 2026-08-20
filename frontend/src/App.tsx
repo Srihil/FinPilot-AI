@@ -39,7 +39,6 @@ import ConflictsPage from './pages/tally/ConflictsPage';
 
 // Other app pages
 import AnalyticsPage from './pages/analytics/AnalyticsPage';
-import ApprovalsPage from './pages/approvals/ApprovalsPage';
 import UploadsPage from './pages/uploads/UploadsPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import AuditLogsPage from './pages/audit/AuditLogsPage';
@@ -99,7 +98,6 @@ export default function App() {
               <Route path="/uploads" element={<UploadsPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/reports" element={<ReportsPage />} />
-              <Route path="/approvals" element={<ApprovalsPage />} />
               <Route path="/audit-logs" element={<AuditLogsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/tally" element={<TallyPage />} />

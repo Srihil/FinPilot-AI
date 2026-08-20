@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, joinedload
 from app.db.base import get_db
-from app.auth.dependencies import get_current_user, require_admin_or_accountant, require_approver
+from app.auth.dependencies import get_current_user, require_admin_or_accountant
 from app.models.user import User
 from app.models.expense import Expense, ExpenseStatus
 from app.models.vendor import Vendor
-from app.models.approval import Approval, ApprovalEntityType, ApprovalStatus
 from app.schemas.expense import ExpenseCreate, ExpenseUpdate
 from app.models.audit_log import AuditAction
 from app.services.audit_service import audit_service
@@ -116,65 +115,3 @@ def create_expense(
     return _serialize(e)
 
 
-@router.post("/{expense_id}/submit")
-def submit_expense(
-    expense_id: str,
-    current_user: User = Depends(require_admin_or_accountant),
-    db: Session = Depends(get_db),
-):
-    e = db.query(Expense).filter(
-        Expense.id == uuid.UUID(expense_id),
-        Expense.company_id == current_user.company_id
-    ).first()
-    if not e:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Expense not found")
-    if e.status != ExpenseStatus.DRAFT:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="Only draft expenses can be submitted")
-
-    e.status = ExpenseStatus.PENDING_APPROVAL
-    approval = Approval(
-        company_id=current_user.company_id,
-        requested_by=current_user.id,
-        entity_type=ApprovalEntityType.EXPENSE,
-        expense_id=e.id,
-        status=ApprovalStatus.PENDING,
-    )
-    db.add(approval)
-    db.commit()
-    return {"message": "Submitted for approval", "expense_id": expense_id}
-
-
-@router.post("/{expense_id}/approve")
-def approve_expense(
-    expense_id: str,
-    current_user: User = Depends(require_approver),
-    db: Session = Depends(get_db),
-):
-    e = db.query(Expense).filter(
-        Expense.id == uuid.UUID(expense_id),
-        Expense.company_id == current_user.company_id
-    ).first()
-    if not e:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Expense not found")
-
-    e.status = ExpenseStatus.APPROVED
-    e.approved_by = current_user.id
-    e.approved_at = datetime.now(timezone.utc)
-
-    approval = db.query(Approval).filter(
-        Approval.expense_id == e.id,
-        Approval.status == ApprovalStatus.PENDING
-    ).first()
-    if approval:
-        approval.status = ApprovalStatus.APPROVED
-        approval.reviewed_by = current_user.id
-        approval.reviewed_at = datetime.now(timezone.utc)
-
-    db.commit()
-    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.APPROVE,
-                      entity_type="expense", entity_id=e.id,
-                      description=f"Expense '{e.title}' approved")
-    return {"message": "Expense approved", "expense_id": expense_id}

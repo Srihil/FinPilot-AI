@@ -4,7 +4,7 @@ import type {
   DashboardOverview, DashboardCharts,
   Customer, Vendor, Product,
   Transaction, Invoice, Expense,
-  Approval, AuditLog,
+  AuditLog,
   Conversation, Message,
   UploadResult, Report,
   CompanySettings, AISettings,
@@ -148,26 +148,6 @@ export const expensesApi = {
 
   create: async (data: Partial<Expense>): Promise<Expense> => {
     const response = await apiClient.post('/api/expenses', data);
-    return response.data;
-  },
-};
-
-// ─── Approvals ────────────────────────────────────────────────────────────────
-
-export const approvalsApi = {
-  list: async (): Promise<Approval[]> => {
-    const response = await apiClient.get('/api/approvals');
-    // API returns { items: [...], total: N }
-    return response.data?.items ?? response.data ?? [];
-  },
-
-  approve: async (id: string, notes?: string): Promise<Approval> => {
-    const response = await apiClient.post(`/api/approvals/${id}/approve`, { notes });
-    return response.data;
-  },
-
-  reject: async (id: string, notes?: string): Promise<Approval> => {
-    const response = await apiClient.post(`/api/approvals/${id}/reject`, { notes });
     return response.data;
   },
 };

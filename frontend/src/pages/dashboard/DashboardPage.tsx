@@ -222,33 +222,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Pending Approvals */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Pending Approvals</CardTitle>
-            <a href="/approvals" className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
-              View all <ArrowUpRight className="w-3 h-3" />
-            </a>
-          </CardHeader>
-          <CardContent>
-            {overviewLoading ? (
-              <Skeleton className="h-40" />
-            ) : (
-              <div className="text-center py-6">
-                <div className="text-5xl font-bold text-indigo-600">{overview?.pending_approvals_count || 0}</div>
-                <p className="text-slate-500 text-sm mt-2">items awaiting approval</p>
-                {(overview?.pending_approvals_count || 0) > 0 && (
-                  <a
-                    href="/approvals"
-                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-50 text-indigo-700 text-sm font-medium hover:bg-indigo-100 transition-colors"
-                  >
-                    Review now <ArrowUpRight className="w-4 h-4" />
-                  </a>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
 
       {/* Recent Transactions */}

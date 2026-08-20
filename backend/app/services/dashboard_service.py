@@ -3,7 +3,6 @@ from sqlalchemy import func, and_, extract
 from app.models.invoice import Invoice, InvoiceStatus, InvoiceType
 from app.models.expense import Expense, ExpenseStatus
 from app.models.payment import Payment
-from app.models.approval import Approval, ApprovalStatus
 from app.models.customer import Customer
 from app.models.product import Product
 from datetime import datetime, timezone, timedelta
@@ -62,11 +61,6 @@ class DashboardService:
             Invoice.status.in_([InvoiceStatus.APPROVED, InvoiceStatus.SENT, InvoiceStatus.PARTIALLY_PAID]),
         ).scalar() or 0)
 
-        pending_approvals = db.query(func.count(Approval.id)).filter(
-            Approval.company_id == company_id,
-            Approval.status == ApprovalStatus.PENDING,
-        ).scalar() or 0
-
         recent_transactions = db.query(Invoice).filter(
             Invoice.company_id == company_id
         ).order_by(Invoice.created_at.desc()).limit(10).all()
@@ -79,7 +73,6 @@ class DashboardService:
             "outstanding_payables": outstanding_payables,
             "revenue_growth": round(revenue_growth, 1),
             "expense_growth": round(expense_growth, 1),
-            "pending_approvals_count": pending_approvals,
             "recent_transactions": [
                 {
                     "id": str(t.id),

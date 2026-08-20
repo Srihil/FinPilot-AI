@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, Upload, BarChart3, FileBarChart,
-  CheckSquare, ScrollText, Settings, Zap, Wand2, ChevronRight,
+  ScrollText, Settings, Zap, Wand2, ChevronRight,
   ChevronDown, X, BookOpen, FolderOpen, FileText, Package, Scale,
   Warehouse, Tag, ArrowLeftRight,
   AlertTriangle, Receipt,
@@ -72,7 +72,6 @@ const navStructure: NavItem[] = [
   },
   { type: 'link', label: 'Reports', icon: FileBarChart, path: '/reports' },
   { type: 'link', label: 'Analytics', icon: BarChart3, path: '/analytics' },
-  { type: 'link', label: 'Approvals', icon: CheckSquare, path: '/approvals' },
   { type: 'link', label: 'Bulk Upload', icon: Upload, path: '/uploads' },
   { type: 'link', label: 'Audit Logs', icon: ScrollText, path: '/audit-logs' },
   {

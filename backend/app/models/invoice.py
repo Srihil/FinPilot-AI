@@ -71,7 +71,6 @@ class Invoice(Base):
     vendor = relationship("Vendor")
     items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
     payments = relationship("Payment", back_populates="invoice")
-    approval = relationship("Approval", back_populates="invoice", uselist=False)
 
 
 class InvoiceItem(Base):

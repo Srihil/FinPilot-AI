@@ -15,7 +15,6 @@ from app.db.base import get_db
 from app.models.audit_log import AuditAction
 from app.models.customer import Customer
 from app.models.expense import Expense, ExpenseStatus
-from app.models.approval import Approval
 from app.models.invoice import Invoice, InvoiceType, InvoiceStatus
 from app.services.tally_write_service import queue_tally_write
 from app.models.payment import Payment

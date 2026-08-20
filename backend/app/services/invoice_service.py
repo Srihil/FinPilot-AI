@@ -3,7 +3,6 @@ from sqlalchemy import func
 from fastapi import HTTPException
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus, InvoiceType
 from app.models.product import Product
-from app.models.approval import Approval, ApprovalEntityType, ApprovalStatus
 from app.models.audit_log import AuditLog, AuditAction
 from app.schemas.invoice import InvoiceCreate, InvoiceUpdate
 from decimal import Decimal
@@ -116,43 +115,6 @@ class InvoiceService:
         db.refresh(invoice)
         return invoice
 
-    def submit_for_approval(self, db: Session, company_id: uuid.UUID, user_id: uuid.UUID, invoice_id: str) -> Invoice:
-        invoice = self.get_by_id(db, company_id, invoice_id)
-        if invoice.status != InvoiceStatus.DRAFT:
-            raise HTTPException(status_code=400, detail="Only draft invoices can be submitted for approval")
-
-        invoice.status = InvoiceStatus.PENDING_APPROVAL
-
-        approval = Approval(
-            company_id=company_id,
-            requested_by=user_id,
-            entity_type=ApprovalEntityType.INVOICE,
-            invoice_id=invoice.id,
-            status=ApprovalStatus.PENDING,
-        )
-        db.add(approval)
-        db.commit()
-        db.refresh(invoice)
-        return invoice
-
-    def approve(self, db: Session, company_id: uuid.UUID, approver_id: uuid.UUID, invoice_id: str) -> Invoice:
-        invoice = self.get_by_id(db, company_id, invoice_id)
-        if invoice.status != InvoiceStatus.PENDING_APPROVAL:
-            raise HTTPException(status_code=400, detail="Invoice is not pending approval")
-
-        invoice.status = InvoiceStatus.APPROVED
-        invoice.approved_by = approver_id
-        invoice.approved_at = datetime.now(timezone.utc)
-
-        approval = db.query(Approval).filter(Approval.invoice_id == invoice.id, Approval.status == ApprovalStatus.PENDING).first()
-        if approval:
-            approval.status = ApprovalStatus.APPROVED
-            approval.reviewed_by = approver_id
-            approval.reviewed_at = datetime.now(timezone.utc)
-
-        db.commit()
-        db.refresh(invoice)
-        return invoice
 
 
 invoice_service = InvoiceService()

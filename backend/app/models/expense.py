@@ -69,4 +69,3 @@ class Expense(Base):
 
     company = relationship("Company", back_populates="expenses")
     vendor = relationship("Vendor", back_populates="expenses")
-    approval = relationship("Approval", back_populates="expense", uselist=False)

@@ -23,7 +23,6 @@ const pageTitles: Record<string, string> = {
   '/uploads':    'Bulk Uploads',
   '/analytics':  'Analytics',
   '/reports':    'Reports',
-  '/approvals':  'Approvals',
   '/audit-logs': 'Audit Logs',
   '/tally':      'TallyPrime',
   '/settings':   'Settings',

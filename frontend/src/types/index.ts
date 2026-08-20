@@ -38,7 +38,6 @@ export interface DashboardOverview {
   revenue_growth: number;
   expense_growth: number;
   recent_transactions: Transaction[];
-  pending_approvals_count: number;
 }
 
 export interface DashboardCharts {
@@ -194,23 +193,6 @@ export interface Product {
   total_value?: number;
   status?: string;
   low_stock_threshold?: number;
-}
-
-// Approval Types
-export interface Approval {
-  id: string;
-  transaction_id: string;
-  transaction_type: TransactionType;
-  transaction_ref: string;
-  amount: number;
-  requested_by: string;
-  requested_by_name: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
-  notes?: string;
-  validation_warnings?: string[];
-  created_at: string;
-  reviewed_at?: string;
-  reviewed_by?: string;
 }
 
 // Analytics Types

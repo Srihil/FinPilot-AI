@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.db.base import get_db
-from app.auth.dependencies import get_current_user, require_admin_or_accountant, require_approver
+from app.auth.dependencies import get_current_user, require_admin_or_accountant
 from app.models.user import User
 from app.models.customer import Customer
 from app.models.vendor import Vendor
@@ -130,27 +130,3 @@ def create_invoice(
     return _serialize(inv)
 
 
-@router.post("/{invoice_id}/submit")
-def submit_for_approval(
-    invoice_id: str,
-    current_user: User = Depends(require_admin_or_accountant),
-    db: Session = Depends(get_db),
-):
-    inv = invoice_service.submit_for_approval(db, current_user.company_id, current_user.id, invoice_id)
-    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.CREATE,
-                      entity_type="approval", entity_id=inv.id,
-                      description=f"Invoice {inv.invoice_number} submitted for approval")
-    return {"message": "Submitted for approval", "invoice_id": str(inv.id), "status": inv.status.value}
-
-
-@router.post("/{invoice_id}/approve")
-def approve_invoice(
-    invoice_id: str,
-    current_user: User = Depends(require_approver),
-    db: Session = Depends(get_db),
-):
-    inv = invoice_service.approve(db, current_user.company_id, current_user.id, invoice_id)
-    audit_service.log(db, current_user.company_id, current_user.id, AuditAction.APPROVE,
-                      entity_type="invoice", entity_id=inv.id,
-                      description=f"Invoice {inv.invoice_number} approved")
-    return {"message": "Invoice approved", "invoice_id": str(inv.id), "status": inv.status.value}

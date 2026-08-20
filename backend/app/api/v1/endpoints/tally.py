@@ -21,7 +21,6 @@ from app.core.config import settings
 from app.core.security import pwd_context
 from app.db.base import get_db
 from app.models.audit_log import AuditAction
-from app.models.approval import Approval, ApprovalStatus
 from app.models.tally_connector import TallyConnector, TallyPairingCode, ConnectorStatus
 from app.models.tally_job import TallyIntegrationJob, JobStatus, TallyJobOperation, WRITE_OPERATIONS
 from app.models.tally_masters import TallyLedger, TallyStockGroup, TallyStockItem, TallyUnit, TallyGodown, TallyGroup, TallyVoucherType
@@ -243,7 +242,6 @@ class JobResultRequest(BaseModel):
 class CreateJobRequest(BaseModel):
     operation: str
     payload: Optional[dict] = None
-    approval_id: Optional[str] = None
     idempotency_key: Optional[str] = None
 
 
@@ -580,17 +578,6 @@ def create_tally_job(
         operation = TallyJobOperation(body.operation)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Unknown operation: {body.operation}")
-
-    if operation in WRITE_OPERATIONS:
-        if not body.approval_id:
-            raise HTTPException(status_code=400, detail="Write operations require an approved approval_id")
-        approval = db.query(Approval).filter(
-            Approval.id == uuid.UUID(body.approval_id),
-            Approval.company_id == current_user.company_id,
-            Approval.status == ApprovalStatus.APPROVED,
-        ).first()
-        if not approval:
-            raise HTTPException(status_code=403, detail="No approved approval found for this operation")
 
     connector = db.query(TallyConnector).filter(
         TallyConnector.company_id == current_user.company_id,

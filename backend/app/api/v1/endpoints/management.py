@@ -3380,8 +3380,6 @@ def export_ledgers(
             "Closing Balance": float(r.closing_balance or 0),
             "GSTIN": r.gstin or "",
             "State": r.state or "",
-            "Source": r.source or "",
-            "Sync Status": r.tally_sync_status or "",
         }
         for r in q.order_by(TallyLedger.name).all()
     ]
@@ -3389,7 +3387,6 @@ def export_ledgers(
         ("Name", "Name"), ("Parent Group", "Parent Group"),
         ("Opening Balance", "Opening Balance"), ("Closing Balance", "Closing Balance"),
         ("GSTIN", "GSTIN"), ("State", "State"),
-        ("Source", "Source"), ("Sync Status", "Sync Status"),
     ]
     context = f"Search: {search}" if search else "All Ledgers"
     audit_service.log(db, cid, current_user.id, AuditAction.DOWNLOAD,
@@ -3501,15 +3498,12 @@ def export_stock_items(
             "Unit": r.unit or "",
             "Rate": float(r.rate or 0),
             "Opening Qty": float(r.opening_qty or 0),
-            "Source": r.source or "",
-            "Sync Status": r.tally_sync_status or "",
         }
         for r in q.order_by(TallyStockItem.name).all()
     ]
     col_defs = [
         ("Name", "Name"), ("Stock Group", "Stock Group"), ("Stock Category", "Stock Category"),
         ("Unit", "Unit"), ("Rate", "Rate"), ("Opening Qty", "Opening Qty"),
-        ("Source", "Source"), ("Sync Status", "Sync Status"),
     ]
     context = f"Search: {search}" if search else "All Stock Items"
     audit_service.log(db, cid, current_user.id, AuditAction.DOWNLOAD,
@@ -3602,8 +3596,6 @@ def export_vouchers(
                 "Party": party_name or "",
                 "Amount": float(inv.total_amount or 0),
                 "Status": inv.status.value if inv.status else "DRAFT",
-                "Source": "tally_sync" if "[tally-sync]" in inv_notes else "finpilot",
-                "Sync Status": getattr(inv, "tally_sync_status", None) or "local_only",
             })
 
     if include_expenses:
@@ -3664,8 +3656,6 @@ def export_vouchers(
                 "Party": display_name or "",
                 "Amount": float(exp.amount or 0),
                 "Status": exp.status.value if exp.status else "DRAFT",
-                "Source": "tally_sync" if "[tally-sync]" in exp_notes else "finpilot",
-                "Sync Status": getattr(exp, "tally_sync_status", None) or "local_only",
             })
 
     if search:
@@ -3686,7 +3676,6 @@ def export_vouchers(
     col_defs = [
         ("Voucher #", "Voucher #"), ("Date", "Date"), ("Type", "Type"),
         ("Party", "Party"), ("Amount", "Amount"), ("Status", "Status"),
-        ("Source", "Source"), ("Sync Status", "Sync Status"),
     ]
     context_parts = []
     if vt and vt not in ("", "ALL"):

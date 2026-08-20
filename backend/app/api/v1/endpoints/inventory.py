@@ -686,13 +686,12 @@ def export_stock_transactions(
             "To Godown": t.to_godown or "",
             "Narration": t.narration or "",
             "Items Count": len(t.entries) if t.entries else 0,
-            "Sync Status": t.tally_sync_status or "",
         })
 
     col_defs = [
         ("Transaction #", "Transaction #"), ("Date", "Date"), ("Type", "Type"),
         ("Party", "Party"), ("From Godown", "From Godown"), ("To Godown", "To Godown"),
-        ("Narration", "Narration"), ("Items Count", "Items Count"), ("Sync Status", "Sync Status"),
+        ("Narration", "Narration"), ("Items Count", "Items Count"),
     ]
     context_parts = []
     if transaction_type:

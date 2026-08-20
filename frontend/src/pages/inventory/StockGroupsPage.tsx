@@ -2,11 +2,8 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FolderOpen, FolderClosed, Plus, Search, Loader2, AlertCircle,
-  Pencil, Trash2, ChevronRight, ChevronDown, Folder, Square, CheckSquare, Download,
+  Pencil, Trash2, ChevronRight, ChevronDown, Folder, Square, CheckSquare,
 } from 'lucide-react';
-import { ExportDialog } from '../../components/ui/ExportDialog';
-import { downloadExport } from '../../api/endpoints';
-import type { ExportFormat } from '../../api/endpoints';
 import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
 import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
@@ -162,8 +159,6 @@ export default function StockGroupsPage() {
   const [formName, setFormName] = useState('');
   const [formParent, setFormParent] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [showExport, setShowExport] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -261,14 +256,9 @@ export default function StockGroupsPage() {
             {allGroups.length} group{allGroups.length !== 1 ? 's' : ''} — synced with TallyPrime
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowExport(true)} className="gap-2">
-            <Download className="w-4 h-4" /> Export
-          </Button>
-          <Button onClick={() => { setFormName(''); setFormParent(''); setShowCreate(true); }} className="gap-2">
-            <Plus className="w-4 h-4" /> New Stock Group
-          </Button>
-        </div>
+        <Button onClick={() => { setFormName(''); setFormParent(''); setShowCreate(true); }} className="gap-2">
+          <Plus className="w-4 h-4" /> New Stock Group
+        </Button>
       </div>
 
       {/* Search + tree controls */}
@@ -444,29 +434,6 @@ export default function StockGroupsPage() {
         onDelete={ids => bulkDeleteApi.masters('stock_group', ids)}
       />
 
-      <ExportDialog
-        open={showExport}
-        onClose={() => setShowExport(false)}
-        isExporting={isExporting}
-        contextLabel={search ? `Stock Groups — Search: "${search}"` : 'All Stock Groups'}
-        onExport={async (fmt: ExportFormat) => {
-          setIsExporting(true);
-          try {
-            const ts = new Date().toISOString().slice(0, 10);
-            await downloadExport(
-              '/api/management/stock-groups/export',
-              { format: fmt, search: search || undefined },
-              `stock_groups_${ts}.${fmt}`,
-              fmt,
-            );
-            setShowExport(false);
-          } catch {
-            toast({ title: 'Export failed', variant: 'destructive' });
-          } finally {
-            setIsExporting(false);
-          }
-        }}
-      />
     </div>
   );
 }

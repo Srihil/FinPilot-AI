@@ -12,16 +12,44 @@ import { formatDateTime } from '../../utils/format';
 import type { AuditLog } from '../../types';
 import { cn } from '../../utils/cn';
 
+// Maps DB action value → badge color
 const ACTION_COLORS: Record<string, string> = {
-  CREATE: 'bg-emerald-100 text-emerald-800',
-  UPDATE: 'bg-blue-100 text-blue-800',
-  DELETE: 'bg-red-100 text-red-800',
-  LOGIN: 'bg-indigo-100 text-indigo-800',
-  LOGOUT: 'bg-slate-100 text-slate-700',
-  APPROVE: 'bg-violet-100 text-violet-800',
-  REJECT: 'bg-rose-100 text-rose-800',
-  UPLOAD: 'bg-amber-100 text-amber-800',
-  EXPORT: 'bg-cyan-100 text-cyan-800',
+  CREATE:           'bg-emerald-100 text-emerald-800',
+  UPDATE:           'bg-blue-100 text-blue-800',
+  DELETE:           'bg-red-100 text-red-800',
+  LOGIN:            'bg-indigo-100 text-indigo-800',
+  LOGOUT:           'bg-slate-100 text-slate-700',
+  APPROVE:          'bg-violet-100 text-violet-800',
+  REJECT:           'bg-rose-100 text-rose-800',
+  UPLOAD:           'bg-amber-100 text-amber-800',
+  DOWNLOAD:         'bg-cyan-100 text-cyan-800',
+  GENERATE_REPORT:  'bg-teal-100 text-teal-800',
+  AI_QUERY:         'bg-purple-100 text-purple-800',
+  AI_PROPOSAL:      'bg-fuchsia-100 text-fuchsia-800',
+  SETTINGS_CHANGE:  'bg-orange-100 text-orange-800',
+  INTEGRATION_SYNC: 'bg-sky-100 text-sky-800',
+  PASSWORD_CHANGE:  'bg-slate-100 text-slate-600',
+  USER_INVITE:      'bg-lime-100 text-lime-800',
+};
+
+// Human-readable label shown in the filter dropdown
+const ACTION_LABELS: Record<string, string> = {
+  CREATE:           'Create',
+  UPDATE:           'Update',
+  DELETE:           'Delete',
+  LOGIN:            'Login',
+  LOGOUT:           'Logout',
+  APPROVE:          'Approve',
+  REJECT:           'Reject',
+  UPLOAD:           'Upload',
+  DOWNLOAD:         'Export / Download',
+  GENERATE_REPORT:  'Generate Report',
+  AI_QUERY:         'AI Query',
+  AI_PROPOSAL:      'AI Proposal',
+  SETTINGS_CHANGE:  'Settings Change',
+  INTEGRATION_SYNC: 'Integration Sync',
+  PASSWORD_CHANGE:  'Password Change',
+  USER_INVITE:      'User Invite',
 };
 
 export default function AuditLogsPage() {
@@ -30,16 +58,16 @@ export default function AuditLogsPage() {
   const [actionFilter, setActionFilter] = useState('');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['audit-logs', page, search, actionFilter],
-    queryFn: () => auditApi.list({ page, page_size: 20 }),
+    queryKey: ['audit-logs', page, actionFilter],
+    queryFn: () => auditApi.list({ page, page_size: 20, action: actionFilter || undefined }),
   });
 
-  const filteredItems = data?.items?.filter((log: AuditLog) => {
-    const matchSearch = !search || log.description.toLowerCase().includes(search.toLowerCase()) ||
-      log.user_name.toLowerCase().includes(search.toLowerCase());
-    const matchAction = !actionFilter || log.action === actionFilter;
-    return matchSearch && matchAction;
-  }) || [];
+  // Search is client-side (description + user name) — action filter is server-side
+  const filteredItems = data?.items?.filter((log: AuditLog) =>
+    !search ||
+    (log.description || '').toLowerCase().includes(search.toLowerCase()) ||
+    (log.user_name || '').toLowerCase().includes(search.toLowerCase())
+  ) ?? [];
 
   return (
     <div className="space-y-6">
@@ -60,14 +88,17 @@ export default function AuditLogsPage() {
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
-            <Select value={actionFilter} onValueChange={setActionFilter}>
-              <SelectTrigger className="w-44">
+            <Select
+              value={actionFilter}
+              onValueChange={v => { setActionFilter(v); setPage(1); }}
+            >
+              <SelectTrigger className="w-52">
                 <SelectValue placeholder="All actions" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="">All actions</SelectItem>
-                {Object.keys(ACTION_COLORS).map(action => (
-                  <SelectItem key={action} value={action}>{action}</SelectItem>
+                {Object.entries(ACTION_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>{label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -99,7 +130,7 @@ export default function AuditLogsPage() {
                           "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold",
                           ACTION_COLORS[log.action] || 'bg-slate-100 text-slate-700'
                         )}>
-                          {log.action}
+                          {ACTION_LABELS[log.action] ?? log.action}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-slate-600">{log.entity_type}</td>

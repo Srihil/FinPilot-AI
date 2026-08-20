@@ -189,7 +189,14 @@ export const analyticsApi = {
 // ─── Audit Logs ───────────────────────────────────────────────────────────────
 
 export const auditApi = {
-  list: async (params: { page?: number; page_size?: number }): Promise<PaginatedResponse<AuditLog>> => {
+  list: async (params: {
+    page?: number;
+    page_size?: number;
+    action?: string;
+    user_id?: string;
+    date_from?: string;
+    date_to?: string;
+  }): Promise<PaginatedResponse<AuditLog>> => {
     const response = await apiClient.get('/api/audit-logs', { params });
     return response.data;
   },
@@ -819,31 +826,38 @@ export async function downloadExport(
     Object.entries(params).filter(([, v]) => v != null && v !== '')
   ) as Record<string, string>;
 
+  // ── Step 1: acquire file handle FIRST (must happen synchronously within the
+  //   user-gesture microtask — calling fetch first loses the gesture context and
+  //   the browser silently falls back to auto-download without a directory prompt)
+  let fileHandle: any = null;
+  if ('showSaveFilePicker' in window) {
+    try {
+      fileHandle = await (window as any).showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: EXT_TYPES[format].description, accept: EXT_TYPES[format].accept }],
+      });
+    } catch (e: any) {
+      if (e?.name === 'AbortError') return; // user hit Cancel — don't fetch at all
+      // SecurityError or other — fall through to anchor download
+    }
+  }
+
+  // ── Step 2: fetch the export data
   const response = await apiClient.get(url, {
     params: cleanParams,
     responseType: 'blob',
   });
-
   const blob = new Blob([response.data], { type: MIME[format] });
 
-  // Try File System Access API (Chrome / Edge 86+)
-  if ('showSaveFilePicker' in window) {
-    try {
-      const handle = await (window as any).showSaveFilePicker({
-        suggestedName: filename,
-        types: [{ description: EXT_TYPES[format].description, accept: EXT_TYPES[format].accept }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return;
-    } catch (e: any) {
-      // User cancelled picker — fall through to legacy download
-      if (e?.name === 'AbortError') return;
-    }
+  // ── Step 3a: write to chosen file (File System Access path)
+  if (fileHandle) {
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return;
   }
 
-  // Fallback: legacy <a> download (Downloads folder)
+  // ── Step 3b: fallback — standard anchor download (browser's default Downloads folder)
   const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = blobUrl;

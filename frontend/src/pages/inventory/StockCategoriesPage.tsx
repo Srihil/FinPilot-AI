@@ -2,11 +2,8 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Tag, Plus, Search, Loader2, AlertCircle,
-  Pencil, Trash2, ChevronRight, ChevronDown, Square, CheckSquare, Download,
+  Pencil, Trash2, ChevronRight, ChevronDown, Square, CheckSquare,
 } from 'lucide-react';
-import { ExportDialog } from '../../components/ui/ExportDialog';
-import { downloadExport } from '../../api/endpoints';
-import type { ExportFormat } from '../../api/endpoints';
 import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
 import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
@@ -175,8 +172,6 @@ export default function StockCategoriesPage() {
   const [formParent, setFormParent] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [showExport, setShowExport] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -285,17 +280,12 @@ export default function StockCategoriesPage() {
             {allCats.length} categor{allCats.length !== 1 ? 'ies' : 'y'} — local classification for stock items
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowExport(true)} className="gap-2">
-            <Download className="w-4 h-4" /> Export
-          </Button>
-          <Button
-            onClick={() => { resetForm(); setShowCreate(true); }}
-            className="gap-2 bg-violet-600 hover:bg-violet-700"
-          >
-            <Plus className="w-4 h-4" /> New Category
-          </Button>
-        </div>
+        <Button
+          onClick={() => { resetForm(); setShowCreate(true); }}
+          className="gap-2 bg-violet-600 hover:bg-violet-700"
+        >
+          <Plus className="w-4 h-4" /> New Category
+        </Button>
       </div>
 
       {/* Search + tree controls */}
@@ -491,29 +481,6 @@ export default function StockCategoriesPage() {
         onDelete={ids => bulkDeleteApi.masters('stock_category', ids)}
       />
 
-      <ExportDialog
-        open={showExport}
-        onClose={() => setShowExport(false)}
-        isExporting={isExporting}
-        contextLabel={search ? `Stock Categories — Search: "${search}"` : 'All Stock Categories'}
-        onExport={async (fmt: ExportFormat) => {
-          setIsExporting(true);
-          try {
-            const ts = new Date().toISOString().slice(0, 10);
-            await downloadExport(
-              '/api/inventory/stock-categories/export',
-              { format: fmt, search: search || undefined },
-              `stock_categories_${ts}.${fmt}`,
-              fmt,
-            );
-            setShowExport(false);
-          } catch {
-            toast({ title: 'Export failed', variant: 'destructive' });
-          } finally {
-            setIsExporting(false);
-          }
-        }}
-      />
     </div>
   );
 }

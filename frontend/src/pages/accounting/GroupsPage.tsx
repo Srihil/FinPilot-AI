@@ -2,11 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FolderOpen, FolderClosed, Folder, Plus, Search, Loader2, AlertCircle,
-  Pencil, Trash2, ChevronRight, ChevronDown, Square, CheckSquare, Download,
+  Pencil, Trash2, ChevronRight, ChevronDown, Square, CheckSquare,
 } from 'lucide-react';
-import { ExportDialog } from '../../components/ui/ExportDialog';
-import { downloadExport } from '../../api/endpoints';
-import type { ExportFormat } from '../../api/endpoints';
 import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
 import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
@@ -121,8 +118,6 @@ export default function GroupsPage() {
   const [formParent, setFormParent] = useState('');
   const [formNature, setFormNature] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [showExport, setShowExport] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -243,14 +238,9 @@ export default function GroupsPage() {
             {allGroups.length} group{allGroups.length !== 1 ? 's' : ''} · Group → Sub-group hierarchy
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowExport(true)} className="gap-2">
-            <Download className="w-4 h-4" /> Export
-          </Button>
-          <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2">
-            <Plus className="w-4 h-4" /> New Group
-          </Button>
-        </div>
+        <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2">
+          <Plus className="w-4 h-4" /> New Group
+        </Button>
       </div>
 
       {/* Search + controls */}
@@ -466,29 +456,6 @@ export default function GroupsPage() {
         onDelete={ids => bulkDeleteApi.masters('group', ids)}
       />
 
-      <ExportDialog
-        open={showExport}
-        onClose={() => setShowExport(false)}
-        isExporting={isExporting}
-        contextLabel={search ? `Account Groups — Search: "${search}"` : 'All Account Groups'}
-        onExport={async (fmt: ExportFormat) => {
-          setIsExporting(true);
-          try {
-            const ts = new Date().toISOString().slice(0, 10);
-            await downloadExport(
-              '/api/management/groups/export',
-              { format: fmt, search: search || undefined },
-              `account_groups_${ts}.${fmt}`,
-              fmt,
-            );
-            setShowExport(false);
-          } catch {
-            toast({ title: 'Export failed', variant: 'destructive' });
-          } finally {
-            setIsExporting(false);
-          }
-        }}
-      />
     </div>
   );
 }

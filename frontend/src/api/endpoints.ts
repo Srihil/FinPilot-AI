@@ -52,6 +52,16 @@ export const dashboardApi = {
     const response = await apiClient.get('/api/dashboard/charts');
     return response.data;
   },
+
+  tallyKpi: async () => {
+    const response = await apiClient.get('/api/dashboard/tally-kpi');
+    return response.data;
+  },
+
+  tallyAnalytics: async () => {
+    const response = await apiClient.get('/api/dashboard/tally-analytics');
+    return response.data;
+  },
 };
 
 // ─── Customers ────────────────────────────────────────────────────────────────

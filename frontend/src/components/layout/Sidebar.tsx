@@ -74,14 +74,7 @@ const navStructure: NavItem[] = [
   { type: 'link', label: 'Analytics', icon: BarChart3, path: '/analytics' },
   { type: 'link', label: 'Bulk Upload', icon: Upload, path: '/uploads' },
   { type: 'link', label: 'Audit Logs', icon: ScrollText, path: '/audit-logs' },
-  {
-    type: 'section',
-    label: 'TallyPrime',
-    icon: Zap,
-    children: [
-      { label: 'Sync Center', path: '/tally', icon: Zap },
-    ],
-  },
+  { type: 'link', label: 'TallyPrime', icon: Zap, path: '/tally' },
   { type: 'link', label: 'Settings', icon: Settings, path: '/settings' },
 ];
 

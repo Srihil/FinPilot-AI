@@ -116,7 +116,6 @@ class TallyIntegrationJob(Base):
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     connector_id = Column(UUID(as_uuid=True), ForeignKey("tally_connectors.id"), nullable=True, index=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    approval_id = Column(UUID(as_uuid=True), ForeignKey("approvals.id"), nullable=True)  # required for write ops
 
     operation = Column(SAEnum(TallyJobOperation), nullable=False)
     payload = Column(JSONB)       # input params for the operation

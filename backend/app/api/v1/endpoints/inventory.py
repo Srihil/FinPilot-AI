@@ -587,3 +587,129 @@ def delete_stock_transaction(
                       entity_type="stock_transaction", entity_id=txn.id,
                       description=f"Deleted transaction: {txn.transaction_number}")
     return {"deleted": True}
+
+
+# ─── Export endpoints ────────────────────────────────────────────────────────
+
+def _inv_company_name(db, company_id: uuid.UUID) -> str:
+    from app.models.company import Company
+    c = db.query(Company).filter(Company.id == company_id).first()
+    return c.name if c else "FinPilot"
+
+
+@router.get("/stock-categories/export")
+def export_stock_categories(
+    format: str = Query("xlsx", regex="^(csv|xlsx|json|pdf)$"),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.export_service import build_export_response
+    from app.core.config import settings as _s
+    cid = current_user.company_id
+    q = db.query(StockCategory).filter(
+        StockCategory.company_id == cid,
+        StockCategory.is_active == True,
+        StockCategory.tally_sync_status != 'failed',
+    )
+    if search:
+        q = q.filter(StockCategory.name.ilike(f"%{search}%"))
+    rows = [
+        {
+            "Name": c.name, "Parent": c.parent or "", "Description": c.description or "",
+            "Source": getattr(c, "source", "finpilot"),
+            "Sync Status": getattr(c, "tally_sync_status", "pending"),
+        }
+        for c in q.order_by(StockCategory.name).all()
+    ]
+    col_defs = [
+        ("Name", "Name"), ("Parent", "Parent"), ("Description", "Description"),
+        ("Source", "Source"), ("Sync Status", "Sync Status"),
+    ]
+    context = f"Search: {search}" if search else "All Stock Categories"
+    audit_service.log(db, cid, current_user.id, AuditAction.DOWNLOAD,
+                      entity_type="stock_category_export",
+                      description=f"Exported stock categories as {format.upper()} ({len(rows)} rows) — {context}")
+    return build_export_response(
+        rows, col_defs, fmt=format, filename_base="stock_categories",
+        title="Stock Categories Export", company_name=_inv_company_name(db, cid),
+        period_str=context, upload_dir=_s.UPLOAD_DIR,
+    )
+
+
+@router.get("/stock-transactions/export")
+def export_stock_transactions(
+    format: str = Query("xlsx", regex="^(csv|xlsx|json|pdf)$"),
+    transaction_type: Optional[str] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.export_service import build_export_response
+    from app.core.config import settings as _s
+    cid = current_user.company_id
+    q = db.query(StockTransaction).filter(
+        StockTransaction.company_id == cid,
+        StockTransaction.is_active == True,
+    )
+    if transaction_type:
+        q = q.filter(StockTransaction.transaction_type == transaction_type.upper())
+    if search:
+        q = q.filter(
+            or_(
+                StockTransaction.transaction_number.ilike(f"%{search}%"),
+                StockTransaction.party_name.ilike(f"%{search}%"),
+                StockTransaction.narration.ilike(f"%{search}%"),
+            )
+        )
+    if date_from:
+        try:
+            q = q.filter(StockTransaction.transaction_date >= datetime.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            q = q.filter(StockTransaction.transaction_date <= datetime.fromisoformat(date_to))
+        except ValueError:
+            pass
+
+    rows = []
+    for t in q.order_by(StockTransaction.created_at.desc()).all():
+        rows.append({
+            "Transaction #": t.transaction_number,
+            "Date": t.transaction_date.strftime("%d %b %Y") if t.transaction_date else "",
+            "Type": TRANSACTION_TYPE_LABELS.get(t.transaction_type, t.transaction_type),
+            "Party": t.party_name or "",
+            "From Godown": t.from_godown or "",
+            "To Godown": t.to_godown or "",
+            "Narration": t.narration or "",
+            "Items Count": len(t.entries) if t.entries else 0,
+            "Sync Status": t.tally_sync_status or "",
+        })
+
+    col_defs = [
+        ("Transaction #", "Transaction #"), ("Date", "Date"), ("Type", "Type"),
+        ("Party", "Party"), ("From Godown", "From Godown"), ("To Godown", "To Godown"),
+        ("Narration", "Narration"), ("Items Count", "Items Count"), ("Sync Status", "Sync Status"),
+    ]
+    context_parts = []
+    if transaction_type:
+        context_parts.append(f"Type: {TRANSACTION_TYPE_LABELS.get(transaction_type.upper(), transaction_type)}")
+    if date_from:
+        context_parts.append(f"From: {date_from}")
+    if date_to:
+        context_parts.append(f"To: {date_to}")
+    if search:
+        context_parts.append(f"Search: {search}")
+    context = " | ".join(context_parts) if context_parts else "All Stock Transactions"
+    audit_service.log(db, cid, current_user.id, AuditAction.DOWNLOAD,
+                      entity_type="stock_transaction_export",
+                      description=f"Exported stock transactions as {format.upper()} ({len(rows)} rows) — {context}")
+    return build_export_response(
+        rows, col_defs, fmt=format, filename_base="stock_transactions",
+        title="Stock Transactions Export", company_name=_inv_company_name(db, cid),
+        period_str=context, upload_dir=_s.UPLOAD_DIR,
+    )
+

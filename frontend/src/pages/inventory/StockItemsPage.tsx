@@ -3,8 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Package, Plus, Search, Loader2, AlertCircle, Pencil, Trash2,
   FolderOpen, FolderClosed, Folder,
-  ChevronRight, ChevronDown, SlidersHorizontal, Square, CheckSquare,
+  ChevronRight, ChevronDown, SlidersHorizontal, Square, CheckSquare, Download,
 } from 'lucide-react';
+import { ExportDialog } from '../../components/ui/ExportDialog';
+import { downloadExport } from '../../api/endpoints';
+import type { ExportFormat } from '../../api/endpoints';
 import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
 import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
@@ -159,6 +162,8 @@ export default function StockItemsPage() {
   const [editItem, setEditItem] = useState<TallyStockItem | null>(null);
   const [deleteItem, setDeleteItem] = useState<TallyStockItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showExport, setShowExport] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -334,9 +339,14 @@ export default function StockItemsPage() {
             {allItems.length} item{allItems.length !== 1 ? 's' : ''} · Group → Item hierarchy
           </p>
         </div>
-        <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2">
-          <Plus className="w-4 h-4" /> New Stock Item
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowExport(true)} className="gap-2">
+            <Download className="w-4 h-4" /> Export
+          </Button>
+          <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2">
+            <Plus className="w-4 h-4" /> New Stock Item
+          </Button>
+        </div>
       </div>
 
       {/* Search + controls */}
@@ -672,6 +682,30 @@ export default function StockItemsPage() {
         queryKeys={[['stock-items-tree']]}
         onClear={clearSelection}
         onDelete={ids => bulkDeleteApi.masters('stock_item', ids)}
+      />
+
+      <ExportDialog
+        open={showExport}
+        onClose={() => setShowExport(false)}
+        isExporting={isExporting}
+        contextLabel={search ? `Stock Items — Search: "${search}"` : 'All Stock Items'}
+        onExport={async (fmt: ExportFormat) => {
+          setIsExporting(true);
+          try {
+            const ts = new Date().toISOString().slice(0, 10);
+            await downloadExport(
+              '/api/management/stock-items/export',
+              { format: fmt, search: search || undefined },
+              `stock_items_${ts}.${fmt}`,
+              fmt,
+            );
+            setShowExport(false);
+          } catch {
+            toast({ title: 'Export failed', variant: 'destructive' });
+          } finally {
+            setIsExporting(false);
+          }
+        }}
       />
     </div>
   );

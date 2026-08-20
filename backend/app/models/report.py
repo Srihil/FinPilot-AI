@@ -19,6 +19,12 @@ class ReportType(str, enum.Enum):
     INVENTORY = "inventory"
     MONTHLY_SUMMARY = "monthly_summary"
     CASH_FLOW = "cash_flow"
+    GST_SUMMARY = "gst_summary"
+    TRIAL_BALANCE = "trial_balance"
+    AGED_RECEIVABLES = "aged_receivables"
+    AGED_PAYABLES = "aged_payables"
+    CUSTOMER_STATEMENT = "customer_statement"
+    VENDOR_STATEMENT = "vendor_statement"
 
 
 class Report(Base):

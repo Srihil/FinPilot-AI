@@ -404,17 +404,52 @@ export const uploadsApi = {
 // ─── Reports ──────────────────────────────────────────────────────────────────
 
 export const reportsApi = {
-  generate: async (data: { type: string; date_from: string; date_to: string }): Promise<Report> => {
+  generate: async (data: {
+    type: string;
+    date_from: string;
+    date_to: string;
+    party_id?: string;
+    enable_ai_summary?: boolean;
+    enable_ai_comparison?: boolean;
+    comparison_basis?: string;
+    comparison_period_start?: string;
+    comparison_period_end?: string;
+  }): Promise<Report> => {
     const response = await apiClient.post('/api/reports/generate', {
       report_type: data.type,
       period_start: data.date_from ? `${data.date_from}T00:00:00` : undefined,
       period_end: data.date_to ? `${data.date_to}T23:59:59` : undefined,
+      party_id: data.party_id,
+      enable_ai_summary: data.enable_ai_summary,
+      enable_ai_comparison: data.enable_ai_comparison,
+      comparison_basis: data.comparison_basis,
+      comparison_period_start: data.comparison_period_start
+        ? `${data.comparison_period_start}T00:00:00` : undefined,
+      comparison_period_end: data.comparison_period_end
+        ? `${data.comparison_period_end}T23:59:59` : undefined,
     });
     return response.data;
   },
 
-  list: async (): Promise<Report[]> => {
-    const response = await apiClient.get('/api/reports');
+  list: async (page = 1, pageSize = 10): Promise<{
+    items: (Report & { ai_insights?: string })[];
+    total: number;
+    page: number;
+    page_size: number;
+    total_pages: number;
+  }> => {
+    const response = await apiClient.get('/api/reports', {
+      params: { page, page_size: pageSize },
+    });
+    return response.data;
+  },
+
+  delete: async (reportId: string): Promise<void> => {
+    await apiClient.delete(`/api/reports/${reportId}`);
+  },
+
+  bulkDelete: async (ids: string[]): Promise<{ deleted: number }> => {
+    const response = await apiClient.post('/api/reports/bulk-delete', { ids });
     return response.data;
   },
 
@@ -750,6 +785,103 @@ export const groupsApi = {
   },
   delete: async (id: string) => {
     const res = await apiClient.delete(`/api/management/groups/${id}`);
+    return res.data;
+  },
+};
+
+// ─── Export utility ──────────────────────────────────────────────────────────
+// Triggers a file download using the File System Access API (Chrome/Edge) with
+// a fallback to a standard anchor-based download for other browsers.
+
+export type ExportFormat = 'csv' | 'xlsx' | 'json' | 'pdf';
+
+const MIME: Record<ExportFormat, string> = {
+  csv:  'text/csv',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  json: 'application/json',
+  pdf:  'application/pdf',
+};
+
+const EXT_TYPES: Record<ExportFormat, { description: string; accept: Record<string, string[]> }> = {
+  csv:  { description: 'CSV file',       accept: { 'text/csv': ['.csv'] } },
+  xlsx: { description: 'Excel file',     accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } },
+  json: { description: 'JSON file',      accept: { 'application/json': ['.json'] } },
+  pdf:  { description: 'PDF document',   accept: { 'application/pdf': ['.pdf'] } },
+};
+
+export async function downloadExport(
+  url: string,
+  params: Record<string, string | undefined>,
+  filename: string,
+  format: ExportFormat,
+): Promise<void> {
+  const cleanParams = Object.fromEntries(
+    Object.entries(params).filter(([, v]) => v != null && v !== '')
+  ) as Record<string, string>;
+
+  const response = await apiClient.get(url, {
+    params: cleanParams,
+    responseType: 'blob',
+  });
+
+  const blob = new Blob([response.data], { type: MIME[format] });
+
+  // Try File System Access API (Chrome / Edge 86+)
+  if ('showSaveFilePicker' in window) {
+    try {
+      const handle = await (window as any).showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: EXT_TYPES[format].description, accept: EXT_TYPES[format].accept }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (e: any) {
+      // User cancelled picker — fall through to legacy download
+      if (e?.name === 'AbortError') return;
+    }
+  }
+
+  // Fallback: legacy <a> download (Downloads folder)
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
+
+// ─── Reports (extended) ───────────────────────────────────────────────────────
+
+export const reportsExtApi = {
+  searchParties: async (
+    q: string,
+    partyType: 'customer' | 'vendor',
+  ): Promise<{ id: string; name: string; gstin: string }[]> => {
+    const res = await apiClient.get('/api/reports/parties/search', {
+      params: { q, party_type: partyType },
+    });
+    return res.data;
+  },
+};
+
+// ─── Audit / Activity ─────────────────────────────────────────────────────────
+
+export interface ExportActivity {
+  id: string;
+  action: string;
+  entity_type: string;
+  description: string;
+  user_name: string;
+  created_at: string;
+}
+
+export const activityApi = {
+  recentExports: async (limit = 15): Promise<ExportActivity[]> => {
+    const res = await apiClient.get('/api/audit-logs/recent-exports', { params: { limit } });
     return res.data;
   },
 };

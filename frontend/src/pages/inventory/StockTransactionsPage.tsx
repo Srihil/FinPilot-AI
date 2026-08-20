@@ -3,8 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftRight, Plus, Search, Loader2, AlertCircle, Trash2, X,
   ChevronDown, ChevronRight, MoveRight, Package, MapPin, User2, Pencil,
-  Square, CheckSquare,
+  Square, CheckSquare, Download,
 } from 'lucide-react';
+import { ExportDialog } from '../../components/ui/ExportDialog';
+import { downloadExport } from '../../api/endpoints';
+import type { ExportFormat } from '../../api/endpoints';
 import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
 import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
@@ -223,6 +226,8 @@ export default function StockTransactionsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSelection = () => setSelectedIds(new Set());
+  const [showExport, setShowExport] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Edit form state
   const [editDate, setEditDate]           = useState('');
@@ -358,9 +363,14 @@ export default function StockTransactionsPage() {
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">Click any row to see item details</p>
         </div>
-        <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2">
-          <Plus className="w-4 h-4" /> New Transaction
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowExport(true)} className="gap-2">
+            <Download className="w-4 h-4" /> Export
+          </Button>
+          <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2">
+            <Plus className="w-4 h-4" /> New Transaction
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -746,6 +756,37 @@ export default function StockTransactionsPage() {
         queryKeys={[['stock-transactions']]}
         onClear={clearSelection}
         onDelete={ids => bulkDeleteApi.vouchers(ids.map(id => ({ id, entity_type: 'stock_transaction' })))}
+      />
+
+      <ExportDialog
+        open={showExport}
+        onClose={() => setShowExport(false)}
+        isExporting={isExporting}
+        contextLabel={[
+          typeFilter ? `${TRANSACTION_TYPES.find(t => t.value === typeFilter)?.label || typeFilter}` : 'All Stock Transactions',
+          search && `Search: "${search}"`,
+        ].filter(Boolean).join(' — ')}
+        onExport={async (fmt: ExportFormat) => {
+          setIsExporting(true);
+          try {
+            const ts = new Date().toISOString().slice(0, 10);
+            await downloadExport(
+              '/api/inventory/stock-transactions/export',
+              {
+                format: fmt,
+                transaction_type: typeFilter || undefined,
+                search: search || undefined,
+              },
+              `stock_transactions_${ts}.${fmt}`,
+              fmt,
+            );
+            setShowExport(false);
+          } catch {
+            toast({ title: 'Export failed', variant: 'destructive' });
+          } finally {
+            setIsExporting(false);
+          }
+        }}
       />
     </div>
   );

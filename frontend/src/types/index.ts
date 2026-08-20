@@ -302,6 +302,7 @@ export interface Report {
   period_end?: string;
   download_url?: string;
   created_at: string;
+  ai_insights?: string;
 }
 
 // Settings Types

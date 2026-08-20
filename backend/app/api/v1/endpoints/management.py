@@ -3347,3 +3347,362 @@ def resolve_conflict(
         description=f"Conflict resolved ({data.resolution}) for {data.entity_type} {data.entity_id}",
     )
     return result
+
+
+# ─── Export endpoints ────────────────────────────────────────────────────────
+# All follow the pattern: GET /{resource}/export?format={csv|xlsx|json|pdf}&<filter params>
+# Filters mirror the corresponding list endpoint; no pagination (full filtered dataset).
+
+def _get_company_name(db: Session, company_id: uuid.UUID) -> str:
+    from app.models.company import Company
+    c = db.query(Company).filter(Company.id == company_id).first()
+    return c.name if c else "FinPilot"
+
+
+@router.get("/ledgers/export")
+def export_ledgers(
+    format: str = Query("xlsx", regex="^(csv|xlsx|json|pdf)$"),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.export_service import build_export_response
+    from app.core.config import settings as _s
+    cid = current_user.company_id
+    q = db.query(TallyLedger).filter(TallyLedger.company_id == cid, TallyLedger.is_active == True)
+    if search:
+        q = q.filter(TallyLedger.name.ilike(f"%{search}%"))
+    rows = [
+        {
+            "Name": r.name,
+            "Parent Group": r.parent_group or "",
+            "Opening Balance": float(r.opening_balance or 0),
+            "Closing Balance": float(r.closing_balance or 0),
+            "GSTIN": r.gstin or "",
+            "State": r.state or "",
+            "Source": r.source or "",
+            "Sync Status": r.tally_sync_status or "",
+        }
+        for r in q.order_by(TallyLedger.name).all()
+    ]
+    col_defs = [
+        ("Name", "Name"), ("Parent Group", "Parent Group"),
+        ("Opening Balance", "Opening Balance"), ("Closing Balance", "Closing Balance"),
+        ("GSTIN", "GSTIN"), ("State", "State"),
+        ("Source", "Source"), ("Sync Status", "Sync Status"),
+    ]
+    context = f"Search: {search}" if search else "All Ledgers"
+    audit_service.log(db, cid, current_user.id, AuditAction.DOWNLOAD,
+                      entity_type="ledger_export",
+                      description=f"Exported ledgers as {format.upper()} ({len(rows)} rows) — {context}")
+    return build_export_response(
+        rows, col_defs, fmt=format, filename_base="ledgers",
+        title="Ledgers Export", company_name=_get_company_name(db, cid),
+        period_str=context, upload_dir=_s.UPLOAD_DIR,
+    )
+
+
+@router.get("/groups/export")
+def export_groups(
+    format: str = Query("xlsx", regex="^(csv|xlsx|json|pdf)$"),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.export_service import build_export_response
+    from app.core.config import settings as _s
+    cid = current_user.company_id
+    q = db.query(TallyGroup).filter(TallyGroup.company_id == cid, TallyGroup.is_active == True)
+    if search:
+        q = q.filter(TallyGroup.name.ilike(f"%{search}%"))
+    rows = [
+        {
+            "Name": r.name, "Parent": r.parent or "", "Nature": r.nature or "",
+            "Source": r.source or "", "Sync Status": r.tally_sync_status or "",
+        }
+        for r in q.order_by(TallyGroup.name).all()
+    ]
+    col_defs = [
+        ("Name", "Name"), ("Parent", "Parent"), ("Nature", "Nature"),
+        ("Source", "Source"), ("Sync Status", "Sync Status"),
+    ]
+    context = f"Search: {search}" if search else "All Account Groups"
+    audit_service.log(db, cid, current_user.id, AuditAction.DOWNLOAD,
+                      entity_type="group_export",
+                      description=f"Exported account groups as {format.upper()} ({len(rows)} rows) — {context}")
+    return build_export_response(
+        rows, col_defs, fmt=format, filename_base="account_groups",
+        title="Account Groups Export", company_name=_get_company_name(db, cid),
+        period_str=context, upload_dir=_s.UPLOAD_DIR,
+    )
+
+
+@router.get("/stock-groups/export")
+def export_stock_groups(
+    format: str = Query("xlsx", regex="^(csv|xlsx|json|pdf)$"),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.export_service import build_export_response
+    from app.core.config import settings as _s
+    cid = current_user.company_id
+    q = db.query(TallyStockGroup).filter(
+        TallyStockGroup.company_id == cid,
+        TallyStockGroup.is_active == True,
+        TallyStockGroup.tally_sync_status != 'failed',
+    )
+    if search:
+        q = q.filter(TallyStockGroup.name.ilike(f"%{search}%"))
+    rows = [
+        {
+            "Name": r.name, "Parent": r.parent or "",
+            "Source": r.source or "", "Sync Status": r.tally_sync_status or "",
+        }
+        for r in q.order_by(TallyStockGroup.name).all()
+    ]
+    col_defs = [
+        ("Name", "Name"), ("Parent", "Parent"),
+        ("Source", "Source"), ("Sync Status", "Sync Status"),
+    ]
+    context = f"Search: {search}" if search else "All Stock Groups"
+    audit_service.log(db, cid, current_user.id, AuditAction.DOWNLOAD,
+                      entity_type="stock_group_export",
+                      description=f"Exported stock groups as {format.upper()} ({len(rows)} rows) — {context}")
+    return build_export_response(
+        rows, col_defs, fmt=format, filename_base="stock_groups",
+        title="Stock Groups Export", company_name=_get_company_name(db, cid),
+        period_str=context, upload_dir=_s.UPLOAD_DIR,
+    )
+
+
+@router.get("/stock-items/export")
+def export_stock_items(
+    format: str = Query("xlsx", regex="^(csv|xlsx|json|pdf)$"),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.export_service import build_export_response
+    from app.core.config import settings as _s
+    cid = current_user.company_id
+    q = db.query(TallyStockItem).filter(
+        TallyStockItem.company_id == cid,
+        TallyStockItem.is_active == True,
+        TallyStockItem.tally_sync_status != 'failed',
+    )
+    if search:
+        q = q.filter(TallyStockItem.name.ilike(f"%{search}%"))
+    rows = [
+        {
+            "Name": r.name,
+            "Stock Group": r.stock_group or "",
+            "Stock Category": getattr(r, "stock_category", None) or "",
+            "Unit": r.unit or "",
+            "Rate": float(r.rate or 0),
+            "Opening Qty": float(r.opening_qty or 0),
+            "Source": r.source or "",
+            "Sync Status": r.tally_sync_status or "",
+        }
+        for r in q.order_by(TallyStockItem.name).all()
+    ]
+    col_defs = [
+        ("Name", "Name"), ("Stock Group", "Stock Group"), ("Stock Category", "Stock Category"),
+        ("Unit", "Unit"), ("Rate", "Rate"), ("Opening Qty", "Opening Qty"),
+        ("Source", "Source"), ("Sync Status", "Sync Status"),
+    ]
+    context = f"Search: {search}" if search else "All Stock Items"
+    audit_service.log(db, cid, current_user.id, AuditAction.DOWNLOAD,
+                      entity_type="stock_item_export",
+                      description=f"Exported stock items as {format.upper()} ({len(rows)} rows) — {context}")
+    return build_export_response(
+        rows, col_defs, fmt=format, filename_base="stock_items",
+        title="Stock Items Export", company_name=_get_company_name(db, cid),
+        period_str=context, upload_dir=_s.UPLOAD_DIR,
+    )
+
+
+@router.get("/vouchers/export")
+def export_vouchers(
+    format: str = Query("xlsx", regex="^(csv|xlsx|json|pdf)$"),
+    voucher_type: Optional[str] = Query(None),
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    ledger_name: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.export_service import build_export_response
+    from app.core.config import settings as _s
+
+    # Build filtered result using the same internal logic as list_vouchers
+    # (page_size=10000 means effectively no pagination for export)
+    # We call the list endpoint's core logic directly to avoid duplication
+    from fastapi import Request as _Request
+    cid = current_user.company_id
+    vt = (voucher_type or "").upper()
+
+    _STANDARD_TYPES = {
+        "SALES", "PURCHASE", "RECEIPT", "PAYMENT", "CONTRA", "JOURNAL",
+        "CREDIT NOTE", "DEBIT NOTE", "SALES ORDER", "PURCHASE ORDER",
+        "DELIVERY NOTE", "RECEIPT NOTE", "STOCK JOURNAL", "PHYSICAL STOCK",
+        "REVERSING JOURNAL", "MEMORANDUM", "ATTENDANCE", "PAYROLL",
+        "MATERIAL IN", "MATERIAL OUT", "REJECTIONS IN", "REJECTIONS OUT",
+        "JOB WORK IN ORDER", "JOB WORK OUT ORDER",
+    }
+    from app.models.tally_masters import TallyVoucherType as _TVT
+    _all_vtypes = db.query(_TVT).filter(_TVT.company_id == cid, _TVT.is_active == True).all()
+    _custom_vtype_map = {
+        r.name.upper(): {"name": r.name, "parent": r.parent or ""}
+        for r in _all_vtypes if r.name.upper() not in _STANDARD_TYPES
+    }
+    _custom_vtype_names_upper = set(_custom_vtype_map.keys())
+
+    include_invoices = vt in ("", "ALL", "SALES", "PURCHASE")
+    include_expenses = (
+        vt in ("", "ALL", "PAYMENT", "PURCHASE", "DEBIT_NOTE", "RECEIPT", "JOURNAL", "CONTRA", "CREDIT_NOTE")
+        or vt in _custom_vtype_names_upper or vt == "CUSTOM"
+    )
+
+    results = []
+    from sqlalchemy.orm import joinedload as _jl
+
+    if include_invoices:
+        inv_q = db.query(Invoice).options(_jl(Invoice.customer), _jl(Invoice.vendor)).filter(
+            Invoice.company_id == cid, Invoice.is_deleted.is_not(True)
+        )
+        if vt == "SALES":
+            inv_q = inv_q.filter(Invoice.invoice_type == InvoiceType.SALES)
+        elif vt == "PURCHASE":
+            inv_q = inv_q.filter(Invoice.invoice_type == InvoiceType.PURCHASE)
+        if date_from:
+            try:
+                inv_q = inv_q.filter(Invoice.invoice_date >= datetime.fromisoformat(date_from))
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                inv_q = inv_q.filter(Invoice.invoice_date <= datetime.fromisoformat(date_to))
+            except ValueError:
+                pass
+        for inv in inv_q.all():
+            party_name = ((inv.customer.name if inv.customer else None) or
+                          (inv.vendor.name if inv.vendor else None))
+            inv_notes = getattr(inv, "notes", None) or ""
+            if not party_name and "Party: " in inv_notes:
+                try:
+                    party_name = inv_notes.split("Party: ")[1].split(" |")[0].split("\n")[0].strip() or None
+                except Exception:
+                    pass
+            results.append({
+                "Voucher #": inv.invoice_number,
+                "Date": inv.invoice_date.strftime("%d %b %Y") if inv.invoice_date else "",
+                "Type": inv.invoice_type.value if inv.invoice_type else "INVOICE",
+                "Party": party_name or "",
+                "Amount": float(inv.total_amount or 0),
+                "Status": inv.status.value if inv.status else "DRAFT",
+                "Source": "tally_sync" if "[tally-sync]" in inv_notes else "finpilot",
+                "Sync Status": getattr(inv, "tally_sync_status", None) or "local_only",
+            })
+
+    if include_expenses:
+        exp_q = db.query(Expense).options(_jl(Expense.vendor)).filter(
+            Expense.company_id == cid, Expense.is_deleted.is_not(True)
+        )
+        if date_from:
+            try:
+                exp_q = exp_q.filter(Expense.expense_date >= datetime.fromisoformat(date_from))
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                exp_q = exp_q.filter(Expense.expense_date <= datetime.fromisoformat(date_to))
+            except ValueError:
+                pass
+
+        _cat_to_vtype = {
+            "Purchase": "PURCHASE", "Purchase Return": "DEBIT_NOTE",
+            "Payment": "PAYMENT", "Receipt": "RECEIPT",
+            "Journal": "JOURNAL", "Contra": "CONTRA",
+            "Credit Note": "CREDIT_NOTE", "Debit Note": "DEBIT_NOTE",
+        }
+        for exp in exp_q.all():
+            exp_notes = getattr(exp, "notes", None) or ""
+            raw_cat = exp.category or ""
+            is_custom = raw_cat.upper() in _custom_vtype_names_upper
+            exp_vtype = _cat_to_vtype.get(raw_cat, raw_cat.upper() if raw_cat else "PAYMENT")
+            if vt == "CUSTOM":
+                if not is_custom:
+                    continue
+            elif vt and vt not in ("", "ALL") and exp_vtype.upper() != vt.upper():
+                continue
+
+            def _n(notes: str, key: str) -> str:
+                tag = f"{key}: "
+                if tag in notes:
+                    try:
+                        return notes.split(tag)[1].split(" |")[0].strip()
+                    except Exception:
+                        pass
+                return ""
+
+            party_l = _n(exp_notes, "Party")
+            from_l = _n(exp_notes, "From"); to_l = _n(exp_notes, "To")
+            dr_l = _n(exp_notes, "Dr"); cr_l = _n(exp_notes, "Cr")
+            if raw_cat == "Contra":
+                display_name = (f"{from_l} → {to_l}" if (from_l or to_l) else None) or exp.title
+            elif raw_cat == "Journal":
+                display_name = (f"Dr: {dr_l} | Cr: {cr_l}" if (dr_l or cr_l) else None) or exp.title
+            else:
+                display_name = party_l or (exp.vendor.name if exp.vendor else None) or exp.title
+
+            results.append({
+                "Voucher #": exp.reference_number or f"EXP-{str(exp.id)[:8].upper()}",
+                "Date": exp.expense_date.strftime("%d %b %Y") if exp.expense_date else "",
+                "Type": exp_vtype,
+                "Party": display_name or "",
+                "Amount": float(exp.amount or 0),
+                "Status": exp.status.value if exp.status else "DRAFT",
+                "Source": "tally_sync" if "[tally-sync]" in exp_notes else "finpilot",
+                "Sync Status": getattr(exp, "tally_sync_status", None) or "local_only",
+            })
+
+    if search:
+        sl = search.lower()
+        results = [
+            r for r in results
+            if sl in (r.get("Voucher #") or "").lower()
+            or sl in (r.get("Party") or "").lower()
+            or sl in (r.get("Type") or "").lower()
+            or sl in (r.get("Status") or "").lower()
+        ]
+    if ledger_name:
+        lf = ledger_name.lower()
+        results = [r for r in results if lf in (r.get("Party") or "").lower()]
+
+    results.sort(key=lambda x: x.get("Date") or "", reverse=True)
+
+    col_defs = [
+        ("Voucher #", "Voucher #"), ("Date", "Date"), ("Type", "Type"),
+        ("Party", "Party"), ("Amount", "Amount"), ("Status", "Status"),
+        ("Source", "Source"), ("Sync Status", "Sync Status"),
+    ]
+    context_parts = []
+    if vt and vt not in ("", "ALL"):
+        context_parts.append(f"Type: {vt.replace('_', ' ').title()}")
+    if date_from:
+        context_parts.append(f"From: {date_from}")
+    if date_to:
+        context_parts.append(f"To: {date_to}")
+    if search:
+        context_parts.append(f"Search: {search}")
+    context = " | ".join(context_parts) if context_parts else "All Vouchers"
+    audit_service.log(db, cid, current_user.id, AuditAction.DOWNLOAD,
+                      entity_type="voucher_export",
+                      description=f"Exported vouchers as {format.upper()} ({len(results)} rows) — {context}")
+    return build_export_response(
+        results, col_defs, fmt=format, filename_base="vouchers",
+        title="Vouchers Export", company_name=_get_company_name(db, cid),
+        period_str=context, upload_dir=_s.UPLOAD_DIR,
+    )

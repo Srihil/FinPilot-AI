@@ -4,7 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FileText, Search, Loader2, AlertCircle, Trash2, Filter, Eraser,
   Sparkles, ChevronRight, ChevronDown, Info, Plus, Pencil, Square, CheckSquare,
+  Download,
 } from 'lucide-react';
+import { ExportDialog } from '../../components/ui/ExportDialog';
+import { downloadExport } from '../../api/endpoints';
+import type { ExportFormat } from '../../api/endpoints';
 import { BulkDeleteBar } from '../../components/ui/BulkDeleteBar';
 import { bulkDeleteApi } from '../../api/endpoints';
 import { Card, CardContent } from '../../components/ui/card';
@@ -218,6 +222,8 @@ export default function VouchersPage() {
   const clearSelection = () => setSelectedIds(new Set());
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showExport, setShowExport] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // ── Create form ──────────────────────────────────────────────────────────
   const [formType, setFormType] = useState('RECEIPT');
@@ -419,9 +425,14 @@ export default function VouchersPage() {
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">Transactions and vouchers</p>
         </div>
-        <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2">
-          <Plus className="w-4 h-4" /> New Voucher
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowExport(true)} className="gap-2">
+            <Download className="w-4 h-4" /> Export
+          </Button>
+          <Button onClick={() => { resetForm(); setShowCreate(true); }} className="gap-2">
+            <Plus className="w-4 h-4" /> New Voucher
+          </Button>
+        </div>
       </div>
 
       {/* Type tabs */}
@@ -947,6 +958,41 @@ export default function VouchersPage() {
         queryKeys={[['vouchers']]}
         onClear={clearSelection}
         onDelete={ids => bulkDeleteApi.vouchers([...ids].map(id => { const v = data?.items?.find(v => v.id === id); return { id, entity_type: v?.entity_type || 'invoice' }; }))}
+      />
+
+      <ExportDialog
+        open={showExport}
+        onClose={() => setShowExport(false)}
+        isExporting={isExporting}
+        contextLabel={[
+          activeType?.label || 'All Vouchers',
+          dateFrom && `from ${dateFrom}`,
+          dateTo && `to ${dateTo}`,
+          search && `"${search}"`,
+        ].filter(Boolean).join(' ')}
+        onExport={async (fmt: ExportFormat) => {
+          setIsExporting(true);
+          try {
+            const ts = new Date().toISOString().slice(0,10);
+            await downloadExport(
+              '/api/management/vouchers/export',
+              {
+                format: fmt,
+                voucher_type: voucherType || undefined,
+                search: search || undefined,
+                date_from: dateFrom || undefined,
+                date_to: dateTo || undefined,
+              },
+              `vouchers_${ts}.${fmt}`,
+              fmt,
+            );
+            setShowExport(false);
+          } catch {
+            toast({ title: 'Export failed', variant: 'destructive' });
+          } finally {
+            setIsExporting(false);
+          }
+        }}
       />
     </div>
   );

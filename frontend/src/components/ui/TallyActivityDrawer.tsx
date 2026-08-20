@@ -3,8 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, X, Clock, CheckCircle2, XCircle, RotateCcw,
   Loader2, AlertCircle, Package, Trash2, ChevronDown, ChevronUp,
+  Download, FileBarChart,
 } from 'lucide-react';
-import { tallyApi, type TallyJobItem } from '../../api/endpoints';
+import { tallyApi, activityApi, type TallyJobItem, type ExportActivity } from '../../api/endpoints';
 import { Skeleton } from './skeleton';
 
 // ─── Smart job label ─────────────────────────────────────────────────────────
@@ -304,10 +305,66 @@ function JobCard({ job, onRetry }: { job: TallyJobItem; onRetry: (id: string) =>
   );
 }
 
+// ─── Export event card ────────────────────────────────────────────────────────
+
+const ENTITY_LABEL: Record<string, string> = {
+  ledger_export:            'Ledgers',
+  group_export:             'Account Groups',
+  stock_group_export:       'Stock Groups',
+  stock_item_export:        'Stock Items',
+  stock_category_export:    'Stock Categories',
+  voucher_export:           'Vouchers',
+  stock_transaction_export: 'Stock Transactions',
+  report:                   'Report',
+};
+
+function ExportEventCard({ event }: { event: ExportActivity }) {
+  const isReport = event.action === 'GENERATE_REPORT';
+  const label = isReport ? 'Report Generated' : `Export — ${ENTITY_LABEL[event.entity_type] ?? event.entity_type}`;
+  const Icon = isReport ? FileBarChart : Download;
+  const iconCls = isReport ? 'text-indigo-600 bg-indigo-50 border-indigo-100' : 'text-emerald-600 bg-emerald-50 border-emerald-100';
+
+  // Extract format badge from description e.g. "...as XLSX (42 rows)..."
+  const fmtMatch = event.description.match(/as\s+(CSV|XLSX|JSON|PDF)/i);
+  const rowMatch = event.description.match(/\((\d+)\s+rows?\)/i);
+  const fmt = fmtMatch ? fmtMatch[1].toUpperCase() : null;
+  const rows = rowMatch ? rowMatch[1] : null;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-2">
+      <div className="flex items-start gap-2.5">
+        <div className={`w-7 h-7 rounded-lg flex items-center justify-center border shrink-0 ${iconCls}`}>
+          <Icon className="w-3.5 h-3.5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-800 leading-snug">{label}</p>
+          <p className="text-xs text-slate-400 mt-0.5 truncate leading-snug" title={event.description}>
+            {event.description.replace(/^Exported .* as \w+ \(\d+ rows?\) — /, '').replace(/^Generated /, '') || event.description}
+          </p>
+        </div>
+        {fmt && (
+          <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+            {fmt}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-3 text-xs text-slate-400 pl-9">
+        <span className="flex items-center gap-1">
+          <Clock className="w-3 h-3" /> {timeAgo(event.created_at)}
+        </span>
+        {rows && <span>{rows} rows</span>}
+        <span className="truncate">{event.user_name}</span>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Drawer ───────────────────────────────────────────────────────────────────
 
 export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
+  const [showExports, setShowExports] = useState(true);
 
   const { data, isLoading } = useQuery({
     queryKey: ['tally-activity', 30],
@@ -316,12 +373,21 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
     staleTime: 3000,
   });
 
+  const { data: exportEvents, isLoading: exportsLoading } = useQuery({
+    queryKey: ['recent-exports'],
+    queryFn: () => activityApi.recentExports(15),
+    refetchInterval: open ? 10000 : false,
+    staleTime: 5000,
+    enabled: open,
+  });
+
   const retryMut = useMutation({
     mutationFn: (jobId: string) => tallyApi.retryJob(jobId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tally-activity'] }),
   });
 
   const jobs = data?.items ?? [];
+  const exports = exportEvents ?? [];
   const activeCount = jobs.filter(j => ['PENDING', 'CLAIMED', 'RUNNING', 'RETRYING'].includes(j.status)).length;
 
   return (
@@ -398,10 +464,45 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
           )}
         </div>
 
+        {/* Recent Exports section */}
+        <div className="border-t border-slate-100 bg-slate-50/60">
+          <button
+            type="button"
+            onClick={() => setShowExports(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hover:bg-slate-100 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Download className="w-3.5 h-3.5 text-emerald-500" />
+              Recent Exports & Reports
+              {exports.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">{exports.length}</span>
+              )}
+            </span>
+            {showExports ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+
+          {showExports && (
+            <div className="px-4 pb-4 space-y-2">
+              {exportsLoading ? (
+                <div className="space-y-2">
+                  {[1, 2].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
+                </div>
+              ) : exports.length === 0 ? (
+                <div className="text-center py-6 text-xs text-slate-400">
+                  <Download className="w-6 h-6 mx-auto mb-2 text-slate-300" />
+                  No exports yet — use the Export button on any data page
+                </div>
+              ) : (
+                exports.map(e => <ExportEventCard key={e.id} event={e} />)
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Footer */}
         <div className="px-5 py-3 border-t bg-slate-50 shrink-0">
           <p className="text-[11px] text-slate-400 text-center">
-            Auto-refreshes every 5s while open
+            Tally sync auto-refreshes every 5s · Exports refresh every 10s
           </p>
         </div>
       </div>

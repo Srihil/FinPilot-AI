@@ -54,46 +54,58 @@ def _to_csv(rows: list[dict], col_defs: list[ColDef]) -> StreamingResponse:
 def _to_xlsx(rows: list[dict], col_defs: list[ColDef]) -> Response:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
 
     headers = [h for h, _ in col_defs]
-    keys = [k for _, k in col_defs]
+    keys    = [k for _, k in col_defs]
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Export"
 
-    hdr_fill = PatternFill("solid", fgColor="4F46E5")
-    hdr_font = Font(bold=True, color="FFFFFF", size=10)
-    hdr_align = Alignment(horizontal="center", vertical="center")
-    thin = Side(border_style="thin", color="D1D5DB")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    # ── Header row ────────────────────────────────────────────────────────────
+    hdr_fill  = PatternFill("solid", fgColor="4F46E5")
+    hdr_font  = Font(bold=True, color="FFFFFF", size=10)
+    hdr_align = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    hdr_border = Border(bottom=Side(style="thin", color="3730A3"))
 
     ws.append(headers)
     for cell in ws[1]:
-        cell.fill = hdr_fill
-        cell.font = hdr_font
+        cell.fill      = hdr_fill
+        cell.font      = hdr_font
         cell.alignment = hdr_align
-        cell.border = border
-    ws.row_dimensions[1].height = 18
+        cell.border    = hdr_border
+    ws.row_dimensions[1].height = 22
 
-    alt_fill = PatternFill("solid", fgColor="F8F7FF")
-    for idx, row in enumerate(rows, start=2):
+    # ── Data rows ─────────────────────────────────────────────────────────────
+    data_align = Alignment(horizontal="left", vertical="center", wrap_text=False)
+    alt_fill   = PatternFill("solid", fgColor="F8FAFC")
+
+    for row in rows:
         ws.append([_safe_cell(row.get(k)) for k in keys])
-        fill = alt_fill if idx % 2 == 0 else None
-        for cell in ws[idx]:
-            cell.border = border
-            if fill:
-                cell.fill = fill
+        row_idx = ws.max_row
+        ws.row_dimensions[row_idx].height = 16
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.alignment = data_align
+            if row_idx % 2 == 0:
+                cell.fill = alt_fill
 
-    for col_cells in ws.columns:
-        max_len = max(
-            len(str(cell.value or ""))
-            for cell in col_cells
-        )
-        ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 4, 55)
+    # ── Auto-size every column to fit its widest value ────────────────────────
+    # Mirrors the exact same approach used in uploads.py _build_file()
+    for col_idx, col_name in enumerate(headers, 1):
+        max_len = len(str(col_name))
+        for data_row in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+            for cell in data_row:
+                if cell.value is not None and cell.value != "":
+                    max_len = max(max_len, len(str(cell.value)))
+        col_letter = get_column_letter(col_idx)
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 45)
 
+    # ── Freeze header + auto-filter ───────────────────────────────────────────
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
+    if ws.max_row > 1:
+        ws.auto_filter.ref = ws.dimensions
 
     buf = io.BytesIO()
     wb.save(buf)

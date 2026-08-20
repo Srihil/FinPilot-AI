@@ -429,83 +429,82 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
           </button>
         </div>
 
-        {/* Scrollable content — Tally jobs + Recent Exports */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-          {/* Tally jobs */}
-          <div className="p-4 space-y-3">
-            {isLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className="rounded-xl border border-slate-200 p-3.5 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <Skeleton className="h-4 w-40" />
-                      <Skeleton className="h-5 w-16 rounded-full" />
-                    </div>
-                    <Skeleton className="h-3 w-24" />
+        {/* Tally jobs — scrollable, takes all remaining space */}
+        <div className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3">
+          {isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="rounded-xl border border-slate-200 p-3.5 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-5 w-16 rounded-full" />
                   </div>
-                ))}
-              </div>
-            ) : jobs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
-                <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center">
-                  <Activity className="w-7 h-7 text-indigo-400" />
+                  <Skeleton className="h-3 w-24" />
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-700">No Tally activity yet</p>
-                  <p className="text-xs text-slate-400 mt-1 max-w-[200px]">
-                    Tally sync jobs will appear here as you create or update records
-                  </p>
+              ))}
+            </div>
+          ) : jobs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
+              <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center">
+                <Activity className="w-7 h-7 text-indigo-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-700">No Tally activity yet</p>
+                <p className="text-xs text-slate-400 mt-1 max-w-[200px]">
+                  Tally sync jobs will appear here as you create or update records
+                </p>
+              </div>
+            </div>
+          ) : (
+            jobs.map(job =>
+              (job as any).is_batch
+                ? <BatchJobCard key={job.id} item={job} />
+                : <JobCard key={job.id} job={job} onRetry={id => retryMut.mutate(id)} />
+            )
+          )}
+        </div>
+
+        {/* Recent Exports & Reports — pinned at bottom, own internal scroll */}
+        <div className="shrink-0 border-t border-slate-200 bg-slate-50/60">
+          {/* Toggle header */}
+          <button
+            type="button"
+            onClick={() => setShowExports(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide hover:bg-slate-100 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Download className="w-3.5 h-3.5 text-emerald-500" />
+              Recent Exports &amp; Reports
+              {exports.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
+                  {exports.length}
+                </span>
+              )}
+            </span>
+            {showExports ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+
+          {/* Collapsible list — max height with its own scroll */}
+          {showExports && (
+            <div className="max-h-56 overflow-y-auto px-4 pb-3 space-y-2">
+              {exportsLoading ? (
+                <div className="space-y-2 pt-1">
+                  {[1, 2].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
                 </div>
-              </div>
-            ) : (
-              jobs.map(job =>
-                (job as any).is_batch
-                  ? <BatchJobCard key={job.id} item={job} />
-                  : <JobCard key={job.id} job={job} onRetry={id => retryMut.mutate(id)} />
-              )
-            )}
-          </div>
-
-          {/* Recent Exports & Reports — inside the scroll container */}
-          <div className="border-t border-slate-200">
-            <button
-              type="button"
-              onClick={() => setShowExports(v => !v)}
-              className="w-full flex items-center justify-between px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hover:bg-slate-50 transition-colors sticky top-0 bg-white z-10 border-b border-slate-100"
-            >
-              <span className="flex items-center gap-2">
-                <Download className="w-3.5 h-3.5 text-emerald-500" />
-                Recent Exports &amp; Reports
-                {exports.length > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                    {exports.length}
-                  </span>
-                )}
-              </span>
-              {showExports ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-
-            {showExports && (
-              <div className="px-4 py-3 space-y-2">
-                {exportsLoading ? (
-                  <div className="space-y-2">
-                    {[1, 2].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
-                  </div>
-                ) : exports.length === 0 ? (
-                  <div className="text-center py-6 text-xs text-slate-400">
-                    <Download className="w-6 h-6 mx-auto mb-2 text-slate-300" />
-                    No exports yet — use the Export button on any data page
-                  </div>
-                ) : (
-                  exports.map(e => <ExportEventCard key={e.id} event={e} />)
-                )}
-              </div>
-            )}
-          </div>
+              ) : exports.length === 0 ? (
+                <div className="text-center py-5 text-xs text-slate-400">
+                  <Download className="w-5 h-5 mx-auto mb-1.5 text-slate-300" />
+                  No exports yet — use the Export button on any data page
+                </div>
+              ) : (
+                exports.map(e => <ExportEventCard key={e.id} event={e} />)
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t bg-slate-50 shrink-0">
+        <div className="px-5 py-2.5 border-t bg-slate-50 shrink-0">
           <p className="text-[11px] text-slate-400 text-center">
             Tally sync refreshes every 5s · Exports refresh every 10s
           </p>

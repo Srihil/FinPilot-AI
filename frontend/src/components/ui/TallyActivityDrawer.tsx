@@ -310,10 +310,11 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['tally-activity', 30],
+    queryKey: ['tally-activity'],
     queryFn: () => tallyApi.activity(30),
-    refetchInterval: open ? 5000 : false,
-    staleTime: 3000,
+    refetchInterval: 4000,        // always poll every 4s — not just when drawer is open
+    refetchOnWindowFocus: true,   // immediate update when user switches back to tab
+    staleTime: 2000,
   });
 
   const retryMut = useMutation({
@@ -412,11 +413,13 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
 // ─── Trigger button (used in TopBar) ─────────────────────────────────────────
 
 export function ActivityTriggerButton({ onClick }: { onClick: () => void }) {
+  // Share the same cache as the drawer — unified key, always polling
   const { data } = useQuery({
-    queryKey: ['tally-activity', 10],
-    queryFn: () => tallyApi.activity(10),
-    refetchInterval: 10_000,
-    staleTime: 5_000,
+    queryKey: ['tally-activity'],
+    queryFn: () => tallyApi.activity(30),
+    refetchInterval: 4000,
+    refetchOnWindowFocus: true,
+    staleTime: 2000,
   });
 
   const jobs = data?.items ?? [];

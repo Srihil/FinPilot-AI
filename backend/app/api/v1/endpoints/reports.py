@@ -75,11 +75,17 @@ def generate_pdf_report(
     period_start: datetime, period_end: datetime, title: str,
     ai_insight: Optional[str] = None,
 ) -> str:
-    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
     from reportlab.lib.units import cm
+
+    # Aged reports have 6 wide columns — use landscape so headers aren't squished
+    _wide_types = (ReportType.AGED_RECEIVABLES, ReportType.AGED_PAYABLES)
+    page_size = landscape(A4) if report_type in _wide_types else A4
+    # Available content width after 2cm margins on each side
+    avail_w = (page_size[0] / 28.35) - 4   # points → cm, minus margins
 
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     filename = f"{settings.UPLOAD_DIR}/report_{uuid.uuid4()}.pdf"
@@ -96,7 +102,7 @@ def generate_pdf_report(
             alignment={"LEFT": 0, "CENTER": 1, "RIGHT": 2}.get(align, 0),
         )
 
-    doc = SimpleDocTemplate(filename, pagesize=A4, topMargin=2*cm, bottomMargin=2*cm,
+    doc = SimpleDocTemplate(filename, pagesize=page_size, topMargin=2*cm, bottomMargin=2*cm,
                             leftMargin=2*cm, rightMargin=2*cm)
     story = []
 
@@ -231,7 +237,7 @@ def generate_pdf_report(
         parties = data.get("parties", [])
         totals = data.get("totals", {})
         if parties:
-            table_data = [["Party", "Total Outstanding", "0-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]] + [
+            table_data = [["Party", "Total Outstanding", "0–30 Days", "31–60 Days", "61–90 Days", "90+ Days"]] + [
                 [
                     p["party_name"],
                     fmt(p["total"]),
@@ -250,7 +256,13 @@ def generate_pdf_report(
                 fmt(totals.get("bucket_61_90", 0)),
                 fmt(totals.get("bucket_90_plus", 0)),
             ])
-            story.append(make_table(table_data, [4*cm, 3*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2.5*cm], bold_last=True))
+            # Landscape width ≈ 25.7cm: party gets more space, money cols equal
+            _bucket_w = (avail_w - 7 - 4.7) / 4
+            story.append(make_table(
+                table_data,
+                [7*cm, 4.7*cm, _bucket_w*cm, _bucket_w*cm, _bucket_w*cm, _bucket_w*cm],
+                bold_last=True,
+            ))
 
     elif report_type in (ReportType.CUSTOMER_STATEMENT, ReportType.VENDOR_STATEMENT):
         party_name = data.get("party_name", "")

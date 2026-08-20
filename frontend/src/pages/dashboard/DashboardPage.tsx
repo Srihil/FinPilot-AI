@@ -134,35 +134,50 @@ function SyncBanner({ kpi, loading }: { kpi?: TallyKPI; loading: boolean }) {
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
 function KpiCard({
-  title, value, icon: Icon, bgColor, borderColor, textColor, loading, delay = 0,
+  title, value, icon: Icon, color, loading, delay = 0,
 }: {
   title: string; value: number; icon: React.ElementType;
-  bgColor: string; borderColor: string; textColor: string;
+  color: string; // hex
   loading: boolean; delay?: number;
 }) {
   const visible = useSlideIn(delay);
   const animated = useCountUp(value, 1300, !loading && visible);
 
   return (
-    <div className={cn(
-      'bg-white rounded-xl border border-slate-200 shadow-sm p-4',
-      'border-l-[3px] transition-all duration-500',
-      borderColor,
-      visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3',
-    )}>
-      <div className="flex items-start justify-between mb-2.5">
+    <div
+      className={cn(
+        'relative rounded-2xl p-4 overflow-hidden cursor-default',
+        'border border-slate-100 shadow-sm',
+        'hover:shadow-lg hover:-translate-y-0.5 transition-all duration-500',
+        visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3',
+      )}
+      style={{ background: `linear-gradient(135deg, ${color}12 0%, #ffffff 65%)` }}
+    >
+      {/* Soft glow blob */}
+      <div
+        className="absolute -top-8 -right-8 w-28 h-28 rounded-full blur-2xl pointer-events-none"
+        style={{ background: `${color}30` }}
+      />
+
+      <div className="relative flex items-start justify-between mb-3">
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">{title}</p>
-        <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', bgColor)}>
-          <Icon className="w-3.5 h-3.5 text-white" />
+        <div
+          className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: `${color}20` }}
+        >
+          <Icon className="w-4 h-4" style={{ color }} />
         </div>
       </div>
-      {loading ? (
-        <Skeleton className="h-7 w-24" />
-      ) : (
-        <p className={cn('text-xl font-bold leading-none', textColor)}>
-          {formatCompactCurrency(animated)}
-        </p>
-      )}
+
+      <div className="relative">
+        {loading ? (
+          <Skeleton className="h-7 w-24" />
+        ) : (
+          <p className="text-xl font-bold text-slate-900 leading-none">
+            {formatCompactCurrency(animated)}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -284,44 +299,12 @@ export default function DashboardPage() {
 
       {/* KPI Cards — 6 across */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KpiCard
-          title="Total Income"    value={kpi?.income.total ?? 0}
-          icon={TrendingUp}      bgColor="bg-emerald-500"
-          borderColor="border-l-emerald-500" textColor="text-emerald-700"
-          loading={isLoading}    delay={0}
-        />
-        <KpiCard
-          title="Total Expenses"  value={kpi?.expenses.total ?? 0}
-          icon={TrendingDown}    bgColor="bg-rose-500"
-          borderColor="border-l-rose-500"    textColor="text-rose-700"
-          loading={isLoading}    delay={80}
-        />
-        <KpiCard
-          title="Net Profit"      value={netProfit}
-          icon={isLoss ? TrendingDown : DollarSign}
-          bgColor={isLoss ? 'bg-rose-500' : 'bg-indigo-600'}
-          borderColor={isLoss ? 'border-l-rose-500' : 'border-l-indigo-600'}
-          textColor={isLoss ? 'text-rose-700' : 'text-indigo-700'}
-          loading={isLoading}    delay={160}
-        />
-        <KpiCard
-          title="Receivables"     value={kpi?.receivables.total ?? 0}
-          icon={Users}           bgColor="bg-amber-500"
-          borderColor="border-l-amber-500"   textColor="text-amber-700"
-          loading={isLoading}    delay={240}
-        />
-        <KpiCard
-          title="Payables"        value={kpi?.payables.total ?? 0}
-          icon={Building2}       bgColor="bg-violet-600"
-          borderColor="border-l-violet-600"  textColor="text-violet-700"
-          loading={isLoading}    delay={320}
-        />
-        <KpiCard
-          title="Cash & Bank"     value={kpi?.cash_bank.total ?? 0}
-          icon={Wallet}          bgColor="bg-cyan-500"
-          borderColor="border-l-cyan-500"    textColor="text-cyan-700"
-          loading={isLoading}    delay={400}
-        />
+        <KpiCard title="Total Income"   value={kpi?.income.total ?? 0}    icon={TrendingUp}                              color="#10B981" loading={isLoading} delay={0}   />
+        <KpiCard title="Total Expenses" value={kpi?.expenses.total ?? 0}  icon={TrendingDown}                            color="#F43F5E" loading={isLoading} delay={80}  />
+        <KpiCard title="Net Profit"     value={netProfit}                  icon={isLoss ? TrendingDown : DollarSign}      color={isLoss ? '#F43F5E' : '#4F46E5'} loading={isLoading} delay={160} />
+        <KpiCard title="Receivables"    value={kpi?.receivables.total ?? 0} icon={Users}                                 color="#F59E0B" loading={isLoading} delay={240} />
+        <KpiCard title="Payables"       value={kpi?.payables.total ?? 0}  icon={Building2}                               color="#8B5CF6" loading={isLoading} delay={320} />
+        <KpiCard title="Cash & Bank"    value={kpi?.cash_bank.total ?? 0} icon={Wallet}                                  color="#06B6D4" loading={isLoading} delay={400} />
       </div>
 
       {/* By-Group Breakdown Charts */}

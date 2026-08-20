@@ -842,22 +842,23 @@ export async function downloadExport(
     }
   }
 
-  // ── Step 2: fetch the export data
+  // ── Step 2: fetch as ArrayBuffer — most compatible format for both paths
   const response = await apiClient.get(url, {
     params: cleanParams,
-    responseType: 'blob',
+    responseType: 'arraybuffer',
   });
-  const blob = new Blob([response.data], { type: MIME[format] });
+  const buffer: ArrayBuffer = response.data;
 
-  // ── Step 3a: write to chosen file (File System Access path)
+  // ── Step 3a: write to the chosen file (File System Access path)
   if (fileHandle) {
     const writable = await fileHandle.createWritable();
-    await writable.write(blob);
+    await writable.write(buffer);
     await writable.close();
     return;
   }
 
   // ── Step 3b: fallback — standard anchor download (browser's default Downloads folder)
+  const blob = new Blob([buffer], { type: MIME[format] });
   const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = blobUrl;

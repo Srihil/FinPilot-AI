@@ -3,7 +3,7 @@ import {
   Zap, CheckCircle, XCircle, RefreshCw, Settings, Info,
   Copy, Clock, AlertTriangle, Activity, Wifi, WifiOff,
   Monitor, Database, Shield, ChevronRight, Loader2, Download,
-  ExternalLink, FolderOpen, CheckSquare, TrendingUp, Trash2,
+  ExternalLink, FolderOpen, CheckSquare, TrendingUp, Trash2, AlertCircle,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { managementApi } from '../../api/endpoints';
@@ -1025,6 +1025,193 @@ export default function TallyPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Sync Conflicts ─────────────────────────────────────────────────── */}
+      <SyncConflicts />
     </div>
+  );
+}
+
+// ─── Sync Conflicts (embedded, no separate page) ─────────────────────────────
+
+interface Conflict {
+  id: string;
+  entity_type: string;
+  name: string;
+  conflict_data: {
+    finpilot: Record<string, string | null>;
+    tally: Record<string, string | null>;
+    differences: Record<string, { finpilot: string; tally: string }>;
+  };
+  conflict_detected_at?: string;
+}
+
+const ENTITY_LABELS: Record<string, string> = {
+  ledger: 'Ledger', stock_group: 'Stock Group',
+  unit: 'Unit', godown: 'Godown', group: 'Account Group',
+};
+
+const conflictsApi = {
+  list: () => apiClient.get('/api/management/conflicts').then(r => r.data),
+  resolve: (d: object) => apiClient.post('/api/management/conflicts/resolve', d).then(r => r.data),
+};
+
+function SyncConflicts() {
+  const qc = useQueryClient();
+  const [resolveItem, setResolveItem] = useState<Conflict | null>(null);
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['conflicts'],
+    queryFn: conflictsApi.list,
+    refetchInterval: 30000,
+  });
+
+  const resolveMut = useMutation({
+    mutationFn: (resolution: string) =>
+      conflictsApi.resolve({
+        entity_type: resolveItem!.entity_type,
+        entity_id: resolveItem!.id,
+        resolution,
+      }),
+    onSuccess: (_data, resolution) => {
+      toast({
+        title: 'Conflict resolved',
+        description: `Kept ${resolution === 'keep_finpilot' ? 'FinPilot' : 'TallyPrime'} version.`,
+      });
+      qc.invalidateQueries({ queryKey: ['conflicts'] });
+      qc.invalidateQueries({ queryKey: ['ledgers'] });
+      qc.invalidateQueries({ queryKey: ['stock-groups'] });
+      setResolveItem(null);
+    },
+    onError: (e: { response?: { data?: { detail?: string } } }) => {
+      toast({ title: 'Error', description: e.response?.data?.detail || 'Failed', variant: 'destructive' });
+    },
+  });
+
+  const conflicts: Conflict[] = data?.conflicts ?? [];
+  const total = data?.total ?? 0;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-amber-500" />
+          <div>
+            <CardTitle className="text-base">Sync Conflicts</CardTitle>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Records where FinPilot and TallyPrime have different values
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">{[...Array(2)].map((_, i) => <div key={i} className="h-20 bg-slate-100 rounded-lg animate-pulse" />)}</div>
+        ) : isError ? (
+          <div className="flex items-center gap-2 text-red-600 p-4 bg-red-50 rounded-lg text-sm">
+            <AlertCircle className="w-4 h-4" /> Failed to load conflicts.
+          </div>
+        ) : conflicts.length === 0 ? (
+          <div className="text-center py-10">
+            <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
+            <p className="font-medium text-slate-700">No conflicts</p>
+            <p className="text-sm text-slate-500 mt-1">All TallyPrime records are in sync with FinPilot.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+              <strong>{total} conflict{total !== 1 ? 's' : ''} detected.</strong>{' '}
+              These records were modified in both FinPilot and TallyPrime independently. Choose which version to keep.
+            </div>
+            {conflicts.map(c => (
+              <div key={c.id} className="border border-amber-200 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-amber-100 text-amber-700 text-xs px-2 py-0.5 rounded font-medium">
+                      {ENTITY_LABELS[c.entity_type] || c.entity_type}
+                    </span>
+                    <span className="font-semibold text-slate-900">{c.name}</span>
+                    {c.conflict_detected_at && (
+                      <span className="text-xs text-slate-400">
+                        · {new Date(c.conflict_detected_at).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                  <Button size="sm" onClick={() => setResolveItem(c)}>Resolve</Button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-indigo-50 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-indigo-600 mb-2">FinPilot Version</p>
+                    {Object.entries(c.conflict_data?.finpilot || {}).map(([k, v]) => (
+                      <div key={k} className="flex gap-2 text-xs">
+                        <span className="text-slate-500 capitalize">{k.replace(/_/g, ' ')}:</span>
+                        <span className={c.conflict_data?.differences?.[k] ? 'font-medium text-indigo-700' : 'text-slate-700'}>
+                          {String(v) || '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-teal-50 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-teal-600 mb-2">TallyPrime Version</p>
+                    {Object.entries(c.conflict_data?.tally || {}).map(([k, v]) => (
+                      <div key={k} className="flex gap-2 text-xs">
+                        <span className="text-slate-500 capitalize">{k.replace(/_/g, ' ')}:</span>
+                        <span className={c.conflict_data?.differences?.[k] ? 'font-medium text-teal-700' : 'text-slate-700'}>
+                          {String(v) || '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {Object.keys(c.conflict_data?.differences || {}).length > 0 && (
+                  <p className="text-xs text-slate-500">
+                    <span className="font-medium text-amber-600">Conflicting fields: </span>
+                    {Object.keys(c.conflict_data.differences).join(', ')}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      {/* Resolve dialog */}
+      <Dialog open={!!resolveItem} onOpenChange={() => setResolveItem(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              Resolve Conflict: {resolveItem?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="text-slate-600">Choose which version to keep. The other will be discarded.</p>
+            <p className="text-xs text-red-600 bg-red-50 p-2 rounded">This action cannot be undone.</p>
+          </div>
+          <DialogFooter className="flex gap-2 sm:justify-between">
+            <Button
+              variant="outline"
+              className="flex-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              onClick={() => resolveMut.mutate('keep_finpilot')}
+              disabled={resolveMut.isPending}
+            >
+              {resolveMut.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Keep FinPilot
+            </Button>
+            <Button
+              className="flex-1 bg-teal-600 hover:bg-teal-700"
+              onClick={() => resolveMut.mutate('keep_tally')}
+              disabled={resolveMut.isPending}
+            >
+              {resolveMut.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Keep TallyPrime
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }

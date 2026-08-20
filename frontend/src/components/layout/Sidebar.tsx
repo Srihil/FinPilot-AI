@@ -5,7 +5,7 @@ import {
   ScrollText, Settings, Zap, Wand2, ChevronRight,
   ChevronDown, X, BookOpen, FolderOpen, FileText, Package, Scale,
   Warehouse, Tag, ArrowLeftRight,
-  AlertTriangle, Receipt,
+  Receipt,
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../auth/AuthContext';
@@ -80,7 +80,6 @@ const navStructure: NavItem[] = [
     icon: Zap,
     children: [
       { label: 'Sync Center', path: '/tally', icon: Zap },
-      { label: 'Conflicts', path: '/tally/conflicts', icon: AlertTriangle },
     ],
   },
   { type: 'link', label: 'Settings', icon: Settings, path: '/settings' },

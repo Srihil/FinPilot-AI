@@ -35,7 +35,6 @@ import GodownsPage from './pages/inventory/GodownsPage';
 import StockTransactionsPage from './pages/inventory/StockTransactionsPage';
 
 // Tally
-import ConflictsPage from './pages/tally/ConflictsPage';
 
 // Other app pages
 import AnalyticsPage from './pages/analytics/AnalyticsPage';
@@ -101,7 +100,6 @@ export default function App() {
               <Route path="/audit-logs" element={<AuditLogsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/tally" element={<TallyPage />} />
-              <Route path="/tally/conflicts" element={<ConflictsPage />} />
             </Route>
 
             {/* Fallback */}

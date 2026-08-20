@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { settingsApi } from '../../api/endpoints';
+import { settingsApi, authApi } from '../../api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -233,29 +233,62 @@ function ProfileForm() {
 
 // Security Form
 function SecurityForm() {
-  const { register, handleSubmit, formState: { isSubmitting }, reset } = useForm({
+  const { register, handleSubmit, formState: { isSubmitting, errors }, reset, watch, setError } = useForm({
     defaultValues: { current_password: '', new_password: '', confirm_password: '' },
   });
 
-  const onSubmit = async () => {
-    await new Promise(r => setTimeout(r, 500));
-    toast({ title: 'Password changed successfully', variant: 'success' });
-    reset();
+  const newPassword = watch('new_password');
+
+  const onSubmit = async (data: { current_password: string; new_password: string; confirm_password: string }) => {
+    // Validate confirm matches
+    if (data.new_password !== data.confirm_password) {
+      setError('confirm_password', { message: 'Passwords do not match' });
+      return;
+    }
+    // Validate min length
+    if (data.new_password.length < 8) {
+      setError('new_password', { message: 'New password must be at least 8 characters' });
+      return;
+    }
+    try {
+      await authApi.changePassword(data.current_password, data.new_password);
+      toast({ title: 'Password changed successfully', description: 'Please use your new password next time you log in.', variant: 'success' });
+      reset();
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || 'Failed to change password';
+      if (detail.toLowerCase().includes('current') || detail.toLowerCase().includes('incorrect')) {
+        setError('current_password', { message: 'Current password is incorrect' });
+      } else {
+        toast({ title: 'Error', description: detail, variant: 'destructive' });
+      }
+    }
   };
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 max-w-md">
       <div className="space-y-1.5">
         <Label>Current Password</Label>
-        <Input type="password" {...register('current_password')} />
+        <Input type="password" {...register('current_password', { required: 'Required' })} />
+        {errors.current_password && (
+          <p className="text-xs text-red-600">{errors.current_password.message}</p>
+        )}
       </div>
       <div className="space-y-1.5">
         <Label>New Password</Label>
-        <Input type="password" {...register('new_password')} />
+        <Input type="password" {...register('new_password', { required: 'Required', minLength: { value: 8, message: 'At least 8 characters' } })} />
+        {errors.new_password && (
+          <p className="text-xs text-red-600">{errors.new_password.message}</p>
+        )}
       </div>
       <div className="space-y-1.5">
         <Label>Confirm New Password</Label>
-        <Input type="password" {...register('confirm_password')} />
+        <Input type="password" {...register('confirm_password', {
+          required: 'Required',
+          validate: v => v === newPassword || 'Passwords do not match',
+        })} />
+        {errors.confirm_password && (
+          <p className="text-xs text-red-600">{errors.confirm_password.message}</p>
+        )}
       </div>
       <Button type="submit" loading={isSubmitting}>
         <Key className="w-4 h-4 mr-2" />

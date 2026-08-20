@@ -123,9 +123,6 @@ function SyncBanner({ kpi, loading }: { kpi?: TallyKPI; loading: boolean }) {
             {sync!.pending_jobs} syncing
           </span>
         )}
-        {(sync?.failed_jobs ?? 0) > 0 && (
-          <span className="text-rose-400">{sync!.failed_jobs} failed</span>
-        )}
       </div>
     </div>
   );

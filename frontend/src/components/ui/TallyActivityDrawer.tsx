@@ -429,8 +429,8 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
           </button>
         </div>
 
-        {/* Tally jobs — scrollable, takes all remaining space */}
-        <div className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3">
+        {/* Tally jobs — capped height so exports section gets the rest */}
+        <div className="max-h-56 overflow-y-auto shrink-0 p-4 space-y-3 border-b border-slate-100">
           {isLoading ? (
             <div className="space-y-3">
               {[1, 2, 3].map(i => (
@@ -464,8 +464,8 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
           )}
         </div>
 
-        {/* Recent Exports & Reports — pinned at bottom, own internal scroll */}
-        <div className="shrink-0 border-t border-slate-200 bg-slate-50/60">
+        {/* Recent Exports & Reports — flex-1: fills all remaining drawer height */}
+        <div className="flex-1 flex flex-col min-h-0 border-t border-slate-200 bg-slate-50/60">
           {/* Toggle header */}
           <button
             type="button"
@@ -484,9 +484,9 @@ export function TallyActivityDrawer({ open, onClose }: { open: boolean; onClose:
             {showExports ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
 
-          {/* Collapsible list — max height with its own scroll */}
+          {/* Card list — flex-1 so it fills all space below the header */}
           {showExports && (
-            <div className="max-h-56 overflow-y-auto px-4 pb-3 space-y-2">
+            <div className="flex-1 overflow-y-auto px-4 pb-3 space-y-2">
               {exportsLoading ? (
                 <div className="space-y-2 pt-1">
                   {[1, 2].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}

@@ -42,7 +42,7 @@ ALLOWED_OPS = {
     "CREATE_STOCK_ITEM", "CREATE_STOCK_GROUP", "CREATE_UNIT", "CREATE_GODOWN",
     "CREATE_STOCK_CATEGORY", "CREATE_VOUCHER_TYPE",
     # ── Delete masters ────────────────────────────────────────────────────────
-    "DELETE_LEDGER", "DELETE_STOCK_ITEM", "DELETE_STOCK_GROUP", "DELETE_UNIT",
+    "DELETE_LEDGER", "DELETE_GROUP", "DELETE_STOCK_ITEM", "DELETE_STOCK_GROUP", "DELETE_UNIT",
     "DELETE_GODOWN", "DELETE_STOCK_CATEGORY", "DELETE_VOUCHER_TYPE",
     # ── Accounting voucher writes ──────────────────────────────────────────────
     "CREATE_SALES_VOUCHER", "CREATE_PURCHASE_VOUCHER",
@@ -250,6 +250,8 @@ def _execute_job(tally: TallyClient, job: dict):
         # ── Delete masters ────────────────────────────────────────────────────
         if op == "DELETE_LEDGER":
             return tally.delete_ledger(pl), None
+        if op == "DELETE_GROUP":
+            return tally.delete_group(pl), None
         if op == "DELETE_STOCK_ITEM":
             return tally.delete_stock_item(pl), None
         if op == "DELETE_STOCK_GROUP":
